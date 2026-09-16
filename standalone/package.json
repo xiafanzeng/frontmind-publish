@@ -1,0 +1,6 @@
+{
+  "name":"@frontmind/publish-standalone",
+  "private":true,
+  "type":"module",
+  "dependencies":{"react":"19.2.1","wouter":"3.7.1","@trpc/client":"11.18.0","@frontmind/module-publish":"workspace:*"}
+}
