@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'wouter';
+import { useLocation } from 'wouter';
+import {ModuleShell} from '@frontmind/module-ui/dashboard/ModuleShell';
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
 import type { createPublishRoutes } from '../module/server/routes';
 import ModuleWorkspace from '../module/client/ModuleWorkspace';
@@ -11,6 +12,9 @@ import './standalone.css';
 
 type PublisherRouter=ReturnType<typeof createPublishRoutes>['publisherRouter'];
 export default function App({preview=false}:{preview?:boolean}) {
+  const [path,navigate]=useLocation();
+  const activeView=path.startsWith('/publishing/articles')?'articles':path.startsWith('/publishing/media')?'media':'publishing';
+  const views=[{id:'publishing',label:'发布工作台'},{id:'articles',label:'稿件'},{id:'media',label:'媒体库'}];
   const [gateway,setGateway]=useState<PublisherGateway|null>(()=>preview?createPreviewGateway():null);
   const [error,setError]=useState('');
   useEffect(()=>{
@@ -24,5 +28,5 @@ export default function App({preview=false}:{preview?:boolean}) {
     }).catch(cause=>{if(!abort.signal.aborted)setError(cause instanceof Error?cause.message:String(cause));});
     return()=>abort.abort();
   },[preview]);
-  return <div className="publish-standalone monitoring-module"><header><strong>{PUBLISH_MODULE_LABEL}</strong><nav aria-label="发布模块页面"><Link href="/publishing">发布工作台</Link><Link href="/publishing/articles">稿件</Link><Link href="/publishing/media">媒体目录</Link><Link href="/publishing?tab=records">发布结果</Link></nav></header>{preview&&<aside role="status" className="preview-banner">本地预览 · 合成数据仅保存在此页面，不连接真实供应商或测试数据库。</aside>}{error?<p role="alert">{error}</p>:gateway?<ModuleWorkspace gateway={gateway}/>:<p role="status">正在打开发布工作台…</p>}</div>;
+  return <ModuleShell module={{id:'publishing',label:PUBLISH_MODULE_LABEL,color:'#b33467'}} views={views} activeView={activeView} onSelectView={id=>navigate(id==='publishing'?'/publishing':`/publishing/${id}`)} preview={preview}><div className="monitoring-module">{error?<p role="alert">{error}</p>:gateway?<ModuleWorkspace gateway={gateway}/>:<p role="status">正在打开发布工作台…</p>}</div></ModuleShell>;
 }
