@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "rootDir": "module",
+    "outDir": "dist",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2023",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "types": [
+      "node"
+    ],
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "module/server/**/*.ts",
+    "module/worker/**/*.ts"
+  ],
+  "exclude": [
+    "module/**/*.test.ts",
+    "module/node_modules",
+    "module/dist"
+  ]
+}

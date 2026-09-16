@@ -1,0 +1,23 @@
+{
+  "name": "frontmind-publish",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "packageManager": "pnpm@10.4.1",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "icojs": "1.0.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.10.0",
+    "sanitize-html": "^2.17.0",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@types/sanitize-html": "^2.16.0",
+    "typescript": "^5.9.3",
+    "@types/node": "^24.10.1"
+  }
+}

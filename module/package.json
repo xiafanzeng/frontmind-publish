@@ -1,0 +1,34 @@
+{
+  "name": "@frontmind/module-publish",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "icojs": "1.0.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.10.0",
+    "sanitize-html": "^2.17.0",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@types/sanitize-html": "^2.16.0",
+    "typescript": "^5.9.3",
+    "@types/node": "^24.10.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server/domain/index.d.ts",
+      "import": "./dist/server/domain/index.js",
+      "default": "./dist/server/domain/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker/index.d.ts",
+      "import": "./dist/worker/index.js",
+      "default": "./dist/worker/index.js"
+    }
+  }
+}
