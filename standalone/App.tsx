@@ -24,5 +24,5 @@ export default function App({preview=false}:{preview?:boolean}) {
     }).catch(cause=>{if(!abort.signal.aborted)setError(cause instanceof Error?cause.message:String(cause));});
     return()=>abort.abort();
   },[preview]);
-  return <div className="publish-standalone"><header><strong>{PUBLISH_MODULE_LABEL}</strong><nav aria-label="发布模块页面"><Link href="/publishing">发布工作台</Link><Link href="/publishing/articles">稿件</Link><Link href="/publishing/media">媒体目录</Link><Link href="/publishing?tab=records">发布结果</Link></nav></header>{preview&&<aside role="status" className="preview-banner">本地预览 · 合成数据仅保存在此页面，不连接真实供应商或测试数据库。</aside>}{error?<p role="alert">{error}</p>:gateway?<ModuleWorkspace gateway={gateway}/>:<p role="status">正在打开发布工作台…</p>}</div>;
+  return <div className="publish-standalone monitoring-module"><header><strong>{PUBLISH_MODULE_LABEL}</strong><nav aria-label="发布模块页面"><Link href="/publishing">发布工作台</Link><Link href="/publishing/articles">稿件</Link><Link href="/publishing/media">媒体目录</Link><Link href="/publishing?tab=records">发布结果</Link></nav></header>{preview&&<aside role="status" className="preview-banner">本地预览 · 合成数据仅保存在此页面，不连接真实供应商或测试数据库。</aside>}{error?<p role="alert">{error}</p>:gateway?<ModuleWorkspace gateway={gateway}/>:<p role="status">正在打开发布工作台…</p>}</div>;
 }
