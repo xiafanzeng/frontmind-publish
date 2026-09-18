@@ -48,6 +48,9 @@ importers:
       '@frontmind/module-contracts':
         specifier: workspace:*
         version: link:../vendor/module-contracts
+      '@frontmind/module-ui':
+        specifier: workspace:*
+        version: link:../vendor/module-ui
       '@frontmind/monitoring-contracts':
         specifier: workspace:*
         version: link:../vendor/monitoring-contracts
