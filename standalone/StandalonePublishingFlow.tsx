@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
-import { PublishingFlowProvider, publishingHandoffRecordId, type PublishingFlow, type PublishingResource } from "./PublishingFlowContext";
-import type { WorkbenchTaskState } from "./flow-contracts";
+import { PublishingFlowProvider, publishingHandoffRecordId, type PublishingFlow, type PublishingResource } from "../module/client/PublishingFlowContext";
+import type { WorkbenchTaskState } from "../module/client/flow-contracts";
 
 type Agent = "publishing" | "media" | "articles";
 type FlowEntry = WorkbenchTaskState & {id: string; agentId: Agent};
