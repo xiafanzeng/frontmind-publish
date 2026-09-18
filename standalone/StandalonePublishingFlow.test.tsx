@@ -6,9 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { StandalonePublishingFlow } from "./StandalonePublishingFlow";
-import { usePublishingFlow, publishingDraftRequestKey, type PublishingFlow } from "./PublishingFlowContext";
-import ModuleWorkspace from "./ModuleWorkspace";
-import type { PublisherGateway } from "./gateway";
+import { usePublishingFlow, publishingDraftRequestKey, type PublishingFlow } from "../module/client/PublishingFlowContext";
+import PublishingRoutes from "../module/client/PublishingRoutes";
+import type { PublisherGateway } from "../module/client/gateway";
 
 beforeEach(() => {localStorage.clear();vi.stubGlobal("crypto",webcrypto);});
 afterEach(() => {cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
@@ -28,7 +28,7 @@ it("opens the original guided entry from the standalone 新建投放 route and h
     getMediaFacets: async () => ({}), listMedia: async () => ({items:[],total:0}),
   } as unknown as PublisherGateway;
   const location = memoryLocation({path:"/publishing?flow=1",record:true});
-  const {container} = render(<Router hook={location.hook} searchHook={location.searchHook}><ModuleWorkspace gateway={gateway} workspaceKey="entry"/></Router>);
+  const {container} = render(<Router hook={location.hook} searchHook={location.searchHook}><StandalonePublishingFlow workspaceKey="entry"><PublishingRoutes gateway={gateway}/></StandalonePublishingFlow></Router>);
   await screen.findByRole("heading",{name:"接下来要处理哪次投放？"});
   expect(container.querySelector(".operator-action-list")).not.toBeNull();
   expect(location.history.at(-1)).toBe("/publishing?flow=1");
@@ -90,4 +90,3 @@ it("does not restore a different draft's task when a copied deep link contains a
   expect(session.current().selections).toEqual({});
   expect(session.current().resources).toEqual([{kind:"publication_draft",id:"draft-2"}]);
 });
-

@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "pnpm --dir module typecheck && tsc --noEmit -p tsconfig.json",
     "build:business": "pnpm -r --filter \"./vendor/**\" --if-present build && pnpm --dir module build",
-    "test": "pnpm build:business && pnpm --dir module --if-present test && vitest run standalone/App.test.tsx",
+    "test": "pnpm build:business && pnpm --dir module --if-present test && vitest run standalone",
     "build": "pnpm build:business && vite build"
   },
   "dependencies": {
