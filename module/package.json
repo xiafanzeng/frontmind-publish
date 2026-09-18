@@ -93,6 +93,10 @@
       "types": "./client/module-label.ts",
       "import": "./client/module-label.ts"
     },
-    "./client/*.css": "./client/*.css"
+    "./client/*.css": "./client/*.css",
+    "./client/execution-adapter": {
+      "types": "./client/execution-adapter.ts",
+      "import": "./client/execution-adapter.ts"
+    }
   }
 }
