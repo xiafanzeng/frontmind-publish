@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "pnpm --dir module typecheck && tsc --noEmit -p tsconfig.json",
     "build:business": "pnpm -r --filter \"./vendor/**\" --if-present build && pnpm --dir module build",
-    "test": "pnpm build:business && pnpm --dir module --if-present test",
+    "test": "pnpm build:business && pnpm --dir module --if-present test && vitest run standalone/App.test.tsx",
     "build": "pnpm build:business && vite build"
   },
   "dependencies": {
@@ -24,7 +24,9 @@
     "jsdom": "26.1.0",
     "@types/node": "24.7.0",
     "@types/react": "19.2.1",
-    "@types/react-dom": "19.2.3"
+    "@types/react-dom": "19.2.3",
+    "@testing-library/react": "16.3.0",
+    "wouter": "3.7.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
