@@ -1,3 +1,5 @@
+import {BusinessExecutionActivity} from "@frontmind/module-ui/components/BusinessExecutionActivity";
+import {publishingPublicExecution} from "./execution-adapter";
 import { useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
 import type { PublicationBatch } from './types';
 import * as Defaults from './Workflow';
@@ -35,5 +37,5 @@ export function WorkflowPagination(props:ComponentProps<typeof Defaults.Workflow
 export function safePublisherLogoUrl(value?:string) {const pattern=/^\/api\/monitoring\/publisher\/media-logos\/[0-9a-f-]{36}\/[a-f0-9]{64}$/iu;return value&&pattern.exec(value)?.[0]===value?value:undefined;}
 export function PublishExecution({batch}:{batch:PublicationBatch}) {
   if(host.renderExecution) return <>{host.renderExecution(batch)}</>;
-  return <details><summary>查看发布过程</summary><ol>{batch.items.map(item=><li key={item.id}>{item.media.name} · {item.status}{item.resultMessage?` · ${item.resultMessage}`:''}</li>)}</ol></details>;
+  return <BusinessExecutionActivity execution={publishingPublicExecution(batch)}/>;
 }
