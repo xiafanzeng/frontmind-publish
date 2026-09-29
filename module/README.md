@@ -1,38 +1,26 @@
-# FrontMind 媒体发布模块
+# FrontMind 媒体发布
 
-- Public 仓库：<https://github.com/xiafanzeng/frontmind-publish>
-- 维护子域名：<https://publish.frontmind.cn/>
-- 同步映射：子仓 `module/` ↔ 主仓 `modules/publish/`。
+公开仓库：https://github.com/xiafanzeng/frontmind-publish
+开发域名：https://publish.frontmind.cn/
 
-## 代码入口
+`module/` 对应主仓 `modules/publish/`；公开仓 `standalone/` 是独立启动壳，不合回 Dashboard。
 
-- `client/`：稿件、媒体库、发布工作台与订单结果页面。
-- `server/`：业务 API、媒体和订单持久化、报价与资金事务。
-- `server/providers/kol/`：完整服务端供应商 API 客户端，包含鉴权、目录分页、
-  订单提交和查询、响应解析、有限 GET 重试及错误处理。
-- `worker/`：目录同步、稿件导入、发布、状态轮询及素材处理。
-- `schema/`：模块业务数据结构。
+## 业务代码
 
-供应商 API 真实实现属于本模块，可以直接修改并随子仓发布。主仓旧 provider
-包只做兼容导出。业务凭据由服务器注入，团队不需要获取 key，也不把 key 放进
-前端、GitHub 或 Pro ZIP。详细说明见 [API 开发指南](server/providers/kol/README.md)。
+稿件、媒体目录、筛选、报价、订单、提交与结果处理。页面在 `client/`，业务服务在 `server/`，表定义在 `schema/`，后台处理在 `worker/`，有效工作流在 `workflows/`（各目录按实际业务存在）。
 
-## 开发与验收
+重点入口：`server/providers/kol/`（完整供应商客户端）、`server/routes.ts`、`server/` 中的稿件/订单持久化和业务服务、`worker/`。
 
-在公开子仓根目录使用 Node.js 22、pnpm 10.4.1：
+新增后端 API 从 **`server/http-api.ts`** 开始，挂在 `/api/modules/publish/`。此注册函数由真实开发环境和主仓共同装载；在本模块命名空间新增路径不需要修改主仓的逐接口允许清单。现有 API 地址保留。
 
-```sh
-pnpm install --frozen-lockfile
-pnpm dev
-pnpm typecheck
-pnpm test
-pnpm build
-```
+## 开发方式
 
-本地预览使用合成数据；模块测试使用 fake fetch，不会发起付费请求。真实目录、
-保存和后台任务在维护子域名验收。修改供应商逻辑后，用 delivery Skill 发布
-子域名的 API/worker，再验证对应流程；代码 push 成功不等于线上已更新。
+公开仓根目录执行 `pnpm install --frozen-lockfile`、`pnpm dev`；检查使用 `pnpm typecheck`、`pnpm test`、`pnpm build`。本地预览使用合成数据；真实保存、任务、上传下载和供应商调用在开发子域名检查。
 
-主仓提供身份、租户、账务基础能力、对象存储及跨模块连接。独立壳 `standalone/`
-不回灌主仓，`vendor/` 共享组件由主仓维护。保持未涉及的侧栏、字体、弹窗与
-现有业务流程，避免接口修改与页面风格变化混在一次交付里。
+先用 delivery skill 导出准确线上 SHA，交给 Pro 修改并返回 ZIP，再用 delivery skill 提交/部署子域名，验收后用 sync skill 合回主仓。见 [API 开发说明](API_DEVELOPMENT.md) 和 [Pro 交接规则](PRO_GUIDE.md)。
+
+## 运行基础设施
+
+主仓装配真实登录/租户或开发固定工作区、数据库连接、统一资金、文件存储和通用 AI 执行器。业务请求参数、状态机及结果解释由本模块维护。已有测试凭据在服务器配置，组员修改服务端调用代码后沿用它们，无需在本地拿 Key；新增供应商/新凭据仍需管理员配置服务器。服务端可读取注入环境，任何密钥都不得返回浏览器或写入公开 Git/ZIP。
+
+开发入口可用、配置存在或本地测试通过，均不等于所有付费业务链路已验收；HANDOFF 必须记录实际检查范围。

@@ -1,25 +1,23 @@
-# Pro 交接指南：媒体发布
+# Pro 开发说明：媒体发布
 
-从 `frontmind-module-delivery` 提供的实际线上完整 commit SHA 开始修改。
-仓库：<https://github.com/xiafanzeng/frontmind-publish>；目标子域名：
-<https://publish.frontmind.cn/>。
+基于 delivery skill 导出的准确线上 SHA 修改 https://github.com/xiafanzeng/frontmind-publish 。使用同版本源码 ZIP；不要猜测当前线上版本。
 
-## 修改位置
+- 修改 `module/client/`、`module/server/`、`module/schema/`、`module/worker/`、`module/workflows/` 内本轮相关文件。
+- 具体 API/业务实现入口见 `module/API_DEVELOPMENT.md`。新接口可注册在 `module/server/http-api.ts`，实际地址 `/api/modules/publish/<路径>`，真实部署会装载此文件。
+- `standalone/` 修改仅影响子域名独立壳。共用样式/组件在 `vendor/`，通过主仓维护；不要改变未涉及的样式和流程。
+- 保留身份归属、幂等、事务、费用预留、确认和恢复语义。客户端提供的 owner/租户参数不能代替服务器上下文。
+- 新增依赖须写入 `module/package.json` 并更新子仓根锁文件；不要忽略编译失败或用预览数据替代真实 API。
+- 不包含 `.git`、环境文件、真实 Key、客户数据、构建缓存、部署目标或私有主仓源码。
 
-- 页面、业务 API、持久化、worker 与供应商客户端均在 `module/`。
-- 供应商客户端是 `module/server/providers/kol/`，含完整真实实现与 fake-fetch
-  测试。团队可修改分页、数据映射、请求格式和异常处理，不必修改私有 Core。
-- 本地只运行预览与假数据测试；使用服务器已有配置在子域名验收真实 API。
-- 不包含或修改 key、运行配置、部署目标、客户数据、`vendor/` 或私有 Core。
-- 不擅自移除资金/幂等/订单状态校验，也不为失败订单自动重发 POST。
-- 前端不要导入服务端 provider，不需要实现登录、租户或通用智能体。
+返回 `pro-update.zip`：
 
-## 交付
+```text
+handoff.json
+HANDOFF.md
+files/module/...
+files/standalone/...
+```
 
-返回 `handoff.json`、`HANDOFF.md` 和 `files/` 中的完整修改文件。依赖变化放在
-`module/package.json`，同时提交对应锁文件；删除显式写进 `handoff.json`。
-保留准确的 `baseCommit`，不存在于 ZIP 的文件不代表删除。
+`handoff.json` 保留 formatVersion=1、module=publish、准确 baseCommit、mode=changes；删除路径写入 delete，缺失文件不代表删除。HANDOFF.md 写清本轮需求、文件、依赖、实际验证和未验证内容。
 
-执行 `pnpm typecheck`、`pnpm test`、`pnpm build`，写清实际通过与未执行的检查。
-说明 API/worker 受影响范围、预期行为和子域名验收步骤。提交和部署不自动创建
-真实媒体订单；需要验证外发时，按明确指定的稿件、媒体与额度执行。
+用户要求发布子域名时，delivery 校验三方合并、检查/构建、推送 GitHub、部署并核对 moduleSha/coreSha。GitHub 提交成功不等于网站已更新。sync 合回源码不等于自动发布生产 Dashboard。
