@@ -21,6 +21,7 @@
 | `errors.ts` | 配置、鉴权、限流、无效响应、提交结果不确定等错误 |
 | `mock.ts` | 离线模拟实现，不能作为真实 API 验收证明 |
 | `runtime.ts` | 服务端读取现有环境配置、创建客户端与只读连接检查 |
+| `unavailable.ts` | 未配置供应商时的禁用实现；所有操作报未配置，不发起网络请求 |
 
 `worker/processor.ts` 拥有目录全量同步、执行和恢复决策；
 `server/publisher-worker-repository.ts` 拥有事务、状态和资金处理。
@@ -66,6 +67,8 @@
 成员可以新增功能，不限于修改上述已有方法：
 
 1. 在 `types.ts` 定义新方法输入输出，在 `schemas.ts` 增加响应校验。
+   为 `KolProviderPort` 新增方法时，同步实现 `KolClient`、`MockKolClient` 和
+   `unavailablePublishingProvider`；这三个实现均在本子仓，不需要改私有 worker。
 2. 在 `client.ts` 实现供应商新端点，在 `normalize.ts` 整理业务字段；复用鉴权、
    超时与 GET 重试。新增 POST 必须按接口幂等语义处理，不能照搬 GET 重试。
 3. 在 `server/routes.ts` 的 `publisher.provider` 下增加带输入/输出校验的业务
