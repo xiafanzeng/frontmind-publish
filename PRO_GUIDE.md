@@ -47,3 +47,5 @@ The delivery skill applies the ZIP in a separate worktree, checks the code and p
 ## Shared Dashboard presentation
 
 The standalone app uses the original Dashboard sidebar, tabs, layout, and controls from vendor/module-ui. It only filters navigation to this business module. Keep business page and style changes in module/client so source synchronization brings them back to Dashboard. standalone/ only supplies runtime adapters and independent inputs; it is not merged into production. Shared shell changes are maintained in main and sent to vendor.
+
+完整供应商实现可编辑：`module/server/providers/kol/`。可增加路径、请求方法、类型、错误处理和业务功能；查看该目录README中的新增API步骤。子域名运行时自动使用服务器配置，无需把Key发给Pro。`publisher.provider.*`扩展组及现有业务路由组支持新增子接口，新增输入输出契约写在module内。保留订单幂等和不自动重发付费POST的规则。

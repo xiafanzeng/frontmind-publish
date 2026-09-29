@@ -27,3 +27,9 @@ Read [CAPABILITIES.md](CAPABILITIES.md) for source coverage, checks actually per
 ## Shared Dashboard presentation
 
 The standalone app uses the original Dashboard sidebar, tabs, layout, and controls from vendor/module-ui. It only filters navigation to this business module. Keep business page and style changes in module/client so source synchronization brings them back to Dashboard. standalone/ only supplies runtime adapters and independent inputs; it is not merged into production. Shared shell changes are maintained in main and sent to vendor.
+
+## 完整供应商 API 开发
+
+KOL 的认证、媒体目录、报价相关数据、订单提交和结果解析实现已位于 [module/server/providers/kol](module/server/providers/kol/README.md)。可以自行增加供应商 API、修改后端和前端，再通过 delivery skill 发布到本模块子域名。
+
+只在子域名测试时，成员无需获取或配置 Key；服务器自动注入现有凭据。API 代码必须在服务端运行。新增功能的具体步骤见上述目录说明。只读联通验证入口：`/api/monitoring/trpc/publisher.provider.checkConnection`（需开发门禁，只读取媒体目录，不创建订单）。
