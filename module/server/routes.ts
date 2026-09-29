@@ -140,6 +140,7 @@ import { z } from "zod";
 import { RepositoryError } from "@frontmind/module-contracts/errors";
 import { canonicalizePublisherHtml, publisherCanonicalImageReferences } from "./domain/canonical-html.js";
 import type { PublishRouteContext, PublishRouteCore, PublishingRepository } from "./route-core.js";
+import { checkKolRuntimeConnection, getKolRuntimeStatus } from "./providers/kol/runtime.js";
 
 export function createPublishRoutes<Context extends object>(core: PublishRouteCore<Context>) {
 const t = initTRPC.context<Context>().create();
@@ -148,6 +149,22 @@ const publisherAdminProcedure = t.procedure.use(async ({ ctx, next }) => next({ 
 
 
 const publisherRouter = t.router({
+  // Module-owned extension namespace. Status describes configuration only;
+  // it neither calls the provider nor claims a successful live connection.
+  provider: t.router({
+    status: publisherCustomerProcedure
+      .output(z.object({ enabled: z.boolean(), mode: z.enum(["mock", "test", "live"]),
+        configured: z.boolean(), realPublicationEnabled: z.boolean() }))
+      .query(() => getKolRuntimeStatus()),
+    checkConnection: publisherCustomerProcedure
+      .output(z.object({ connectionOk: z.literal(true), pageItemCount: z.number().int().nonnegative(),
+        pagination: z.object({ currentPage: z.number().int(), lastPage: z.number().int(),
+          perPage: z.number().int(), total: z.number().int() }) }))
+      .query(async () => {
+        try { return await checkKolRuntimeConnection(); }
+        catch { throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "媒体服务连接检查未通过，请检查服务器配置或稍后重试。" }); }
+      }),
+  }),
   dashboard: publisherCustomerProcedure
     .output(publisherDashboardOutputSchema)
     .query(({ ctx }) =>
