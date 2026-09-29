@@ -1,4 +1,4 @@
-/** Public runtime knobs injected by the private worker assembly. Secrets and provider clients stay private. */
+/** Runtime knobs injected by the private host; provider code is module-owned, credentials stay on the server. */
 export interface PublisherRuntimeConfig {
   providerEnabled: boolean;
   workerId: string;

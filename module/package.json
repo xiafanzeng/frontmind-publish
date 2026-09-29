@@ -97,6 +97,16 @@
     "./client/execution-adapter": {
       "types": "./client/execution-adapter.ts",
       "import": "./client/execution-adapter.ts"
+    },
+    "./providers/kol": {
+      "types": "./dist/server/providers/kol/index.d.ts",
+      "import": "./dist/server/providers/kol/index.js",
+      "default": "./dist/server/providers/kol/index.js"
+    },
+    "./providers/kol/*": {
+      "types": "./dist/server/providers/kol/*.d.ts",
+      "import": "./dist/server/providers/kol/*.js",
+      "default": "./dist/server/providers/kol/*.js"
     }
   }
 }
