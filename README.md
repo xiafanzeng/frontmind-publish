@@ -33,3 +33,9 @@ The standalone app uses the original Dashboard sidebar, tabs, layout, and contro
 KOL 的认证、媒体目录、报价相关数据、订单提交和结果解析实现已位于 [module/server/providers/kol](module/server/providers/kol/README.md)。可以自行增加供应商 API、修改后端和前端，再通过 delivery skill 发布到本模块子域名。
 
 只在子域名测试时，成员无需获取或配置 Key；服务器自动注入现有凭据。API 代码必须在服务端运行。新增功能的具体步骤见上述目录说明。只读联通验证入口：`/api/monitoring/trpc/publisher.provider.checkConnection`（需开发门禁，只读取媒体目录，不创建订单）。
+
+## 后端 API 开发（2026-09-29）
+
+完整业务调用位置与范围见 [module/API_DEVELOPMENT.md](module/API_DEVELOPMENT.md)。新增接口在 `module/server/http-api.ts` 注册，真实地址为 `/api/modules/publish/<路径>`；此文件随子仓发布和合回，不再为每个新路径另改主仓允许清单。
+
+已有凭据在服务器注入，成员可以直接修改模块服务端的请求、校验、解析和状态机，在本域名验收；不需要把Key放进public仓库或本地配置。通用AI执行器、真实身份/租户、统一资金和部署基础设施继续共用。新供应商/新Key需要管理员配置服务器一次。
