@@ -146,3 +146,10 @@ export const kolErrorEnvelopeSchema = z
 
 export type KolRawResource = z.infer<typeof kolResourceSchema>;
 export type KolRawOrder = z.infer<typeof kolOrderSchema>;
+
+/** Rules use the already documented catalog envelope and fields. No guessed
+ * detail response is accepted. A future endpoint needs its own confirmed schema. */
+export const kolMediaRulesRequestSchema = z.object({
+  page: z.number().int().positive().max(100_000),
+}).strict();
+export const kolMediaRulesResponseSchema = kolResourcePageSchema;

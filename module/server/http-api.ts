@@ -1,3 +1,4 @@
+import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
 import type { MySql2Database } from "drizzle-orm/mysql2";
 
@@ -12,6 +13,7 @@ export interface ModuleHttpCore {
 /** Add new module-owned APIs here. Mounted in both Dashboard and the development subdomain. */
 export function createModuleHttpApi(core:ModuleHttpCore):Router {
  const router=Router();
+ router.use("/media-requirements", createMediaRequirementsApi(core));
  router.get("/capabilities",(req,res)=>{
   const context=core.context(req);
   res.setHeader("Cache-Control","no-store");
