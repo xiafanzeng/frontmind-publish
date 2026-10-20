@@ -1,3 +1,4 @@
+import "../publishing.titles.css";
 import {
   ArrowLeft,
   ArrowRight,
@@ -223,6 +224,7 @@ export default function PublishingTitlesPage({
       description="使用同一标题快速发布，或为每家媒体设置独立标题。"
       busy={query.loading || busy}
     >
+      <div className="am-title-config">
       {!flow && <PublishingSteps current={3} />}
       {query.loading ? <PublishingLoading label="正在读取发布草稿…" /> : null}
       {query.error ? (
@@ -266,7 +268,7 @@ export default function PublishingTitlesPage({
               {mode === "single" ? (
                 <div className="publishing-shared-title">
                   <label>
-                    <span>统一发布标题</span>
+                    <span>实际发布标题 · 所有媒体共用</span>
                     <textarea
                       value={sharedTitle}
                       onChange={(event) => setSharedTitle(event.target.value)}
@@ -278,6 +280,15 @@ export default function PublishingTitlesPage({
                       {query.data.items.length} 家媒体分别冻结
                     </small>
                   </label>
+                  <div className="am-shared-title-rows" aria-label="逐媒体标题校验">
+                    {query.data.items.map(item => {
+                      const state = validation.get(item.media.id)!;
+                      return <div className="am-shared-title-row" key={item.media.id}>
+                        <div><strong>{item.media.name}</strong><small>上限 ≤ {item.media.titleLimit} 字</small></div>
+                        <p>{state.value || "尚未填写"}</p><span className={state.message ? "is-invalid" : "is-valid"}>{state.message || "长度有效"}<small>{state.length} / {item.media.titleLimit}</small></span>
+                      </div>;
+                    })}
+                  </div>
                   {invalidCount ? (
                     <div className="publishing-title-impact" role="alert">
                       <strong>{invalidCount} 家媒体标题不符合要求</strong>
@@ -360,7 +371,7 @@ export default function PublishingTitlesPage({
                             </span>
                           </span>
                           <label>
-                            <span>独立标题</span>
+                            <span>实际发布标题 <em>上限 ≤ {item.media.titleLimit} 字</em></span>
                             <input
                               value={state.value}
                               onChange={(event) =>
@@ -371,10 +382,11 @@ export default function PublishingTitlesPage({
                               }
                               aria-invalid={Boolean(state.message)}
                               aria-label={`${item.media.name} 独立标题`}
+                              aria-describedby={`title-state-${item.media.id}`}
                             />
-                            <small className={state.message ? "is-error" : ""}>
+                            <small id={`title-state-${item.media.id}`} className={state.message ? "is-error" : ""}>
                               {state.message ||
-                                `${state.length} / ${item.media.titleLimit}`}
+                                `长度有效 · ${state.length} / ${item.media.titleLimit} 字`}
                             </small>
                           </label>
                           <button
@@ -392,7 +404,7 @@ export default function PublishingTitlesPage({
             </section>
             <aside className="publishing-panel publishing-title-help">
               <CheckCircle2 size={22} />
-              <h2>标题检查</h2>
+              <span className="am-title-kicker">交接前核对</span><h2>标题与投放摘要</h2>
               <p>
                 标题限制以媒体目录返回值为准；缺失限制时使用服务端 200 字兜底。
               </p>
@@ -472,6 +484,7 @@ export default function PublishingTitlesPage({
           </button>
         </footer>
       ) : null}
+      </div>
       <PublishingConfirmDialog
         open={confirmSingle}
         title="切换为单标题？"

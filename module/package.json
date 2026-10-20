@@ -85,6 +85,10 @@
       "types": "./client/editorContent.ts",
       "import": "./client/editorContent.ts"
     },
+    "./client/flow-contracts": {
+      "types": "./client/flow-contracts.ts",
+      "import": "./client/flow-contracts.ts"
+    },
     "./client/gateway": {
       "types": "./client/gateway.ts",
       "import": "./client/gateway.ts"

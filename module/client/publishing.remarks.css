@@ -1,0 +1,6 @@
+.monitoring-module .publishing-page .publishing-remark{position:relative;display:flex;gap:8px;align-items:baseline;min-width:0;max-width:100%;font-size:12px}
+.monitoring-module .publishing-page .publishing-remark-label{flex-shrink:0;color:var(--publishing-muted)}
+.monitoring-module .publishing-page .publishing-remark-trigger{display:block;min-width:0;max-width:100%;padding:3px 0;border:0;border-bottom:1px dashed var(--publishing-muted);border-radius:0;background:transparent;color:var(--publishing-ink);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help;font:inherit}
+.monitoring-module .publishing-page .publishing-remark-trigger:focus-visible{outline:2px solid var(--publishing-purple);outline-offset:4px}
+.monitoring-module .publishing-page .publishing-remark-tip{position:absolute;right:0;bottom:calc(100% + 10px);z-index:30;width:min(460px,76vw);max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:16px 18px;border:1px solid var(--publishing-line);border-radius:12px;background:var(--publishing-surface);box-shadow:var(--publishing-shadow);color:var(--publishing-ink);line-height:1.8;font-size:13px;scrollbar-gutter:stable}
+@media(forced-colors:active){.monitoring-module .publishing-page .publishing-remark-tip{border:1px solid CanvasText}}
