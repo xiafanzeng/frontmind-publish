@@ -1,3 +1,4 @@
+import { KOL_MEDIA_RULES_ENDPOINT, parseMediaRules } from "./media-rules.js";
 import { KolProviderError, KolSubmissionUnknownError } from "./errors.js";
 import {
   normalizeOrder,
@@ -10,6 +11,7 @@ import {
   kolErrorEnvelopeSchema,
   kolOrderPageSchema,
   kolResourcePageSchema,
+  kolMediaRulesRequestSchema,
 } from "./schemas.js";
 import { KolTokenCache } from "./token.js";
 import type {
@@ -95,7 +97,7 @@ export class KolClient implements KolProviderPort {
     const body = await this.authorizedGet(
       "list_resources",
       (token) => {
-        const url = this.url("/api/news_resource_2/data");
+        const url = this.url(KOL_MEDIA_RULES_ENDPOINT);
         url.searchParams.set("token", token);
         url.searchParams.set("page", String(page));
         return { url, headers: this.commonHeaders() };
@@ -114,6 +116,20 @@ export class KolClient implements KolProviderPort {
         normalizeResource(resource, this.origin),
       ),
       pagination: normalizePagination(parsed.data.pagination),
+    };
+  }
+
+  /** Catalog is the confirmed rules transport; keep all GET security controls. */
+  async listMediaRules(page = 1, signal?: AbortSignal) {
+    kolMediaRulesRequestSchema.parse({ page });
+    const catalog = await this.listResources(page, signal);
+    const collectedAt = new Date().toISOString();
+    return {
+      pagination: catalog.pagination,
+      resources: catalog.resources.map(resource => ({
+        externalResourceId: String(resource.id),
+        rules: parseMediaRules(resource.remark ?? "", collectedAt, resource.titleLimit),
+      })),
     };
   }
 

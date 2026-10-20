@@ -12,6 +12,7 @@ import "./publishing.records.css";
 import "./publishing.admin.css";
 import "./publishing.conversation.css";
 
+const MediaRequirementsPage = lazy(() => import("./pages/MediaRequirementsPage"));
 const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
 const LegacyPublicationListRedirect = lazy(() =>
   import("./pages/WorkbenchPage").then((module) => ({
@@ -44,6 +45,9 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           }
         >
           <Switch>
+            <Route path="/publishing/media-requirements">
+              <MediaRequirementsPage />
+            </Route>
             <Route path="/publishing/articles/new/import">
               <ImportPage />
             </Route>

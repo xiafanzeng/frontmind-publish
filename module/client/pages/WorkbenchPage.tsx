@@ -55,6 +55,7 @@ export default function PublishingWorkbenchPage() {
         <Link href="/publishing" aria-current={!records ? "page" : undefined}>
           工作概览
         </Link>
+        <Link href="/publishing/media-requirements">媒体要求</Link>
         <Link
           href="/publishing?tab=records"
           aria-current={records ? "page" : undefined}

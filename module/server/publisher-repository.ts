@@ -1,3 +1,4 @@
+import { mediaRulesTitleLimit, mediaRulesEvidence } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
 import type {
@@ -2821,8 +2822,11 @@ class PublishingRepository {
               "titleLimit",
               null,
             ) ?? 200)
-          : (resource.titleLimit ?? 200);
-        if (unicodeLength(submissionTitle) > selectedTitleLimit) {
+          : (mediaRulesTitleLimit(resource.remark, resource.titleLimit, resource.rawPayload));
+        if (unicodeLength(submissionTitle) > mediaRulesTitleLimit(
+          previousItem ? snapshotNullableString(previousItem.mediaSnapshot, "remark", null) : mediaRulesEvidence(resource.remark, resource.titleLimit, resource.rawPayload).remark,
+          selectedTitleLimit,
+        )) {
           throw new RepositoryError("INVALID_STATE", "Media title is invalid");
         }
         return {
@@ -2971,7 +2975,7 @@ class PublishingRepository {
         ({ draftItem, resource }) =>
           Boolean(draftItem.submissionTitle.trim()) &&
           unicodeLength(draftItem.submissionTitle) <=
-            (resource.titleLimit ?? 200),
+            (mediaRulesTitleLimit(resource.remark, resource.titleLimit, resource.rawPayload)),
       );
       const singleTitleValid =
         draft.titleMode !== "single" ||
@@ -3063,7 +3067,9 @@ class PublishingRepository {
             : supplied.get(item.mediaResourceId)!;
         const frozenTitleLimit =
           snapshotNullableNumber(item.mediaSnapshot, "titleLimit", null) ?? 200;
-        if (!title || unicodeLength(title) > frozenTitleLimit) {
+        if (!title || unicodeLength(title) > mediaRulesTitleLimit(
+          snapshotNullableString(item.mediaSnapshot, "remark", null), frozenTitleLimit,
+        )) {
           throw new RepositoryError(
             "INVALID_STATE",
             "One or more media titles exceed their limit",
@@ -3661,7 +3667,7 @@ async function computePreflight(
       }
       if (
         !draftItem.submissionTitle.trim() ||
-        unicodeLength(draftItem.submissionTitle) > (resource.titleLimit ?? 200)
+        unicodeLength(draftItem.submissionTitle) > (mediaRulesTitleLimit(resource.remark, resource.titleLimit, resource.rawPayload))
       ) {
         blockers.push({
           code: "TITLE_INVALID",
@@ -4368,7 +4374,7 @@ function customerSafeMediaSnapshot(
     taxonomy: resource.taxonomy,
     mediaType: resource.mediaType,
     area: resource.area,
-    titleLimit: resource.titleLimit,
+    titleLimit: Math.max(1, mediaRulesTitleLimit(resource.remark, resource.titleLimit, resource.rawPayload)),
     priceTenThousandths: resource.priceTenThousandths.toString(),
     successRateBasisPoints: resource.successRateBasisPoints,
     includeRateBasisPoints: resource.includeRateBasisPoints,
@@ -4384,7 +4390,7 @@ function customerSafeMediaSnapshot(
     logoUrl: publisherMediaLogoAccessPath(resource),
     logoSource: publisherMediaLogoDisplaySource(resource),
     logoResolutionStatus: resource.logoArchiveStatus,
-    remark: resource.remark,
+    remark: mediaRulesEvidence(resource.remark, resource.titleLimit, resource.rawPayload).remark,
     description: resource.description,
     recommended: resource.recommended,
     ...publisherMediaEditorialMetadata(resource.rawPayload),
@@ -4654,7 +4660,7 @@ function publisherDraftMediaIdentityChanged(
     ["platform", current.platform],
     ["taxonomy", current.taxonomy],
     ["mediaType", current.mediaType],
-    ["titleLimit", current.titleLimit],
+    ["titleLimit", Math.max(1, mediaRulesTitleLimit(current.remark, current.titleLimit, current.rawPayload))],
   ];
   return comparisons.some(([key, value]) => {
     if (!(key in snapshot)) return false;
