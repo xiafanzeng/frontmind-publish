@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
-import { Redirect, Route, Switch } from "wouter";
+import { Link, Redirect, Route, Switch } from "wouter";
 
+import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
 import { PublishingLoading } from "./components/PublishingUi";
@@ -11,6 +12,8 @@ import "./publishing.media.css";
 import "./publishing.records.css";
 import "./publishing.admin.css";
 import "./publishing.conversation.css";
+
+const SourceMatrixPage = lazy(() => import("./source-matrix/SourceMatrixPage"));
 
 const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
 const LegacyPublicationListRedirect = lazy(() =>
@@ -43,7 +46,16 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             </div>
           }
         >
+          <>
+          <Route path="/publishing">
+            <nav className="publishing-workbench-tabs" aria-label="信源规划入口">
+              <Link href={projectWorkspaceUrl("/publishing/source-matrix")}>信源矩阵 →</Link>
+            </nav>
+          </Route>
           <Switch>
+            <Route path="/publishing/source-matrix"><SourceMatrixPage /></Route>
+            <Route path="/publishing/source-analysis"><SourceMatrixPage view="analysis" /></Route>
+            <Route path="/publishing/source-report"><SourceMatrixPage view="report" /></Route>
             <Route path="/publishing/articles/new/import">
               <ImportPage />
             </Route>
@@ -88,6 +100,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <Redirect to="/publishing" />
             </Route>
           </Switch>
+          </>
         </Suspense>
     </PublishingGatewayProvider>
   );
