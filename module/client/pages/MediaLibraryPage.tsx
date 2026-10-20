@@ -20,6 +20,8 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useSearch } from "wouter";
+import { PublishingRemark } from "../components/PublishingRemark";
+import "../publishing.market.css";
 import { usePublishingWorkspaceKey } from "../host";
 import { projectWorkspaceUrl } from "../host";
 import {
@@ -891,6 +893,7 @@ export default function PublishingMediaLibraryPage({
         ) : undefined
       }
     >
+      <div className="am-selection-layout"><div className="am-selection-main">
       {flow && (
         <PublishingQuestion
           title="这次想怎样选择媒体？"
@@ -974,6 +977,7 @@ export default function PublishingMediaLibraryPage({
           {(!flow || businessFiltersOpen) && (
             <form
               className="publishing-media-recommendation"
+              noValidate
               aria-label="按业务需求筛选媒体"
               onSubmit={applySmartRecommendation}
             >
@@ -1049,7 +1053,7 @@ export default function PublishingMediaLibraryPage({
               </button>
             </nav>
 
-            <div className="publishing-media-search-row">
+            <div className="publishing-media-search-row am-search-row">
               <label className="publishing-search-field">
                 <Search size={18} />
                 <span className="publishing-visually-hidden">搜索媒体</span>
@@ -1058,6 +1062,7 @@ export default function PublishingMediaLibraryPage({
                   onChange={(event) => setQueryDraft(event.target.value)}
                   placeholder="搜索媒体名称、平台或资源 ID"
                 />
+                {queryDraft && <button type="button" aria-label="清空媒体搜索" onClick={event => { setQueryDraft(""); event.currentTarget.parentElement?.querySelector("input")?.focus(); }}><X size={15}/></button>}
               </label>
               <button
                 className={`publishing-button publishing-button-secondary ${batchOpen ? "is-active" : ""}`}
@@ -1432,279 +1437,58 @@ export default function PublishingMediaLibraryPage({
           ) : null}
           {mediaQuery.data?.items.length ? (
             <>
-              <section
-                className="publishing-panel publishing-media-table publishing-media-table-detailed"
-                aria-label="媒体目录"
-              >
-                <div className="publishing-media-head publishing-media-row">
-                  <span
-                    className="publishing-media-col-choice"
-                    aria-hidden="true"
-                  />
-                  <span className="publishing-media-col-resource">
-                    {filters.kind === "self_media"
-                      ? "账号 / 平台"
-                      : "媒体 / 频道"}
-                  </span>
-                  <span className="publishing-media-col-category">
-                    {filters.kind === "self_media"
-                      ? "类别 / 认证"
-                      : "类别 / 地区"}
-                  </span>
-                  <span className="publishing-media-col-price">发布报价</span>
-                  <span className="publishing-media-col-indexing">
-                    {filters.kind === "self_media"
-                      ? "账号影响力"
-                      : "收录与权重"}
-                  </span>
-                  <span className="publishing-media-col-delivery">
-                    通过率 / 时效
-                  </span>
-                  <span className="publishing-media-col-capability">能力</span>
-                  <span className="publishing-media-col-compact-details">
-                    详情
-                  </span>
+              <section className="am-market-list" aria-label="媒体目录">
+                <div className="am-market-toolbar">
+                  <div><strong>媒体市场</strong><span> {mediaQuery.data.total.toLocaleString("zh-CN")} 家匹配资源</span></div>
+                  <span>已选 {selected.size} / 20 · 勾选后保留到当前清单</span>
                 </div>
                 {mediaQuery.data.items.map((media) => {
                   const checked = selected.has(media.id);
-                  const blocker = mediaSelectionBlocker(
-                    media,
-                    articleHasImages,
-                  );
+                  const blocker = mediaSelectionBlocker(media, articleHasImages);
                   const selectionLimitReached = !checked && selected.size >= 20;
-                  const disabled =
-                    (!checked && Boolean(blocker)) ||
-                    selectionLimitReached ||
-                    selectionBusy ||
-                    Boolean(draftId && !draft);
+                  const disabled = (!checked && Boolean(blocker)) || selectionLimitReached || selectionBusy || Boolean(draftId && !draft);
                   return (
-                    <div className="publishing-media-entry" key={media.id}>
-                      <label
-                        className={`publishing-media-row ${checked ? "is-selected" : ""} ${blocker || selectionLimitReached ? "is-disabled" : ""}`}
-                        title={
-                          selectionLimitReached
-                            ? "已达到一次最多 20 家媒体的选择上限"
-                            : undefined
-                        }
-                      >
-                        <input
-                          className="publishing-media-col-choice"
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={() => toggle(media)}
-                          aria-label={`选择 ${media.name}`}
-                        />
-                        <span className="publishing-media-name publishing-media-col-resource">
-                          <MediaMark
-                            name={media.shortName}
-                            id={media.id}
-                            logoUrl={media.logoUrl}
-                            logoSource={media.logoSource}
-                            logoResolutionStatus={media.logoResolutionStatus}
-                          />
-                          <span>
-                            <strong>
-                              {media.name}
-                              {media.recommended ? (
-                                <b className="publishing-recommended">荐</b>
-                              ) : null}
-                            </strong>
-                            <small>
-                              {media.platform} · ID{" "}
-                              {media.externalResourceId ?? media.id}
-                              {media.caseUrl ? (
-                                <a
-                                  href={media.caseUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  案例 <ExternalLink size={11} />
-                                </a>
-                              ) : null}
-                            </small>
-                            {Boolean(
-                              media.recommendationTags?.length ||
-                                media.platformRecommendationTags?.length,
-                            ) ? (
-                              <span className="publishing-media-tags">
-                                {media.recommendationTags
-                                  ?.slice(0, 3)
-                                  .map((tag, index) => (
-                                    <span
-                                      key={`media-${index}`}
-                                      title={
-                                        media.recommendationRemark ||
-                                        "媒体推荐标签"
-                                      }
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                {media.platformRecommendationTags
-                                  ?.slice(0, 2)
-                                  .map((tag, index) => (
-                                    <span
-                                      key={`platform-${index}`}
-                                      className="is-platform"
-                                      title="行业推荐标签"
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                        <span
-                          className="publishing-media-col-category"
-                          data-label={
-                            media.kind === "self_media"
-                              ? "类别 / 认证"
-                              : "类别 / 地区"
-                          }
-                        >
-                          <strong>
-                            {media.mediaType ||
-                              media.taxonomy ||
-                              kindLabel(media.kind)}
-                          </strong>
-                          {media.kind === "self_media" ? (
-                            <small title={media.authenticationDescription}>
-                              {media.authenticated === true
-                                ? media.authenticationType || "已认证"
-                                : media.authenticated === false
-                                  ? "未认证"
-                                  : "认证信息未提供"}
-                            </small>
-                          ) : (
-                            <small>
-                              {media.taxonomy || "—"} · {media.region || "—"}
-                            </small>
-                          )}
-                        </span>
-                        <strong
-                          className="publishing-market-price publishing-media-col-price"
-                          data-label="发布报价"
-                        >
-                          {formatPublishingMoney(media.priceTenThousandths)}
-                          <small>元 / 篇</small>
-                        </strong>
-                        <span
-                          className="publishing-media-col-indexing"
-                          data-label={
-                            media.kind === "self_media"
-                              ? "账号影响力"
-                              : "收录与权重"
-                          }
-                        >
-                          {media.kind === "self_media" ? (
-                            <>
-                              <strong>
-                                粉丝 {compactNumber(media.followers)}
-                              </strong>
-                              <small>点赞 {compactNumber(media.likes)}</small>
-                            </>
-                          ) : (
-                            <>
-                              <strong>
-                                {media.includeType || "收录信息未提供"}
-                              </strong>
-                              <small>
-                                收录率 {percentage(media.includeRate)} · 权重{" "}
-                                {media.pcWeight ?? "—"}
-                              </small>
-                            </>
-                          )}
-                        </span>
-                        <span
-                          className="publishing-media-col-delivery"
-                          data-label="通过率 / 时效"
-                        >
-                          <strong>{percentage(media.successRate)}</strong>
-                          <small>{media.turnaround || "—"}</small>
-                        </span>
-                        <span
-                          className="publishing-media-col-capability"
-                          data-label="能力"
-                        >
-                          <span
-                            className={`publishing-capability is-${media.capability}`}
-                          >
-                            {capabilityLabel(media.capability)}
-                          </span>
-                          <small>标题 ≤ {media.titleLimit} 字</small>
-                        </span>
-                        {media.remark ? (
-                          <p className="publishing-media-remark">
-                            备注：{media.remark}
-                          </p>
-                        ) : null}
-                        {blocker ? (
-                          <p className="publishing-media-remark is-danger">
-                            {blocker}
-                          </p>
-                        ) : null}
-                      </label>
-                      <details className="publishing-media-compact-details">
-                        <summary aria-label={`查看 ${media.name} 的详细指标`}>
-                          详情 <ChevronDown size={14} />
-                        </summary>
-                        <dl>
-                          {media.kind === "self_media" ? (
-                            <>
-                              <div>
-                                <dt>粉丝</dt>
-                                <dd>{compactNumber(media.followers)}</dd>
-                              </div>
-                              <div>
-                                <dt>点赞</dt>
-                                <dd>{compactNumber(media.likes)}</dd>
-                              </div>
-                              <div>
-                                <dt>认证信息</dt>
-                                <dd>
-                                  {media.authenticated === true
-                                    ? media.authenticationDescription ||
-                                      media.authenticationType ||
-                                      "已认证"
-                                    : media.authenticated === false
-                                      ? "未认证"
-                                      : "未提供"}
-                                </dd>
-                              </div>
-                            </>
-                          ) : null}
-                          <div>
-                            <dt>收录类型</dt>
-                            <dd>{media.includeType || "—"}</dd>
+                    <article className={`am-market-row ${checked ? "is-selected" : ""}`} key={media.id} aria-label={media.name}>
+                      <div className="am-market-identity">
+                        <div className="publishing-media-name">
+                          <MediaMark name={media.shortName} id={media.id} logoUrl={media.logoUrl} logoSource={media.logoSource} logoResolutionStatus={media.logoResolutionStatus}/>
+                          <div><h3>{media.name}{media.recommended && <b className="publishing-recommended">荐</b>}</h3>
+                            <small>{kindLabel(media.kind)} · {media.platform || "平台未提供"}</small>
+                            <small>ID {media.externalResourceId ?? media.id}</small>
                           </div>
-                          <div>
-                            <dt>收录率</dt>
-                            <dd>{percentage(media.includeRate)}</dd>
-                          </div>
-                          <div>
-                            <dt>百度权重</dt>
-                            <dd>{media.pcWeight ?? "—"}</dd>
-                          </div>
-                          <div>
-                            <dt>通过率</dt>
-                            <dd>{percentage(media.successRate)}</dd>
-                          </div>
-                          <div>
-                            <dt>发布时效</dt>
-                            <dd>{media.turnaround || "—"}</dd>
-                          </div>
-                          <div>
-                            <dt>入口 / 链接</dt>
-                            <dd>
-                              {media.entryType || "—"} · {media.linkType || "—"}
-                            </dd>
-                          </div>
-                        </dl>
-                      </details>
-                    </div>
+                        </div>
+                        <div className="am-market-actions">
+                          <label><input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggle(media)} aria-label={`选择 ${media.name}`}/>{checked ? "已选择" : "选择媒体"}</label>
+                          {media.caseUrl && <a href={media.caseUrl} target="_blank" rel="noreferrer">案例 <ExternalLink size={12}/></a>}
+                        </div>
+                        <div className="publishing-media-tags">
+                          {media.recommendationTags?.slice(0, 3).map((tag, index) => <span key={`media-${index}`} title={media.recommendationRemark || "媒体推荐标签"}>{tag}</span>)}
+                          {media.platformRecommendationTags?.slice(0, 2).map((tag, index) => <span key={`platform-${index}`} className="is-platform">{tag}</span>)}
+                        </div>
+                      </div>
+                      <div className="am-market-price"><strong>{formatPublishingMoney(media.priceTenThousandths)}</strong><small>元 / 篇 · 目录报价</small><small>{media.active ? "目录在售" : "状态待确认"}</small></div>
+                      <div className="am-market-facts">
+                        <div><span>覆盖区域</span><strong>{media.region || "未提供"}</strong></div>
+                        <div><span>频道类型</span><strong>{media.taxonomy || "未提供"}</strong></div><div><span>媒体类别</span><strong>{media.mediaType || kindLabel(media.kind)}</strong></div>
+                        <div><span>发布速度</span><strong>{media.turnaround || "未提供"}</strong></div>
+                        {media.kind === "self_media" ? <>
+                          <div><span>粉丝 / 点赞</span><strong>{compactNumber(media.followers)} / {compactNumber(media.likes)}</strong></div>
+                          <div><span>账号认证</span><strong title={media.authenticationDescription}>{media.authenticated === true ? media.authenticationType || "已认证" : media.authenticated === false ? "未认证" : "未提供"}</strong></div>
+                        </> : <>
+                          <div><span>收录展示</span><strong>{media.includeType || "未提供"}</strong></div>
+                          <div><span>收录率 / PC 权重</span><strong>{percentage(media.includeRate)} / {media.pcWeight ?? "—"}</strong></div>
+                        </>}
+                        <div><span>通过率</span><strong>{percentage(media.successRate)}</strong></div>
+                        <div><span>内容能力</span><strong>{capabilityLabel(media.capability)}</strong></div>
+                        <div><span>标题上限</span><strong>≤ {media.titleLimit} 字</strong></div>
+                        <div><span>入口 / 链接</span><strong>{media.entryType || "—"} / {media.linkType || "—"}</strong></div>
+                        <PublishingRemark text={media.remark}/>
+                      </div>
+                      <footer className="am-market-foot">
+                        <span className={blocker || selectionLimitReached ? "is-warning" : ""}>{blocker || (selectionLimitReached ? "已达到一次最多 20 家媒体的选择上限" : "报价与实际内容要求将在发布前重新核对")}</span>
+                        <span>{checked ? "已在当前清单" : "未选择"}</span>
+                      </footer>
+                    </article>
                   );
                 })}
               </section>
@@ -1743,6 +1527,29 @@ export default function PublishingMediaLibraryPage({
         </div>
       )}
 
+      <section className="am-title-preview" aria-label="实际发布标题">
+        <header><div><span className="am-kicker">发布配置</span><h2>实际发布标题</h2><p>每家媒体分别核对标题上限；编辑与保存沿用原标题配置步骤。</p></div>{(boundDraft ?? draft) && <button type="button" className="publishing-button publishing-button-secondary" disabled={selectionBusy} onClick={() => boundDraft && flow ? void handoff() : continueSelection()}>配置实际标题 →</button>}</header>
+        {(boundDraft ?? draft) ? (boundDraft ?? draft)!.items.map(item => {
+          const value = (boundDraft ?? draft)!.titleMode === "single" ? (boundDraft ?? draft)!.sharedTitle ?? (boundDraft ?? draft)!.articleTitle : item.title;
+          const length = Array.from(value).length;
+          const invalid = !value.trim() || length > item.media.titleLimit;
+          return <article className="am-title-preview-row" key={item.media.id}>
+            <div><strong>{item.media.name}</strong><small>标题上限 ≤ {item.media.titleLimit} 字</small></div>
+            <p>{value || "尚未填写标题"}</p><span className={invalid ? "is-warning" : "is-valid"}>{invalid ? !value.trim() ? "待填写" : "超出上限" : "长度有效"}<small>{length} / {item.media.titleLimit}</small></span>
+          </article>;
+        }) : <p className="am-empty-note">尚未绑定发布稿件。先确认媒体与稿件，再配置实际发布标题。</p>}
+        <p className="am-empty-note">长度有效不代表稿件已通过预检，正式发布前仍需核对当前版本。</p>
+      </section>
+      </div>
+      <aside className="am-handoff" aria-label="投放交接摘要">
+        <header><span className="am-kicker">本次投放</span><h2>交接摘要</h2><p>选择、稿件与报价集中核对</p></header>
+        <dl className="am-handoff-facts">
+          <div><dt>当前稿件</dt><dd>{(boundDraft ?? draft)?.articleTitle ?? selectedArticle?.title ?? "尚未绑定"}</dd></div>
+          <div><dt>冻结版本</dt><dd>{(boundDraft ?? draft) ? `v${(boundDraft ?? draft)!.articleVersion}` : "待确认"}</dd></div>
+          <div><dt>投放媒体</dt><dd>{selected.size} 家<small>软文 {selectedCounts.news} · 自媒体 {selectedCounts.self_media}</small></dd></div>
+          <div className="am-handoff-total"><dt>预计合计</dt><dd>{formatPublishingMoney(selectedTotal)}<small>最终报价以预检为准</small></dd></div>
+        </dl>
+        <ol className="am-handoff-steps"><li data-complete={selected.size > 0}>确认媒体清单</li><li data-complete={Boolean(boundDraft ?? draft)}>绑定冻结稿件</li><li>配置标题，交接发布预检</li></ol>
       {flow && boundDraft ? (
         <section className="publishing-flow-result" aria-label="投放选择已保存">
           <Check size={20} />
@@ -1822,6 +1629,9 @@ export default function PublishingMediaLibraryPage({
         </aside>
       ) : null}
 
+        {!selected.size && <p className="am-empty-note">尚未选择媒体。可先筛选资源，勾选后再确认稿件。</p>}
+        <Link className="am-requirements-link" href={projectWorkspaceUrl("/publishing/media-requirements")}>查看媒体要求与稿件预检 →</Link>
+      </aside></div>
       {drawerOpen && flow ? (
         <section
           className="publishing-inline-step"

@@ -1,0 +1,38 @@
+/* Only the existing A-owned title editor consumes these styles. No save semantics change. */
+.monitoring-module .am-title-config{max-width:1660px;margin:auto}
+.monitoring-module .am-title-config .publishing-title-mode-panel{border:1px solid var(--publishing-line);border-radius:14px;box-shadow:none}
+.monitoring-module .am-title-config .publishing-title-mode-tabs{background:var(--publishing-canvas);gap:6px;padding:5px;border-radius:10px;margin-top:20px}
+.monitoring-module .am-title-config .publishing-title-mode-tabs button{border:0;border-radius:7px;padding:14px;min-height:64px}
+.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active{background:var(--publishing-purple);color:var(--publishing-surface)}
+.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active span{color:inherit;opacity:.85}
+.monitoring-module .am-title-config .publishing-titles-layout{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:24px;align-items:start}
+.monitoring-module .am-title-config .publishing-titles-panel{border:1px solid var(--publishing-line);border-radius:14px;min-width:0;padding:24px}
+.monitoring-module .am-title-config .publishing-title-list{display:grid;gap:0}
+.monitoring-module .am-title-config .publishing-title-item{display:grid;grid-template-columns:24px minmax(150px,.75fr) minmax(200px,1.7fr) 76px;align-items:start;gap:16px;padding:22px 0;border:0;border-top:1px solid var(--publishing-line);border-radius:0;background:transparent}
+.monitoring-module .am-title-config .publishing-title-item label{display:grid;gap:8px;min-width:0}
+.monitoring-module .am-title-config .publishing-title-item label>span{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px}
+.monitoring-module .am-title-config .publishing-title-item em{font-style:normal;color:var(--publishing-muted);font-size:11px}
+.monitoring-module .am-title-config .publishing-title-item input{width:100%;border:1px solid var(--publishing-line);border-radius:8px;background:var(--publishing-surface);color:var(--publishing-ink);padding:12px;min-height:44px}
+.monitoring-module .am-title-config .publishing-title-item input[aria-invalid=true]{border-color:var(--publishing-red)}
+.monitoring-module .am-title-config .publishing-title-item label small{font-size:11px;color:var(--publishing-green);line-height:1.8}
+.monitoring-module .am-title-config .publishing-title-item label small.is-error{color:var(--publishing-red)}
+.monitoring-module .am-title-config .publishing-title-item>button{align-self:center;color:var(--publishing-purple);font-size:12px;background:transparent;border:0;white-space:normal}
+.monitoring-module .am-title-config .publishing-title-tools{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.monitoring-module .am-title-config .publishing-title-help{position:sticky;top:20px;border:1px solid var(--publishing-line);border-radius:14px;background:var(--publishing-canvas);padding:24px}
+.monitoring-module .am-title-config .publishing-title-help h2{font-size:18px;margin:8px 0 12px}
+.monitoring-module .am-title-config .publishing-title-help p{font-size:12px;line-height:1.8;color:var(--publishing-muted)}
+.monitoring-module .am-title-config .publishing-title-help dl>div{padding:14px 0;border-bottom:1px solid var(--publishing-line)}
+.monitoring-module .am-title-config .publishing-title-help dl>div:last-child dd{font-size:20px;color:var(--publishing-purple)}
+.monitoring-module .am-title-kicker{display:block;font-size:11px;color:var(--publishing-purple);letter-spacing:1px}
+.monitoring-module .am-title-config .publishing-shared-title textarea{resize:none;min-height:96px;border-radius:8px}
+.monitoring-module .am-shared-title-rows{margin:22px 0;border-top:1px solid var(--publishing-line)}
+.monitoring-module .am-shared-title-row{display:grid;grid-template-columns:minmax(140px,.8fr) minmax(0,1.6fr) minmax(90px,.6fr);gap:18px;align-items:center;padding:18px 0;border-bottom:1px solid var(--publishing-line);font-size:13px}
+.monitoring-module .am-shared-title-row p{margin:0;overflow-wrap:anywhere;line-height:1.8}
+.monitoring-module .am-shared-title-row small{display:block;font-size:11px;color:var(--publishing-muted);margin-top:5px}
+.monitoring-module .am-shared-title-row .is-valid{color:var(--publishing-green)}
+.monitoring-module .am-shared-title-row .is-invalid{color:var(--publishing-red)}
+.monitoring-module .am-title-config :is(input,button,textarea,a):focus-visible{outline:2px solid var(--publishing-purple);outline-offset:3px}
+@media(max-width:1200px){.monitoring-module .am-title-config .publishing-titles-layout{grid-template-columns:1fr}.monitoring-module .am-title-config .publishing-title-help{position:static}}
+@media(max-width:720px){.monitoring-module .am-title-config .publishing-title-item{grid-template-columns:24px minmax(0,1fr) 76px}.monitoring-module .am-title-config .publishing-title-item label{grid-column:2/-1}.monitoring-module .am-title-config .publishing-title-item>button{grid-column:3;grid-row:1}.monitoring-module .am-shared-title-row{grid-template-columns:1fr 110px}.monitoring-module .am-shared-title-row p{grid-column:1/-1;grid-row:2}.monitoring-module .am-title-config .publishing-titles-panel{padding:18px}}
+.monitoring-module .am-title-config{container:title-config / inline-size}
+@container title-config (max-width:1000px){.monitoring-module .am-title-config .publishing-titles-layout{grid-template-columns:1fr}.monitoring-module .am-title-config .publishing-title-help{position:static}}
