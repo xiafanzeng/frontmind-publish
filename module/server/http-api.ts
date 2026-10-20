@@ -1,11 +1,15 @@
 import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
+import { createSourceMatrixRouter } from "./source-matrix/http.js";
+import type { SourceMatrixDecisionAdapter } from "./source-matrix/adapter.js";
 import type { MySql2Database } from "drizzle-orm/mysql2";
 
 /** Supplied by the host after authentication; never derive ownership from request data. */
 export interface ModuleHttpCore {
  context(request:Request):{accountUserId:number;actorUserId:number;enterpriseProjectId:string|null;businessOwnerId:string;businessActorId:string};
  database():Promise<MySql2Database<any>>;
+ /** Optional real LLM integration; absent returns needs_ai_decisions. */
+ sourceMatrixDecisions?:SourceMatrixDecisionAdapter;
  /** Server-only runtime settings. Never return this object or secret values to the browser. */
  environment:Readonly<Record<string,string|undefined>>;
 }
@@ -20,5 +24,6 @@ export function createModuleHttpApi(core:ModuleHttpCore):Router {
   res.json({module:"publish",apiVersion:1,workspaceId:context.enterpriseProjectId,
    features:["articles", "media", "quotes", "orders", "results"]});
  });
+ router.use(createSourceMatrixRouter(core));
  return router;
 }
