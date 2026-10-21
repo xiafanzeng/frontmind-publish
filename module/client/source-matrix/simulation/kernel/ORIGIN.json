@@ -1,0 +1,50 @@
+{
+  "baseCommit": "ed93e6443c71bafc02d89dac3ae61a518c7859de",
+  "files": [
+    {
+      "source": "module/server/source-matrix/common.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/common.ts",
+      "source_sha256": "2e6486df14a80b8e031abea080502a7ead57099e4a2cee89b19667e7b9dc1cbf",
+      "browser_sha256": "7cd8e43f4c37fc57677af47811bfd42c238da145c4b451dd1cef4ac1822514b6",
+      "adaptation": "hash import only"
+    },
+    {
+      "source": "module/server/source-matrix/contracts.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/contracts.ts",
+      "source_sha256": "2403ad54965acc7c2a2a7e472f92cbae876d77dd2a5c7b8dd666c986f0653c58",
+      "browser_sha256": "2403ad54965acc7c2a2a7e472f92cbae876d77dd2a5c7b8dd666c986f0653c58",
+      "adaptation": "none"
+    },
+    {
+      "source": "module/server/source-matrix/evidence.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/evidence.ts",
+      "source_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
+      "browser_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
+      "adaptation": "none"
+    },
+    {
+      "source": "module/server/source-matrix/matrix.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/matrix.ts",
+      "source_sha256": "186b524b800ed3e5fbdfaa92ae58b707e90c791b512167c56412b4aefb126857",
+      "browser_sha256": "186b524b800ed3e5fbdfaa92ae58b707e90c791b512167c56412b4aefb126857",
+      "adaptation": "none"
+    },
+    {
+      "source": "module/server/source-matrix/budget.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/budget.ts",
+      "source_sha256": "77dd3ccc682b992c93b78984364ef11ec1eba9a412471077689deb53ac2cccaa",
+      "browser_sha256": "77dd3ccc682b992c93b78984364ef11ec1eba9a412471077689deb53ac2cccaa",
+      "adaptation": "none"
+    },
+    {
+      "source": "module/server/source-matrix/planner.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/planner.ts",
+      "source_sha256": "f1f5cc09fb61f1dd427530843352959a235954553459b45109f77a7dddb4e341",
+      "browser_sha256": "f1f5cc09fb61f1dd427530843352959a235954553459b45109f77a7dddb4e341",
+      "adaptation": "none"
+    }
+  ],
+  "hash_source": "module/server/domain/hash.ts",
+  "hash_source_sha256": "ec2df827c90f6b60da0fdcd19e79e88ffcd951f54d5152b854080449cc2daea6",
+  "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto"
+}

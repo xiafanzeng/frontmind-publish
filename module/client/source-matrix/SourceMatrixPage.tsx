@@ -1,4 +1,4 @@
-import { useEffect,useRef,useState,type FormEvent } from 'react';
+import { lazy, Suspense, useContext, useEffect,useRef,useState,type FormEvent } from 'react';
 import { Link,useLocation,useSearch } from 'wouter';
 import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard } from '../host';
 import { matrixApi,downloadUrl } from './api';
@@ -10,7 +10,28 @@ import {MediaShell,MediaCartFooter,MediaTaskbar,RowHead,Property,MarketRow,Media
 import {usePublisherGateway} from '../PublishingContext';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
 import type {MediaResource,PublicationDraft} from '../types';
-export default function SourceMatrixPage({view='matrix'}:{view?:'matrix'|'analysis'|'report'|'industry'}) {
+import { SourceMatrixPreviewContext } from './simulation/mode';
+import { SIMULATION_NOTICE } from './simulation/data';
+import { referenceScopeStyle } from './ReferenceScope';
+import './simulation/simulation.css';
+const SimulationPage=lazy(()=>import('./simulation/SimulationPage'));
+type MatrixView='matrix'|'analysis'|'report'|'industry';
+export default function SourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
+ const [path,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
+ const preview=useContext(SourceMatrixPreviewContext),params=new URLSearchParams(search);
+ const simulation=params.get('simulation')==='1'||(!params.has('simulation')&&preview);
+ const changeMode=(enabled:boolean)=>{
+  const next=new URLSearchParams(search);next.set('simulation',enabled?'1':'0');
+  // Neither a real task nor a draft binding crosses the mode boundary.
+  next.delete('task');next.delete('draftId');next.delete('matrixTask');
+  navigate(projectWorkspaceUrl(path+'?'+next.toString()));
+ };
+ return <><div className="fm-media sm-sim-mode" style={referenceScopeStyle}>
+  <div className="sm-sim-mode-control"><label><input type="checkbox" role="switch" checked={simulation} onChange={e=>changeMode(e.target.checked)}/>模拟模式</label><span>{simulation?'固定种子 · 离线计算 · 无真实下单':'真实模式 · 使用现有服务 API'}</span></div>
+  {simulation&&<div className="sm-sim-banner" role="status">{SIMULATION_NOTICE}</div>}
+ </div>{simulation?<Suspense fallback={<p role="status">正在准备模拟计算…</p>}><SimulationPage key={'simulated:'+workspace} view={view}/></Suspense>:<LiveSourceMatrixPage key={'real:'+workspace} view={view}/>}</>;
+}
+function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  const [,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
  const taskId=new URLSearchParams(search).get('task')??'';
  const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]),[industry,setIndustry]=useState(''),[questions,setQuestions]=useState(''),[product,setProduct]=useState(''),[audience,setAudience]=useState(''),[regions,setRegions]=useState(''),[hours,setHours]=useState(''),[requirement,setRequirement]=useState(''),[sourcePlatform,setSourcePlatform]=useState('');

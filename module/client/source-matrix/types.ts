@@ -14,7 +14,7 @@ export interface Analysis {
 }
 export interface BudgetPlan {
  details?:Array<{item:Json;currency:string|null;cost:string|null;known_cost:string|null;unknown_reasons:string[]}>;
- strategy:string;reason_summary:string;status:string;currency:string|null;total_cost:string|null;exploration_cost:string|null;known_total_cost:string|null;total_cap:string|null;total_remaining:string|null;exploration_remaining:string|null;budget_feasible:boolean;manuscript_status:string;ready_to_publish:boolean;execution_recommended:boolean;is_estimate:boolean;unknown_items:Json[];items:Json[];errors:Issue[];semantic_pending:Json[];
+ strategy:string;reason_summary:string;status:string;currency:string|null;total_cost:string|null;exploration_cost:string|null;known_total_cost:string|null;total_cap:string|null;total_remaining:string|null;exploration_remaining:string|null;exploration_cap?:string|null;budget_feasible:boolean;manuscript_status:string;ready_to_publish:boolean;execution_recommended:boolean;is_estimate:boolean;unknown_items:Json[];items:Json[];errors:Issue[];semantic_pending:Json[];
 }
 export interface MatrixResult {
  status:string;plan_id:string;plan_version:string;matrix_version:string;as_of:string;
