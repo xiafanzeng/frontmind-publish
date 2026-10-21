@@ -49,6 +49,16 @@ export default function PublishingPublicationsPage() {
   const pageCount = query.data
     ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize))
     : 1;
+  const invalidDateRange = Boolean(filters.from && filters.to && filters.from > filters.to);
+  const resetFilters = () => navigate(writePublicationWorkbenchRouteState({
+    ...filters,
+    query: "",
+    kind: "",
+    status: "",
+    from: "",
+    to: "",
+    page: 1,
+  }));
 
   return (
     <PublishingPage
@@ -66,7 +76,7 @@ export default function PublishingPublicationsPage() {
             className={query.refreshing ? "publishing-spin" : undefined}
             size={16}
           />
-          刷新
+          同步回执
         </button>
       }
     >
@@ -135,12 +145,17 @@ export default function PublishingPublicationsPage() {
             onChange={(event) => update("to", event.target.value)}
           />
         </label>
+        <div className="publishing-filter-actions">
+          <button className="publishing-button publishing-button-secondary" type="button" onClick={resetFilters}>重置条件</button>
+          <Link className="publishing-button publishing-button-primary" href="/publishing/articles"><Plus size={16} />投放新稿件</Link>
+        </div>
       </section>
-      {query.loading ? <PublishingLoading label="正在读取发布记录…" /> : null}
+      {invalidDateRange ? <div className="publishing-notice is-warning" role="alert">开始日期不能晚于结束日期。请调整日期范围后再查看记录。</div> : null}
+      {query.loading && !invalidDateRange ? <PublishingLoading label="正在读取发布记录…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
       ) : null}
-      {query.data ? (
+      {query.data && !invalidDateRange ? (
         query.data.items.length ? (
           <>
             <section
