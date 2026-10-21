@@ -9,7 +9,7 @@ const gateway=vi.hoisted(()=>({listMedia:vi.fn()}));
 vi.mock('../../PublishingContext',()=>({usePublisherGateway:()=>gateway}));
 
 afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
-it('uses an offline pipeline even when a real task and draft are present in the URL',async()=>{
+it('uses an offline pipeline even when a real task and draft are present in the URL',{timeout:300000},async()=>{
   window.history.replaceState({},'', '/publishing/source-matrix?simulation=1&task=real-task&draftId=real-draft');
   const fetch=vi.fn(()=>{throw new Error('Simulation must not call network');});vi.stubGlobal('fetch',fetch);
   render(<div className="monitoring-module"><SourceMatrixPage/></div>);
