@@ -1,7 +1,6 @@
 import { lazy, Suspense } from "react";
-import { Link, Redirect, Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 
-import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
 import { PublishingLoading } from "./components/PublishingUi";
@@ -12,8 +11,8 @@ import "./publishing.media.css";
 import "./publishing.records.css";
 import "./publishing.admin.css";
 import "./publishing.conversation.css";
+import "./publishing.market.css";
 
-const MediaRequirementsPage = lazy(() => import("./pages/MediaRequirementsPage"));
 const SourceMatrixPage = lazy(() => import("./source-matrix/SourceMatrixPage"));
 const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
 const LegacyPublicationListRedirect = lazy(() =>
@@ -47,15 +46,8 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           }
         >
           <>
-          <Route path="/publishing">
-            <nav className="publishing-workbench-tabs" aria-label="信源规划入口">
-              <Link href={projectWorkspaceUrl("/publishing/source-matrix")}>信源矩阵 →</Link>
-            </nav>
-          </Route>
           <Switch>
-            <Route path="/publishing/media-requirements">
-              <MediaRequirementsPage />
-            </Route>
+            <Route path="/publishing/source-industry"><SourceMatrixPage view="industry" /></Route>
             <Route path="/publishing/source-matrix"><SourceMatrixPage /></Route>
             <Route path="/publishing/source-analysis"><SourceMatrixPage view="analysis" /></Route>
             <Route path="/publishing/source-report"><SourceMatrixPage view="report" /></Route>
@@ -68,8 +60,14 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             <Route path="/publishing/articles">
               <ArticlesPage />
             </Route>
+            <Route path="/publishing/media/:view">
+              {(params) => <MediaLibraryPage view={(["home","owned","third","cart"] as const).find(v=>v===params.view)??"third"} />}
+            </Route>
+            <Route path="/publishing/drafts/:draftId/media/:view">
+              {(params) => <MediaLibraryPage draftId={params.draftId} view={(["home","owned","third","cart"] as const).find(v=>v===params.view)??"third"} />}
+            </Route>
             <Route path="/publishing/media">
-              <MediaLibraryPage />
+              <MediaLibraryPage view="home" />
             </Route>
             <Route path="/publishing/drafts/:draftId/media">
               {(params) => <MediaLibraryPage draftId={params.draftId} />}
