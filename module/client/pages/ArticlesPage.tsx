@@ -61,8 +61,8 @@ export default function PublishingArticlesPage() {
 
   return (
     <PublishingPage
-      title="稿件"
-      description="编辑正文并冻结可追溯版本；历史发布不会因后续修改而变化。"
+      title="稿件管理"
+      description="统一管理真实稿件、版本状态与最近更新时间；冻结版本不会因后续编辑而改变。"
       busy={query.loading || query.refreshing}
       actions={
         <Link
@@ -81,7 +81,7 @@ export default function PublishingArticlesPage() {
       {query.data ? (
         query.data.length ? (
           <section
-            className="publishing-panel publishing-article-table"
+            className="publishing-panel publishing-article-table publishing-articles-table"
             aria-label="稿件列表"
           >
             <div className="publishing-table-head publishing-article-row">

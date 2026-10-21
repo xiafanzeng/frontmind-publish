@@ -1,4 +1,4 @@
-import { ArrowRight, Clock3, FileText, Send } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, FileText, Send } from "lucide-react";
 import { useCallback } from "react";
 import { Link } from "wouter";
 
@@ -69,6 +69,27 @@ export default function PublishingOverviewPage() {
       ) : null}
       {query.data ? (
         <>
+          <section className="publishing-overview-hero" aria-label="工作台摘要">
+            <div>
+              <span className="publishing-overview-kicker">FRONTMIND / PUBLISHING</span>
+              <h2>从内容准备，到可追溯的发布结果</h2>
+              <p>继续编辑真实稿件、恢复投放草稿，并在同一工作台追踪发布批次。</p>
+              <div className="publishing-inline-actions">
+                <Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">
+                  <FileText size={16} /> 开始准备稿件
+                </Link>
+                <Link className="publishing-button publishing-button-secondary" href="/publishing?tab=records">
+                  查看发布记录 <ArrowRight size={16} />
+                </Link>
+              </div>
+            </div>
+            <div className="publishing-overview-hero-mark" aria-hidden="true">FM</div>
+          </section>
+          <div className="publishing-overview-metrics" aria-label="工作台关键指标">
+            <article><span className="publishing-overview-metric-icon"><FileText size={19}/></span><div><small>可继续草稿</small><strong>{query.data.resumableDraftCount}</strong><span>个投放任务</span></div></article>
+            <article><span className="publishing-overview-metric-icon"><Clock3 size={19}/></span><div><small>处理中批次</small><strong>{query.data.processingBatchCount}</strong><span>个发布批次</span></div></article>
+            <article><span className="publishing-overview-metric-icon"><CheckCircle2 size={19}/></span><div><small>需要处理</small><strong>{query.data.actionableItemCount}</strong><span>项待跟进</span></div></article>
+          </div>
           <div className="publishing-overview-columns">
             <section className="publishing-panel" aria-label="可恢复投放草稿">
               <header className="publishing-panel-heading">

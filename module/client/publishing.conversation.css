@@ -445,3 +445,25 @@
   min-width: 0;
   max-width: none;
 }
+
+
+/* Guided publishing entry adopts the same calm, compact card language. */
+.monitoring-module .publishing-flow-step .publishing-question,
+.monitoring-module .publishing-flow-step .publishing-step {
+  border-radius: 15px;
+}
+.monitoring-module .publishing-flow-step .publishing-question {
+  border: 1px solid var(--publishing-line, #e6e8f1);
+  box-shadow: 0 3px 14px rgba(41, 33, 58, .025);
+}
+.monitoring-module .publishing-flow-step .publishing-question h2,
+.monitoring-module .publishing-flow-step .publishing-step > h2 {
+  color: var(--publishing-plum, #4c1467);
+  letter-spacing: -.25px;
+}
+.monitoring-module .publishing-flow-step .publishing-question button[aria-pressed="true"],
+.monitoring-module .publishing-flow-step .publishing-question [aria-checked="true"] {
+  border-color: #d6a2bd;
+  background: #fcf2f8;
+  color: var(--publishing-purple, #b33467);
+}

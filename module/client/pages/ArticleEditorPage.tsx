@@ -115,6 +115,9 @@ export default function PublishingArticleEditorPage({
   const [freezing, setFreezing] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  // Presentation-only organization modes. They do not add fields to the gateway contract.
+  const [editorMode, setEditorMode] = useState<"single" | "multi" | "batch">("single");
+  const [alternateTitles, setAlternateTitles] = useState(["", ""]);
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
 
@@ -446,6 +449,57 @@ export default function PublishingArticleEditorPage({
           { label: article?.title || "编辑" },
         ]}
       />
+      <section className="publishing-editor-mode-panel" aria-label="编辑组织模式">
+        <div className="publishing-editor-mode-heading">
+          <div>
+            <span className="publishing-overview-kicker">CONTENT WORKSPACE</span>
+            <h2>内容编辑方式</h2>
+            <p>切换编辑工作视图；模式选择仅用于当前页面组织内容，不改变保存、冻结或媒体交接的数据契约。</p>
+          </div>
+          <span className="publishing-local-mode-note">本页临时视图</span>
+        </div>
+        <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
+          {([
+            ["single", "单篇编辑", "一份标题与正文"],
+            ["multi", "多标题", "同一正文，准备不同标题"],
+            ["batch", "批量准备", "聚焦当前稿件并逐篇处理"],
+          ] as const).map(([mode, label, hint]) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={editorMode === mode}
+              className={editorMode === mode ? "is-active" : ""}
+              onClick={() => setEditorMode(mode)}
+            >
+              <strong>{label}</strong><span>{hint}</span>
+            </button>
+          ))}
+        </div>
+        {editorMode === "multi" ? (
+          <div className="publishing-alternate-titles">
+            <div><strong>标题草拟区</strong><p>以下备选标题只保存在当前编辑页面，不会写入稿件 API；请在实际媒体流程中按媒体规则确认最终标题。</p></div>
+            {alternateTitles.map((value, index) => (
+              <label key={index}>
+                <span>备选标题 {index + 1}</span>
+                <input
+                  value={value}
+                  maxLength={100}
+                  placeholder={title || "输入备选标题"}
+                  onChange={(event) => setAlternateTitles((current) => current.map((item, i) => i === index ? event.target.value : item))}
+                />
+              </label>
+            ))}
+            <button type="button" className="publishing-button publishing-button-secondary" onClick={() => setAlternateTitles((current) => [...current, ""])} disabled={alternateTitles.length >= 5}>＋ 添加备选标题</button>
+          </div>
+        ) : editorMode === "batch" ? (
+          <div className="publishing-batch-mode-note">
+            <strong>批量准备工作流</strong>
+            <span>当前编辑器仍绑定一篇真实稿件。请先保存或冻结当前稿件，再从稿件管理中打开下一篇；不会在本地创建虚构稿件或批量任务。</span>
+            <Link className="publishing-button publishing-button-secondary" href="/publishing/articles">打开稿件管理 <Eye size={15}/></Link>
+          </div>
+        ) : null}
+      </section>
       {query.loading ? <PublishingLoading label="正在读取稿件编辑器…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
