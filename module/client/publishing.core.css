@@ -767,3 +767,107 @@
   background: transparent;
   font-size: 13px;
 }
+
+
+/* Content production surfaces: shared, scoped refinements based on the supplied DEMO. */
+.monitoring-module .publishing-page {
+  background: var(--publishing-canvas);
+  color: var(--publishing-ink);
+}
+.monitoring-module :where(.publishing-page) .publishing-page-heading h1 {
+  color: var(--publishing-plum);
+  letter-spacing: -0.035em;
+}
+.monitoring-module :where(.publishing-page) .publishing-page-heading p {
+  color: var(--publishing-muted);
+  line-height: 1.7;
+}
+.monitoring-module :where(.publishing-page) .publishing-panel {
+  border-color: var(--publishing-line);
+  border-radius: var(--publishing-radius);
+  box-shadow: var(--publishing-shadow);
+}
+.monitoring-module :where(.publishing-page) .publishing-panel-heading {
+  background: #fff;
+}
+.monitoring-module :where(.publishing-page) .publishing-button {
+  min-height: 39px;
+  border-radius: 9px;
+}
+.monitoring-module :where(.publishing-page) .publishing-button-primary,
+.monitoring-module :where(.publishing-page) .publishing-button-accent {
+  background: var(--publishing-purple);
+  border-color: var(--publishing-purple);
+  box-shadow: 0 3px 8px rgba(179, 52, 103, 0.12);
+}
+.monitoring-module :where(.publishing-page) .publishing-button-primary:hover:not(:disabled),
+.monitoring-module :where(.publishing-page) .publishing-button-accent:hover:not(:disabled) {
+  background: var(--publishing-purple-dark);
+  border-color: var(--publishing-purple-dark);
+}
+.monitoring-module :where(.publishing-page) .publishing-button-secondary {
+  border-color: #d7a2bb;
+  color: var(--publishing-purple);
+}
+.monitoring-module :where(.publishing-page) .publishing-file-icon,
+.monitoring-module :where(.publishing-page) .publishing-metric-icon {
+  background: var(--publishing-purple-soft);
+  color: var(--publishing-purple);
+  border-radius: 11px;
+}
+.monitoring-module :where(.publishing-page) .publishing-list-row:hover,
+.monitoring-module :where(.publishing-page) .publishing-article-row:hover {
+  background: #fff8fc;
+}
+.monitoring-module :where(.publishing-page) .publishing-status.is-success {
+  color: var(--publishing-green);
+  background: #eaf8f1;
+}
+.monitoring-module :where(.publishing-page) .publishing-status.is-neutral {
+  color: #765c86;
+  background: #f0edf6;
+}
+.monitoring-module :where(.publishing-page) :is(input, textarea, select) {
+  accent-color: var(--publishing-purple);
+}
+@media (max-width: 720px) {
+  .monitoring-module :where(.publishing-page) .publishing-panel {
+    border-radius: 12px;
+  }
+}
+
+
+/* List and dashboard views keep real gateway data and actions, with clearer scan hierarchy. */
+.monitoring-module :where(.publishing-page) .publishing-overview-columns {
+  gap: 18px;
+}
+.monitoring-module :where(.publishing-page) .publishing-overview-columns > section,
+.monitoring-module :where(.publishing-page) .publishing-article-table {
+  overflow: hidden;
+  background: #fff;
+}
+.monitoring-module :where(.publishing-page) .publishing-panel-heading h2 {
+  color: var(--publishing-plum);
+}
+.monitoring-module :where(.publishing-page) .publishing-panel-heading > a {
+  color: var(--publishing-purple);
+}
+.monitoring-module :where(.publishing-page) .publishing-article-row {
+  min-height: 76px;
+  border-bottom-color: #f0eef5;
+}
+.monitoring-module :where(.publishing-page) .publishing-table-head {
+  background: #fcfbfd;
+  color: var(--publishing-muted);
+  font-size: 12px;
+}
+.monitoring-module :where(.publishing-page) .publishing-article-name strong {
+  color: var(--publishing-ink);
+}
+.monitoring-module :where(.publishing-page) .publishing-article-name small {
+  color: var(--publishing-muted);
+}
+.monitoring-module :where(.publishing-page) .publishing-list-row > svg:last-child,
+.monitoring-module :where(.publishing-page) .publishing-article-row > svg:last-child {
+  color: #a9a1b3;
+}

@@ -3,7 +3,9 @@ import {
   CheckCircle2,
   Clock3,
   FileCheck2,
+  Eye,
   Image as ImageIcon,
+  X,
   LoaderCircle,
   Save,
   ShieldCheck,
@@ -111,6 +113,8 @@ export default function PublishingArticleEditorPage({
   const saveRequest = useRef(0);
   const freezeLock = useRef(false);
   const [freezing, setFreezing] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
 
@@ -379,6 +383,15 @@ export default function PublishingArticleEditorPage({
             <button
               className="publishing-button publishing-button-secondary"
               type="button"
+              onClick={() => setPreviewOpen(true)}
+              disabled={!article}
+            >
+              <Eye size={16} />
+              预览稿件
+            </button>
+            <button
+              className="publishing-button publishing-button-secondary"
+              type="button"
               onClick={() => void saveNow().catch(() => undefined)}
               disabled={!dirty || saving}
             >
@@ -436,6 +449,65 @@ export default function PublishingArticleEditorPage({
       {query.loading ? <PublishingLoading label="正在读取稿件编辑器…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
+      ) : null}
+      {previewOpen && article ? (
+        <div
+          className="publishing-article-preview-backdrop"
+          role="presentation"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setPreviewOpen(false);
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPreviewOpen(false);
+          }}
+        >
+          <section
+            className={`publishing-article-preview ${previewDevice === "mobile" ? "is-mobile" : "is-desktop"}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="稿件预览"
+          >
+            <header>
+              <div>
+                <strong>稿件预览</strong>
+                <span>预览当前编辑内容，不代表媒体最终排版</span>
+              </div>
+              <div className="publishing-inline-actions">
+                <button
+                  type="button"
+                  className={`publishing-button ${previewDevice === "desktop" ? "publishing-button-primary" : "publishing-button-secondary"}`}
+                  onClick={() => setPreviewDevice("desktop")}
+                >
+                  桌面
+                </button>
+                <button
+                  type="button"
+                  className={`publishing-button ${previewDevice === "mobile" ? "publishing-button-primary" : "publishing-button-secondary"}`}
+                  onClick={() => setPreviewDevice("mobile")}
+                >
+                  手机
+                </button>
+                <button
+                  type="button"
+                  className="publishing-dialog-close"
+                  aria-label="关闭稿件预览"
+                  onClick={() => setPreviewOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </header>
+            <article className="publishing-article-preview-paper">
+              <h1>{title.trim() || "未命名稿件"}</h1>
+              <div
+                className="publishing-article-preview-content"
+                dangerouslySetInnerHTML={{
+                  __html: sanitizePublisherEditorHtml(content.html, images),
+                }}
+              />
+            </article>
+          </section>
+        </div>
       ) : null}
       {article ? (
         <>

@@ -1806,3 +1806,191 @@
   color: var(--publishing-purple, #3636e2);
   font-size: var(--operator-caption-size, 10px);
 }
+
+
+/* Editor refinements: preserve TipTap, upload and save behavior while clarifying hierarchy. */
+.monitoring-module :where(.publishing-page) .publishing-editor-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 292px);
+  gap: 20px;
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-card {
+  border-radius: 15px;
+  overflow: hidden;
+}
+.monitoring-module :where(.publishing-page) .publishing-title-field {
+  padding: 23px 25px 16px;
+  gap: 10px;
+}
+.monitoring-module :where(.publishing-page) .publishing-title-field > span {
+  color: var(--publishing-ink);
+  font-size: 13px;
+}
+.monitoring-module :where(.publishing-page) .publishing-title-field input {
+  min-height: 48px;
+  padding: 10px 13px;
+  border: 1px solid var(--publishing-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--publishing-ink);
+  font-size: 19px;
+  font-weight: 650;
+}
+.monitoring-module :where(.publishing-page) .publishing-title-field input:focus {
+  border-color: #c8739a;
+  outline: 3px solid rgba(179, 52, 103, 0.12);
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-toolbar {
+  flex-wrap: wrap;
+  padding: 9px 13px;
+  background: #fcfbfd;
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-toolbar button {
+  border-radius: 7px;
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-toolbar button:hover,
+.monitoring-module :where(.publishing-page) .publishing-editor-toolbar button[aria-pressed="true"] {
+  background: var(--publishing-purple-soft);
+  color: var(--publishing-purple);
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-inspector > section {
+  border-radius: 13px;
+  background: #fff;
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-inspector h2 {
+  color: var(--publishing-plum);
+}
+.monitoring-module :where(.publishing-page) .publishing-editor-count {
+  background: #fcfbfd;
+  color: var(--publishing-muted);
+}
+.monitoring-module :where(.publishing-page) .publishing-image-row {
+  border-color: var(--publishing-line);
+  border-radius: 10px;
+}
+@media (max-width: 900px) {
+  .monitoring-module :where(.publishing-page) .publishing-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .monitoring-module :where(.publishing-page) .publishing-editor-inspector {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .monitoring-module :where(.publishing-page) .publishing-title-field {
+    padding: 17px 15px 13px;
+  }
+  .monitoring-module :where(.publishing-page) .publishing-title-field input {
+    font-size: 16px;
+  }
+  .monitoring-module :where(.publishing-page) .publishing-editor-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+
+/* Desktop/mobile article preview, rendered from the current sanitized editor value. */
+.monitoring-module .publishing-article-preview-backdrop {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background: rgba(32, 21, 42, 0.56);
+  backdrop-filter: blur(4px);
+}
+.monitoring-module .publishing-article-preview {
+  display: flex;
+  width: min(1040px, 100%);
+  max-height: calc(100dvh - 48px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--publishing-line);
+  border-radius: 16px;
+  background: #f5f6fa;
+  box-shadow: 0 24px 80px rgba(37, 21, 44, 0.25);
+}
+.monitoring-module .publishing-article-preview > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--publishing-line);
+  background: #fff;
+}
+.monitoring-module .publishing-article-preview > header > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.monitoring-module .publishing-article-preview > header strong {
+  color: var(--publishing-plum);
+  font-size: 16px;
+}
+.monitoring-module .publishing-article-preview > header span {
+  color: var(--publishing-muted);
+  font-size: 11px;
+}
+.monitoring-module .publishing-article-preview > header .publishing-inline-actions {
+  align-items: center;
+}
+.monitoring-module .publishing-article-preview-paper {
+  width: 100%;
+  max-width: 850px;
+  margin: 22px auto;
+  padding: 38px 44px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #ece8f0;
+  border-radius: 10px;
+  box-shadow: 0 3px 14px rgba(33, 36, 74, 0.04);
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.monitoring-module .publishing-article-preview.is-mobile .publishing-article-preview-paper {
+  width: min(390px, calc(100% - 24px));
+  padding: 24px 20px;
+  border-radius: 20px;
+}
+.monitoring-module .publishing-article-preview-paper h1 {
+  margin: 0 0 22px;
+  color: #202134;
+  font-size: 25px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.monitoring-module .publishing-article-preview-content p {
+  margin: 0 0 14px;
+}
+.monitoring-module .publishing-article-preview-content h2,
+.monitoring-module .publishing-article-preview-content h3 {
+  margin: 20px 0 10px;
+  color: var(--publishing-plum);
+}
+.monitoring-module .publishing-article-preview-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.monitoring-module .publishing-article-preview-content a {
+  color: var(--publishing-purple);
+  text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .monitoring-module .publishing-article-preview-backdrop {
+    padding: 10px;
+  }
+  .monitoring-module .publishing-article-preview {
+    max-height: calc(100dvh - 20px);
+  }
+  .monitoring-module .publishing-article-preview > header {
+    align-items: flex-start;
+    padding: 13px;
+    flex-direction: column;
+  }
+  .monitoring-module .publishing-article-preview-paper {
+    margin: 12px auto;
+    padding: 22px 18px;
+  }
+}
