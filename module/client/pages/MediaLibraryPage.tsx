@@ -1,27 +1,14 @@
 import {
-  Check,
-  ChevronDown,
-  ExternalLink,
-  Filter,
-  Layers3,
-  LoaderCircle,
-  RefreshCw,
-  Search,
-  ShoppingBag,
-  Trash2,
-  X,
-} from "lucide-react";
-import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { MarketRow, RowHead, MediaTabs, MediaTaskbar, MediaDetails, useMarketRules, exportRows, rulesRequest } from "../source-matrix/MediaMarket";
+import { MarketRow, RowHead, MediaDialog, MediaShell, MediaCartFooter, MediaTaskbar, MediaDetails, useMarketRules, exportRows, rulesRequest } from "../source-matrix/MediaMarket";
 import "../publishing.market.css";
+import {ReferenceIcon,ReferenceInlineIcon} from "../source-matrix/ReferenceIcons";
 import type { MediaRules } from "../../server/providers/kol/media-rules";
 import { MarketRemark as PublishingRemark } from "../source-matrix/MediaMarket";
 import { usePublishingWorkspaceKey } from "../host";
@@ -35,8 +22,6 @@ import {
 import {
   mediaSelectionBlocker,
   mediaShortlistKey,
-  readMediaShortlist,
-  saveMediaShortlist,
   switchMediaKind,
 } from "../mediaShortlist";
 
@@ -46,20 +31,10 @@ import {
   usePublishingChoice,
 } from "../components/PublishingConversation";
 import {
-  MediaMark,
-  PublishingEmpty,
-  PublishingError,
-  PublishingLoading,
-  PublishingPage,
-  PublishingPagination,
-  PublishingSteps,
-  PublishingConfirmDialog,
-} from "../components/PublishingUi";
-import {
   DEFAULT_MEDIA_FILTERS,
   parseBatchQuery,
-  readMediaRouteState,
-  writeMediaRouteState,
+  readMediaRouteState as readSharedMediaRouteState,
+  writeMediaRouteState as writeSharedMediaRouteState,
 } from "../queryState";
 import {
   formatPublishingMoney,
@@ -70,31 +45,9 @@ import {
   type PublisherMediaKind,
 } from "../types";
 
-function kindLabel(kind: MediaResource["kind"]) {
-  return kind === "self_media"
-    ? "自媒体"
-    : kind === "news"
-      ? "软文媒体"
-      : "历史媒体";
-}
-
-function capabilityLabel(capability: MediaResource["capability"]) {
-  if (capability === "image") return "支持图文";
-  if (capability === "image_pending") return "图文能力";
-  return "仅文字";
-}
-
-function percentage(value?: number) {
-  return value === undefined ? "—" : `${value}%`;
-}
-
-function compactNumber(value?: number) {
-  if (value === undefined) return "—";
-  if (value >= 10_000)
-    return `${(value / 10_000).toFixed(value >= 100_000 ? 0 : 1)}万`;
-  return value.toLocaleString("zh-CN");
-}
-
+// This catalogue's all-media tab is explicit; other publishing screens keep their existing news default.
+function readMediaRouteState(search:string) {const state=readSharedMediaRouteState(search);if(new URLSearchParams(search).get('kind')==='all')state.filters.kind=undefined;return state;}
+function writeMediaRouteFilters(path:string,filters:MediaFilters,version?:string) {const result=writeSharedMediaRouteState(path,filters,version);if(filters.kind)return result;const [pathname,query]=result.split('?');const params=new URLSearchParams(query);params.set('kind','all');return pathname+'?'+params.toString();}
 export default function PublishingMediaLibraryPage({
   draftId: routeDraftId,
   view = "third",
@@ -110,6 +63,17 @@ export default function PublishingMediaLibraryPage({
       ?.id;
   const [location, navigate] = useLocation();
   const search = useSearch();
+  // Keep the server-side matrix task in links; no browser persistence or
+  // replacement data store is needed to return from the real draft cart.
+  const matrixTask = new URLSearchParams(search).get('matrixTask') ?? '';
+  const writeMediaRouteState = (path:string,next:MediaFilters,version?:string) => {
+    const serialized=writeMediaRouteFilters(path,next,version);
+    if(!matrixTask)return serialized;
+    const [pathname,query]=serialized.split('?'),params=new URLSearchParams(query);
+    params.set('matrixTask',matrixTask);return pathname+'?'+params.toString();
+  };
+  const pageHref=(path:string)=>matrixTask?path+(path.includes('?')?'&':'?')+'matrixTask='+encodeURIComponent(matrixTask):path;
+  const sourceHref=(path:string)=>{const params=new URLSearchParams();if(draftId)params.set('draftId',draftId);if(matrixTask)params.set('task',matrixTask);return path+(params.size?'?'+params.toString():'');};
   const workspaceKey = usePublishingWorkspaceKey();
   const accountShortlistKey = mediaShortlistKey(workspaceKey, search);
   const shortlistKey =
@@ -176,7 +140,7 @@ export default function PublishingMediaLibraryPage({
   );
   const [selection, setSelection] = useState(() => ({
     scope: selectionScope,
-    items: readMediaShortlist(shortlistKey),
+    items: new Map<string, MediaResource>(),
   }));
   const selected = useMemo(
     () =>
@@ -267,15 +231,20 @@ export default function PublishingMediaLibraryPage({
   const [ruleFilter,setRuleFilter]=useState('');
   const [compact,setCompact]=useState(false);
   const [detailMedia,setDetailMedia]=useState<MediaResource>();
-  const favoriteKey=`${accountShortlistKey??workspaceKey}:favorites`;
-  const [favoriteState,setFavoriteState]=useState<{key:string;ids:string[]}>({key:'',ids:[]});
-  useEffect(()=>{try{const value=JSON.parse(localStorage.getItem(favoriteKey)??'[]');setFavoriteState({key:favoriteKey,ids:Array.isArray(value)?value.filter((x):x is string=>typeof x==='string'):[]});}catch{setFavoriteState({key:favoriteKey,ids:[]});}},[favoriteKey]);
-  const favorites=favoriteState.key===favoriteKey?favoriteState.ids:[];
-  const favorite=(id:string)=>{const ids=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];try{localStorage.setItem(favoriteKey,JSON.stringify(ids));setFavoriteState({key:favoriteKey,ids});}catch{setSelectionError('收藏保存失败，请检查浏览器存储权限。');}};
+  const favorites:string[]=[];
+  const favorite=(_id:string)=>setMarketNotice('收藏接口尚未配置，未保存本次收藏。');
+  const [dialogMessage,setDialogMessage]=useState('');
+  const [previewOpen,setPreviewOpen]=useState(false),[mobilePreview,setMobilePreview]=useState(false);
+  const [selectionReason,setSelectionReason]=useState('');
+  const [quoteMedia,setQuoteMedia]=useState<MediaResource>();
+  const [quotePrice,setQuotePrice]=useState(''),[quoteSource,setQuoteSource]=useState(''),[quoteAck,setQuoteAck]=useState(false),[quoteError,setQuoteError]=useState('');
+  const [templateOpen,setTemplateOpen]=useState(false),[templateName,setTemplateName]=useState(''),[templateError,setTemplateError]=useState('');
+  const [quoteStatus,setQuoteStatus]=useState('');
+  const [clientSort,setClientSort]=useState('match');
   const [dataInfoOpen,setDataInfoOpen]=useState(false);
   const loadMedia = useCallback(
     async (signal: AbortSignal, pageOverride=filters.page):Promise<MediaList> => {
-      if(scope==='all'&&!remarkFilter&&!ruleFilter)return gateway.listMedia({...filters,page:pageOverride},signal);
+      if(scope==='all'&&!remarkFilter&&!ruleFilter&&!quoteStatus&&clientSort!=='name'&&clientSort!=='remark')return gateway.listMedia({...filters,page:pageOverride},signal);
       // Filters derived from official remarks apply to the complete matching
       // directory, before paging. Never relabel one browser page as all results.
       const first=await gateway.listMedia({...filters,page:1,pageSize:100},signal);
@@ -286,14 +255,18 @@ export default function PublishingMediaLibraryPage({
         all.push(...next.items);
       }
       let matching=all.filter(m=>(scope!=='favorites'||favorites.includes(m.id))&&(scope!=='cart'||selected.has(m.id)));
-      if(remarkFilter||ruleFilter){
+      if(remarkFilter||ruleFilter||clientSort==='remark'){
         const ruleMap=new Map<string,MediaRules>();
         for(let i=0;i<matching.length;i+=100){const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(matching.slice(i,i+100).map(m=>m.id).join(',')),signal);for(const row of data.items)ruleMap.set(row.id,row.rules);}
-        matching=matching.filter(m=>{const rules=ruleMap.get(m.id);return !!rules&&(!remarkFilter||(remarkFilter==='provided'?!!rules.rawRemark:!rules.rawRemark))&&(!ruleFilter||rules.rules.some(r=>r.field===ruleFilter&&r.state==='constrained'));});
+        matching=matching.filter(m=>{const rules=ruleMap.get(m.id);return !!rules&&(!remarkFilter||(remarkFilter==='provided'?!!rules.rawRemark:remarkFilter==='unknown'?!rules.rawRemark:false))&&(!ruleFilter||(ruleFilter==='weekend'?/周末可发/.test(rules.rawRemark??''):/节假日可发/.test(rules.rawRemark??'')));});
+        if(clientSort==='remark')matching.sort((a,b)=>Number(!!ruleMap.get(b.id)?.rawRemark)-Number(!!ruleMap.get(a.id)?.rawRemark));
       }
+      matching=matching.filter(m=>!quoteStatus||(quoteStatus==='inquiry'?(!/^\d+$/.test(m.priceTenThousandths)||BigInt(m.priceTenThousandths)<=0n):false));
+      if(clientSort==='name')matching.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));
+      
       return {...first,total:matching.length,page:pageOverride,pageSize:filters.pageSize,items:matching.slice((pageOverride-1)*filters.pageSize,pageOverride*filters.pageSize)};
     },
-    [filters,gateway,scope,favorites.join(','),remarkFilter,ruleFilter,scope==='cart'?[...selected.keys()].join(','):''],
+    [filters,gateway,scope,favorites.join(','),remarkFilter,ruleFilter,quoteStatus,clientSort,scope==='cart'?[...selected.keys()].join(','):''],
   );
   const loadFacets = useCallback(
     (signal: AbortSignal) => gateway.getMediaFacets(filters, signal),
@@ -310,7 +283,7 @@ export default function PublishingMediaLibraryPage({
   );
   const mediaQuery = usePublisherQuery(
     loadMedia,
-    `media:${JSON.stringify(filters)}:${scope}:${favorites.join(',')}:${remarkFilter}:${ruleFilter}`,
+    `media:${JSON.stringify(filters)}:${scope}:${favorites.join(',')}:${remarkFilter}:${ruleFilter}:${quoteStatus}:${clientSort}`,
   );
   const facetsQuery = usePublisherQuery(
     loadFacets,
@@ -352,7 +325,7 @@ export default function PublishingMediaLibraryPage({
   useEffect(() => {
     if (!draftQuery.data) {
       setDraft(undefined);
-      setSelected(draftId ? new Map() : readMediaShortlist(shortlistKey));
+      setSelected(draftId ? new Map() : new Map<string, MediaResource>());
       return;
     }
     setDraft(draftQuery.data);
@@ -379,10 +352,7 @@ export default function PublishingMediaLibraryPage({
     setSelected(new Map(rows.slice(0, 20).map((row) => [row.id, row])));
   }, [draftId, persistedSelection, setSelected]);
 
-  useEffect(() => {
-    if (selection.scope === selectionScope && !draftId && !draft)
-      saveMediaShortlist(shortlistKey, selected);
-  }, [draftId, draft, selected, shortlistKey, selection.scope, selectionScope]);
+
 
   useEffect(() => {
     const revision = mediaQuery.data?.catalog.activeRevision;
@@ -520,7 +490,6 @@ export default function PublishingMediaLibraryPage({
       } else {
         setSelected(optimistic);
         setSelectionError("");
-        saveMediaShortlist(shortlistKey, optimistic);
       }
       return;
     }
@@ -551,7 +520,6 @@ export default function PublishingMediaLibraryPage({
           ? await gateway.createDraft(articleVersionId!, mediaIds, requestKey)
           : await gateway.createDraft(articleVersionId!, mediaIds);
         if (generation !== selectionGeneration.current) return;
-        saveMediaShortlist(shortlistKey, new Map());
         setDraft(saved);
         setSelected(
           new Map(saved.items.map((item) => [item.media.id, item.media])),
@@ -762,7 +730,6 @@ export default function PublishingMediaLibraryPage({
         ? await gateway.createDraft(chosenVersion, mediaIds, requestKey)
         : await gateway.createDraft(chosenVersion, mediaIds);
       if (generation !== selectionGeneration.current) return;
-      saveMediaShortlist(shortlistKey, new Map());
       setDraft(saved);
       setArticleChooserOpen(false);
       if (flow) {
@@ -909,192 +876,50 @@ export default function PublishingMediaLibraryPage({
 
   const sourceRows=view==='cart'?selectedValues:mediaQuery.data?.items??[];
   const ruleData=useMarketRules([...new Set([...sourceRows.map(x=>x.id),...(detailMedia?[detailMedia.id]:[])])],mediaQuery.data?.catalog.activeRevision??'');
-  const rows=ruleData.ready?sourceRows.filter(m=>(scope!=='favorites'||favorites.includes(m.id))&&(!remarkFilter||(remarkFilter==='provided'?!!ruleData.rules[m.id]?.rawRemark:!ruleData.rules[m.id]?.rawRemark))&&(!ruleFilter||ruleData.rules[m.id]?.rules.some(r=>r.field===ruleFilter&&r.state==='constrained'))):[];
+  const rows=ruleData.ready?sourceRows:[];
   const base=draftId?`/publishing/drafts/${encodeURIComponent(draftId)}/media`:'/publishing/media';
-  const titles={home:'媒体库',third:'第三方媒体选择',owned:'自有社媒发布',cart:'第三方购物车'};
   const next=()=>boundDraft&&flow?void handoff():void continueSelection();
   const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
   useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,remarkFilter,ruleFilter]);
-  const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setSelectionError(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
-
-  return <PublishingPage title={titles[view]} description={view==='third'?'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。':view==='home'?'从信源研究到媒体选择，再到可回退修正的发布预检。':undefined} busy={selectionBusy} actions={view==='third'?<div className="fm-media"><button className="button secondary" disabled={exporting||!ruleData.ready} onClick={()=>void exportCatalogue()}>{exporting?'正在导出…':'导出媒体清单'}</button></div>:undefined}>
-    <div className="fm-media">
-      <MediaTaskbar title={(boundDraft??draft)?.articleTitle??selectedArticle?.title} count={selected.size} total={selectedTotal} cartHref={base+'/cart'}>
-       <select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='choose')chooseArticle();else if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'当前投放任务'}</option>}<option value="choose">选择已确认稿件…</option></select>
-       {(draft??boundDraft)&&<button className="link small" onClick={()=>chooseArticle()}>查看 / 更换稿件</button>}
-      </MediaTaskbar>
-      <MediaTabs active={view} base={base} query={search.replace(/^\?/,'')}/>
-      {selectionError&&<p className="notice warn" role="alert">{selectionError}</p>}{marketNotice&&<p className="notice" role="status">{marketNotice}</p>}
-      {catalogRevisionChange&&<div className="notice warn">媒体目录已更新，请刷新报价与要求。<button className="link" onClick={refreshChangedCatalog}>刷新目录</button></div>}
-      {view==='home'?<><div className="x-source-grid">{[['/publishing/source-matrix','信源矩阵','输入引用记录与行业清单，结合投放需求生成分层推荐。','生成信源推荐'],['/publishing/source-industry','行业信源推荐','按行业查看推荐理由、来源和可投状态；研究信源与可投媒体分别标注。','查看行业推荐'],[base+'/third','第三方媒体','筛选媒体、悬停查看特殊要求，勾选即加入同一购物车。','选择第三方媒体']].map(([href='',title='',note='',cta=''])=><section className="panel b-entry" key={href}><div className="metric-icon">{title==='信源矩阵'?<Layers3/>:title==='行业信源推荐'?<Search/>:<ShoppingBag/>}</div><h2>{title}</h2><p>{note}</p><Link className="button primary" href={projectWorkspaceUrl(href)}>{cta} →</Link></section>)}</div><div className="x-summary-grid"><div className="x-summary-item"><small>已选第三方媒体</small><strong>{selected.size}</strong><Link className="link small" href={projectWorkspaceUrl(base+'/cart')}>查看购物车 →</Link></div><div className="x-summary-item"><small>已确认费用</small><strong>{formatPublishingMoney(selectedTotal)}</strong><span className="small muted">发布前复核报价</span></div><div className="x-summary-item"><small>已输入引用记录</small><strong>—</strong><Link className="link small" href={projectWorkspaceUrl('/publishing/source-analysis')}>引用信源 →</Link></div><div className="x-summary-item"><small>已输入行业推荐</small><strong>—</strong><Link className="link small" href={projectWorkspaceUrl('/publishing/source-industry')}>行业清单 →</Link></div></div></>:view==='owned'?<section className="panel panel-pad"><h2>自有社媒发布</h2><div className="x-empty"><strong>尚未连接自有账号</strong><p>当前仓库未提供自有社媒账号授权与发布接口。请先完成账号接入；第三方自媒体不会作为自有账号展示。</p></div></section>:view==='cart'?<div className="y-catalogue">
-       <div className="actions" style={{marginBottom:18}}><Link className="button secondary" href={projectWorkspaceUrl(base+'/third')}>← 继续选择媒体</Link><button className="button quiet" onClick={()=>exportRows(selectedValues)}>导出清单</button><button className="button quiet" disabled={!selected.size} onClick={()=>{try{const key=`${accountShortlistKey??workspaceKey}:templates`;const saved=JSON.parse(localStorage.getItem(key)??'[]');localStorage.setItem(key,JSON.stringify([...(Array.isArray(saved)?saved:[]),{savedAt:new Date().toISOString(),mediaIds:selectedValues.map(m=>m.id)}].slice(-20)));setMarketNotice('当前组合模板已保存在此浏览器。重新使用前需复核媒体报价与要求。');}catch{setSelectionError('组合模板保存失败，请检查浏览器存储权限。');}}}>保存组合模板</button><button className="link danger" onClick={clearSelection}>清空购物车</button></div>
-       {!draft&&!boundDraft&&<div className="notice" style={{marginBottom:16}}>当前是独立研究清单。配置标题前，请绑定已确认稿件；清单与报价会一并保留。</div>}
-       {ruleData.error&&<p className="notice warn" role="status">{ruleData.error}</p>}
-       <div className="panel y-cart-panel">{ruleData.ready&&selected.size?<div className="table-wrap"><table className="y-cart-table"><thead><tr><th>媒体 / 发布备注</th><th>单篇报价</th><th>投放稿件</th><th>规则与操作</th></tr></thead><tbody>{selectedValues.map(m=><tr key={m.id}><td className="y-cart-resource"><strong>{m.name}</strong><p className="small muted">{m.platform||'平台未注明'}</p><div className="y-remarks-line"><span>发布备注</span><PublishingRemark text={ruleData.rules[m.id]?.rawRemark??m.remark}/></div></td><td><strong className="b-price">{formatPublishingMoney(m.priceTenThousandths)}</strong><p className="small muted">目录报价 · 发布前复核</p></td><td><label><input type="checkbox" checked={!!(draft??boundDraft)} disabled/>{(draft??boundDraft)?.articleTitle??'尚未绑定稿件'}</label><button className="link small" onClick={()=>chooseArticle()}>选择 / 更换稿件</button></td><td><button className="link small" onClick={()=>setDetailMedia(m)}>要求与预检</button><button className="link small" disabled={selectionBusy} onClick={()=>toggle(m)}>移除</button></td></tr>)}</tbody></table></div>:<div className="x-empty"><strong>{ruleData.loading?'正在读取目录资料':!ruleData.ready?'等待官方 API 配置':'购物车还没有媒体'}</strong><p>从第三方媒体或信源矩阵中选择资源。</p></div>}</div>
-       <div className="b-bottom"><div><strong>购物车 {selected.size} 家 · {formatPublishingMoney(selectedTotal)}</strong><p className="small muted">发布前按实际稿件与媒体组合重新核对费用。</p></div><div className="actions"><button className="button secondary" onClick={()=>chooseArticle()}>绑定已确认稿件</button><button className="button primary" disabled={!selected.size||selectionBusy} onClick={next}>配置标题 →</button></div></div>
-      </div>:<div className={'y-catalogue '+(compact?'y-compact':'')}>
-       <div className="y-data-strip"><span><strong>{ruleData.loading?'正在读取官方目录状态':ruleData.ready?`已载入 ${sourceRows.length} 条目录记录`:'官方 API 待配置'}</strong>　备注悬停可展开；未提供的要求保留为待确认。</span><button className="link" onClick={()=>setDataInfoOpen(true)}>数据说明 ⓘ</button></div>
-       {ruleData.error&&<p className="notice warn fm-status" role="status">{ruleData.error}</p>}
-       {view==='third'&&<>
-       <section className={'panel y-filter-panel '+(advancedOpen?'':'y-filter-collapsed')}>
-        <div className="y-search-line"><div className="y-search-box"><Search size={18}/><input type="search" className="field" aria-label="搜索媒体" value={queryDraft} placeholder="搜索媒体、平台或资源编号" onChange={e=>setQueryDraft(e.target.value)}/></div><button className="button secondary x-small-button" onClick={()=>setBatchOpen(!batchOpen)}>批量搜索</button><select aria-label="媒体排序" value={filters.sort??'recommended'} onChange={e=>updateFilter('sort',e.target.value as MediaFilters['sort'])}><option value="recommended">按目录顺序</option><option value="price_asc">报价从低到高</option><option value="price_desc">报价从高到低</option></select><button className="button secondary x-small-button" aria-expanded={advancedOpen} onClick={()=>setAdvancedOpen(!advancedOpen)}>{advancedOpen?'收起筛选 ▴':'筛选条件 ▾'}</button><button className="link small" onClick={()=>{navigateFilters({...DEFAULT_MEDIA_FILTERS,kind:filters.kind});setRemarkFilter('');setRuleFilter('');}}>重置</button></div>
-        {batchOpen&&<textarea className="field" aria-label="批量搜索媒体" value={batchQueryDraft} onChange={e=>setBatchQueryDraft(e.target.value)} placeholder="每行一个媒体名称或资源编号"/>}
-        <div className="y-filter-line"><span className="y-filter-label">媒体平台</span><div className="y-chip-options"><button className={!filters.platform?'active':''} onClick={()=>updateFilter('platform','')}>全部</button>{facetsQuery.data?.platforms.map(p=><button key={p.value} className={filters.platform===p.value?'active':''} onClick={()=>updateFilter('platform',p.value)}>{p.label}<small>{p.count}</small></button>)}</div></div>
-        <div className="y-filter-line"><span className="y-filter-label">备注状态</span><div className="y-chip-options">{[['','全部'],['provided','有发布备注'],['unknown','未注明备注']].map(([v='',t=''])=><button key={v} className={remarkFilter===v?'active':''} onClick={()=>{setRemarkFilter(v);updateFilter('page',1);}}>{t}</button>)}</div></div>
-        <div className="y-filter-line"><span className="y-filter-label">发布条件</span><div className="y-chip-options">{[['','全部'],['title_chars','标题限制'],['body_chars','正文限制'],['images','图片限制'],['links','链接限制']].map(([v='',t=''])=><button key={v} className={ruleFilter===v?'active':''} onClick={()=>{setRuleFilter(v);updateFilter('page',1);}}>{t}</button>)}</div></div>
-        <details className="y-more"><summary>更多条件：行业、报价与稿件适配</summary><div className="x-filter-grid"><label>行业<select value={filters.taxonomy??''} onChange={e=>updateFilter('taxonomy',e.target.value)}><option value="">全部行业</option>{facetsQuery.data?.taxonomies.map(p=><option value={p.value} key={p.value}>{p.label}</option>)}</select></label><label>最低价（元 / 篇）<input className="field" value={filters.priceMin??''} inputMode="decimal" onChange={e=>updateFilter('priceMin',e.target.value)}/></label><label>最高价（元 / 篇）<input className="field" value={filters.priceMax??''} inputMode="decimal" onChange={e=>updateFilter('priceMax',e.target.value)}/></label><label>素材能力<select value={filters.capability??''} onChange={e=>updateFilter('capability',e.target.value as MediaFilters['capability'])}><option value="">不限</option><option value="image">支持图文</option><option value="text">仅文字</option></select></label></div><p className="y-subtle-note">平台、行业与价格筛选查询真实目录；备注与结构化要求在完整匹配目录中筛选后分页。</p></details>
-       </section>
-       <div className="y-resultbar"><div className="y-result-tabs">{[['all','全部'],['favorites','我的收藏'],['cart','购物车']].map(([v,t])=><button key={v} className={scope===v?'active':''} onClick={()=>{setScope(v as typeof scope);updateFilter('page',1);}}>{t}<small>{v==='cart'?selected.size:v==='favorites'?favorites.length:mediaQuery.data?.total??'—'}</small></button>)}</div><span className="y-result-count">为您找到 <strong>{mediaQuery.data?.total??'—'}</strong> 条媒体资源</span></div>
-       <div className="y-typebar"><button className={!filters.kind?'active':''} onClick={()=>navigateFilters({...filters,kind:undefined,page:1})}>全部媒体</button><button className={filters.kind==='news'?'active':''} onClick={()=>navigateFilters({...filters,kind:'news',page:1})}>门户媒体</button><button className={filters.kind==='self_media'?'active':''} onClick={()=>navigateFilters({...filters,kind:'self_media',page:1})}>第三方自媒体</button></div>
-       </>}
-       <div className="y-selection"><label><input type="checkbox" aria-label="本页全选" checked={rows.length>0&&rows.every(m=>selected.has(m.id))} disabled={selectionBusy||!rows.length} onChange={e=>{const next=new Map(selected);for(const m of rows){if(e.target.checked){if(next.size<20&&!mediaSelectionBlocker(m,articleHasImages))next.set(m.id,m);}else next.delete(m.id);}setBoundDraft(undefined);void persistMediaIds([...next.keys()],next);}}/>本页全选 <span> | </span><strong>已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>{const ids=[...new Set([...favorites,...selectedValues.map(m=>m.id)])];try{localStorage.setItem(favoriteKey,JSON.stringify(ids));setFavoriteState({key:favoriteKey,ids});}catch{setSelectionError('收藏保存失败');}}}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={clearSelection}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
-       {mediaQuery.loading&&<PublishingLoading label="正在读取媒体目录…"/>}{mediaQuery.error&&<PublishingError error={mediaQuery.error} onRetry={mediaQuery.reload}/>}
-       <div className="y-horizontal-scroll"><RowHead/><div className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} favorite={favorites.includes(media.id)} onFavorite={()=>favorite(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&!ruleData.loading&&<div className="x-empty"><strong>{ruleData.ready?'没有匹配的媒体':'等待官方 API 配置'}</strong><p>{ruleData.ready?'调整平台、关键词或其他条件后再试。已选媒体保持不变。':'完成服务端凭据和目录同步后，将直接在此列表显示真实媒体与发布要求。'}</p></div>}</div></div>
-       {view==='third'&&scope!=='cart'&&<div className="y-pages"><span>共 {mediaQuery.data?.total??'—'} 家 · 第 {filters.page} / {pageCount} 页　<select aria-label="每页媒体数" value={filters.pageSize} onChange={e=>updateFilter('pageSize',Number(e.target.value))}>{[10,20,50].map(n=><option key={n} value={n}>{n} 家 / 页</option>)}</select></span><PublishingPagination page={filters.page} pageCount={pageCount} onChange={page=>updateFilter('page',page)}/></div>}
-       <p className="y-list-footnote">报价与要求来自官方目录。无法解析的备注须人工核验，不作收录或 AI 引用承诺。</p>
-       <div className="b-bottom"><div><strong>购物车 {selected.size} 家 · {formatPublishingMoney(selectedTotal)}</strong><p className="small muted">勾选即加入，取消勾选即移除。发布前重新核对报价与稿件。</p></div><div className="actions"><Link className="button secondary" href={projectWorkspaceUrl(base+'/cart')}>查看购物车</Link><button className="button primary" disabled={!selected.size||selectionBusy} onClick={next}>配置标题 →</button></div></div>
-      </div>}
-      <PublishingConfirmDialog open={dataInfoOpen} title="媒体数据说明" description="列表使用官方 API 同步的媒体档案，不是演示库存。" confirmLabel="关闭" onCancel={()=>setDataInfoOpen(false)} onConfirm={()=>setDataInfoOpen(false)}><div className="fm-media"><div className="y-info-metrics"><div><strong>{mediaQuery.data?.total??'—'}</strong><span>匹配媒体记录</span></div><div><strong>{sourceRows.length}</strong><span>当前页记录</span></div><div><strong>{sourceRows.filter(m=>!!ruleData.rules[m.id]?.rawRemark).length}</strong><span>当前页有备注</span></div><div><strong>{selected.size}</strong><span>已选媒体</span></div></div><div className="reading"><p>原始发布备注与解析规则以媒体内部 ID 关联，同名媒体与跨平台账号不合并。无法解析的文字保留为待核验。</p><p>报价来自仓库既有官方目录同步链路；规则从当前档案的原始备注或最新采集快照解析。没有报价、地区、权重与引用监测的字段，不使用参考稿的示例值填充。</p><p>目录更新后须重新核对选择、标题与稿件。正式下单继续使用现有业务的实时重报价和发布预检。</p></div></div></PublishingConfirmDialog>
-      <MediaDetails media={detailMedia} rules={detailMedia?ruleData.rules[detailMedia.id]:undefined} onClose={()=>setDetailMedia(undefined)}/>
-    </div>
-      <PublishingConfirmDialog
-        inline={Boolean(flow)}
-        open={articleChooserOpen}
-        title={draft ? "更换发布稿件" : "选择发布稿件"}
-        description={
-          draft
-            ? "已选媒体将复制到新的投放草稿，标题重新配置，原草稿保留。"
-            : "选择已确认的稿件版本，系统将重新核对媒体报价与内容要求。"
-        }
-        confirmLabel={
-          selected.size
-            ? flow
-              ? "确认稿件与媒体"
-              : "绑定稿件并配置标题"
-            : "使用这篇稿件"
-        }
-        busy={selectionBusy}
-        confirmDisabled={!chosenVersion}
-        onCancel={() => setArticleChooserOpen(false)}
-        onConfirm={() => void bindArticle()}
-      >
-        {articlesQuery.loading ? (
-          <PublishingLoading label="正在加载稿件…" />
-        ) : null}
-        {articlesQuery.error ? (
-          <PublishingError
-            error={articlesQuery.error}
-            onRetry={articlesQuery.reload}
-          />
-        ) : null}
-        <label className="publishing-article-choice">
-          <span>稿件及版本</span>
-          <select
-            aria-label="选择冻结稿件"
-            value={chosenVersion}
-            onChange={(event) => setChosenVersion(event.target.value)}
-            disabled={selectionBusy || Boolean(draftId && !draft)}
-          >
-            <option value="">请选择稿件</option>
-            {frozenArticles.map((article) => (
-              <option
-                key={article.currentVersionId}
-                value={article.currentVersionId}
-              >
-                {article.title} · v{article.currentVersion}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!articlesQuery.loading && !frozenArticles.length ? (
-          <p>
-            暂时没有已确认版本的稿件。
-            <Link href="/publishing/articles">前往稿件管理</Link>
-          </p>
-        ) : null}
-        {selectionError ? (
-          <p className="publishing-inline-error" role="alert">
-            {selectionError}
-          </p>
-        ) : null}
-      </PublishingConfirmDialog>
-    </PublishingPage>;
+  const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setDialogMessage(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
+  const reset=()=>{navigateFilters({...DEFAULT_MEDIA_FILTERS,kind:undefined});setRemarkFilter('');setRuleFilter('');setQuoteStatus('');setScope('all');setClientSort('match');};
+  const pending=selectedValues.filter(m=>!/^\d+$/.test(m.priceTenThousandths)||BigInt(m.priceTenThousandths)<=0n).length;
+  const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next}/>;
+  useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
+  const task=boundDraft??draft;
+  const chips=(value:string,items:Array<[string,string,number?]>,onChange:(value:string)=>void)=><div className="y-chip-options">{items.map(([v,t,n])=><button key={v} className={value===v?'active':''} onClick={()=>onChange(v)}>{t}{n!==undefined&&<small>{n}</small>}</button>)}</div>;
+  const total=mediaQuery.data?.total??0;
+  return <MediaShell steps={!!task} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} note={view==='home'?'从信源研究到媒体选择，再到可回退修正的发布预检。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined} taskbar={<MediaTaskbar note={task?`单篇发布 · 1 篇 · 已确认 v${task.articleVersion}`:undefined} saveStatus={selectionBusy?'正在保存…':task?'已读取投放草稿':''} title={task?.articleTitle} count={selected.size} total={selectedTotal} cartHref={pageHref(base+'/cart')} actions={task&&<><button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button><Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(task.articleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'已确认稿件'}</option>}</select></MediaTaskbar>}>
+  {view==='home'?<><div className="x-source-grid">{[['/publishing/source-matrix','信源矩阵','layer','输入引用记录与行业清单，结合投放需求生成分层推荐。','生成信源推荐'],['/publishing/source-industry','行业信源推荐','library','按行业查看推荐理由、来源和可投状态；研究信源与可投媒体分别标注。','查看行业推荐'],[base+'/third','第三方媒体','send','筛选媒体、悬停查看特殊要求，勾选即加入同一购物车。','选择第三方媒体']].map(([href,title,ic,note,cta])=><section className="panel b-entry" key={href}><div className="metric-icon"><ReferenceIcon name={ic}/></div><h2>{title}</h2><p>{note}</p><Link className="button primary" href={projectWorkspaceUrl(href.startsWith('/publishing/source-')?sourceHref(href):pageHref(href))}>{cta} →</Link></section>)}</div><div className="x-summary-grid"><div className="x-summary-item"><small>已选第三方媒体</small><strong>{selected.size}</strong><Link className="link small" href={projectWorkspaceUrl(pageHref(base+'/cart'))}>查看购物车 →</Link></div><div className="x-summary-item"><small>已确认费用</small><strong>{formatPublishingMoney(selectedTotal)}</strong><span className="small muted">{pending} 项待确认</span></div><div className="x-summary-item"><small>已输入引用记录</small><strong>—</strong><button className="link small" onClick={()=>setDialogMessage('引用信源导入接口尚未配置，未保存输入。')}>输入引用信源 →</button></div><div className="x-summary-item"><small>已输入行业推荐</small><strong>—</strong><button className="link small" onClick={()=>setDialogMessage('行业清单导入接口尚未配置，未保存输入。')}>输入行业清单 →</button></div></div><p className="footer-note">媒体、报价与发布要求来自已配置的供应商接口；不保证收录或 AI 引用。</p></>:view==='cart'?<>
+   <div className="actions" style={{marginBottom:18}}><Link className="button secondary" href={projectWorkspaceUrl(pageHref(base+'/third'))}>← 继续选择媒体</Link><button className="button quiet" onClick={()=>exportRows(selectedValues)}>导出清单</button><button className="button quiet" onClick={()=>{setTemplateError('');setTemplateOpen(true);}}>保存组合模板</button><button className="link danger" onClick={()=>setDialogMessage('clear')}>清空购物车</button></div>
+   {!task&&<div className="notice" style={{marginBottom:16}}>当前是独立研究清单。配置标题前，请绑定已确认稿件；清单与报价会一并保留。</div>}
+   {catalogRevisionChange&&<div className="notice warn" style={{marginBottom:16}}>稿件版本发生变化。<button className="link" onClick={refreshChangedCatalog}>确认当前版本与映射</button></div>}
+   <div className="panel y-cart-panel">{selected.size?<div className="table-wrap"><table className="y-cart-table"><thead><tr><th>媒体 / 发布备注</th><th>单篇报价</th><th>投放稿件</th><th>规则与操作</th></tr></thead><tbody>{selectedValues.map(m=><tr key={m.id}><td className="y-cart-resource"><strong>{m.name}</strong><p className="y-subtle-note" style={{margin:'4px 0'}}>{m.platform} · {m.id}</p><div className="y-remarks-line"><span>发布备注</span><PublishingRemark text={ruleData.rules[m.id]?.rawRemark??m.remark} media={m} rules={ruleData.rules[m.id]}/></div></td><td><strong className="b-price">{formatPublishingMoney(m.priceTenThousandths)}</strong><p className="y-subtle-note">目录报价 · 发布前复核</p><button className="link" onClick={()=>{setQuoteError('');setQuoteMedia(m);}}>查看 / 修改报价</button></td><td>{task?<label><input type="checkbox" checked onChange={()=>setDialogMessage('当前投放草稿按稿件保存媒体；请通过任务选择更换稿件。')}/><span>文章 1 · {task.articleTitle} · v{task.articleVersion}</span></label>:<span className="small muted">尚未绑定稿件</span>}</td><td><div className="actions"><button className="link" onClick={()=>setDetailMedia(m)}>资料详情</button><button className="link" onClick={()=>setDetailMedia(m)}>投稿要求</button></div><button className="link danger" style={{marginTop:8}} onClick={()=>toggle(m)}>移除</button></td></tr>)}</tbody></table></div>:<div className="empty"><div className="metric-icon"><ReferenceIcon name="file"/></div><h2>购物车还没有媒体</h2><p>勾选媒体即可加入，原始备注与规则会一并带入。</p><div className="actions"><Link className="button primary" href={projectWorkspaceUrl(pageHref(base+'/third'))}>浏览媒体</Link></div></div>}</div>
+   <label className="label" style={{marginTop:20}}>渠道选择理由</label><textarea placeholder="说明本次选择这些媒体的依据" value={selectionReason} onChange={e=>setSelectionReason(e.target.value)} onBlur={()=>{if(selectionReason)setDialogMessage('渠道选择理由保存接口尚未配置，本次输入尚未保存。');}}/><p className="y-subtle-note">已知小计 {formatPublishingMoney(selectedTotal)}；另有 {pending} 项报价 / 状态待确认。配置标题后可以先检查正文，未确认报价和未完成人工复核的项目无法提交。</p>{footer}
+  </>:<div className={'y-catalogue '+(compact?'y-compact':'')}>
+   <div className="y-data-strip"><span><strong>{mediaQuery.loading?'正在读取媒体目录':`已载入 ${total} 条目录记录`}</strong>　备注悬停可展开；未提供的报价与要求保留为待确认。</span><button className="link" onClick={()=>setDataInfoOpen(true)}>数据说明 <ReferenceIcon name="info"/></button></div>
+   <section className={'panel y-filter-panel '+(advancedOpen?'':'y-filter-collapsed')}><div className="y-search-line"><div className="y-search-box"><ReferenceInlineIcon name="search"/><input type="search" className="field" id="b-search" aria-label="搜索媒体" value={queryDraft} placeholder="搜索媒体、平台、域名或发布备注" onChange={e=>setQueryDraft(e.target.value)}/></div><button className="button secondary x-small-button" onClick={()=>setBatchOpen(true)}>批量搜索</button><select aria-label="媒体排序" value={clientSort} onChange={e=>{setClientSort(e.target.value);if(e.target.value==='priceAsc'||e.target.value==='priceDesc')updateFilter('sort',e.target.value==='priceAsc'?'price_asc':'price_desc');else updateFilter('sort','recommended');}}>{[['match','按抓取顺序'],['remark','有备注优先'],['priceAsc','报价从低到高'],['priceDesc','报价从高到低'],['name','按媒体名称']].map(([v,t])=><option key={v} value={v}>{t}</option>)}</select><button className="button secondary x-small-button" aria-expanded={advancedOpen} onClick={()=>setAdvancedOpen(!advancedOpen)}>{advancedOpen?'收起筛选 ▴':'筛选条件 ▾'}</button><button className="link small" onClick={reset}>重置</button></div>
+   <div className="y-filter-line"><span className="y-filter-label">媒体平台</span>{chips(filters.platform??'',[['','全部',total],...(facetsQuery.data?.platforms??[]).map(p=>[p.value,p.label,p.count] as [string,string,number])],v=>updateFilter('platform',v))}</div>
+   <div className="y-filter-line"><span className="y-filter-label">备注状态</span>{chips(remarkFilter,[['','全部'],['provided','有发布备注'],['unknown','未注明备注'],['failed','抓取异常 / 已补全']],v=>{setRemarkFilter(v);if(v==='failed')setDialogMessage('当前接口未提供原始抓取失败标记，暂无可核验的异常记录。');updateFilter('page',1);})}</div>
+   <div className="y-filter-line"><span className="y-filter-label">发布条件</span>{chips(ruleFilter,[['','全部'],['weekend','备注提到周末可发'],['holiday','备注提到节假日可发']],v=>{setRuleFilter(v);updateFilter('page',1);})}</div>
+   <details className="y-more"><summary>更多条件：行业、报价与稿件适配</summary><div className="x-filter-grid"><label>行业<select value={filters.taxonomy??''} onChange={e=>updateFilter('taxonomy',e.target.value)}><option value="">全部行业</option>{facetsQuery.data?.taxonomies.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select></label><label>报价状态<select value={quoteStatus} onChange={e=>{setQuoteStatus(e.target.value);if(e.target.value==='available')setDialogMessage('当前接口未提供人工报价记录，无法将目录报价标为人工录入。');updateFilter('page',1);}}><option value="">全部状态</option><option value="inquiry">待询价</option><option value="available">已人工录入报价</option></select></label><label>最低价（元 / 篇）<input className="field" type="number" min="0" value={filters.priceMin??''} placeholder="未设置" onChange={e=>updateFilter('priceMin',e.target.value)}/></label><label>最高价（元 / 篇）<input className="field" type="number" min="0" value={filters.priceMax??''} placeholder="未设置" onChange={e=>updateFilter('priceMax',e.target.value)}/></label></div><p className="y-subtle-note">筛选依据为供应商目录。报价未知的媒体不参与数值价格筛选；“出稿快”等仅为备注原文，不换算成小时数。</p></details></section>
+   <div id="y-results" className="y-resultbar"><div className="y-result-tabs">{[['all','全部',total],['favorites','我的收藏',favorites.length],['cart','购物车',selected.size]].map(([v,t,n])=><button key={v} className={scope===v?'active':''} onClick={()=>{if(v==='favorites')setDialogMessage('收藏接口尚未配置，无法读取收藏清单。');setScope(v as typeof scope);updateFilter('page',1);}}>{t}<small>{n}</small></button>)}</div><span className="y-result-count" id="y-result-count">为您找到 <strong>{total}</strong> 条媒体资源</span></div>
+   <div className="y-typebar">{[['','全部媒体',total],['news','门户媒体',facetsQuery.data?.kinds.news??0],['self_media','第三方自媒体',facetsQuery.data?.kinds.self_media??0]].map(([v,t,n])=><button key={v} className={(filters.kind??'')===v?'active':''} onClick={()=>navigateFilters({...filters,kind:(v||undefined) as PublisherMediaKind|undefined,page:1})}>{t}<small>（{n}）</small></button>)}</div>
+   <div className="y-selection"><label><input type="checkbox" id="x-page-select" aria-label="本页全选" checked={rows.length>0&&rows.every(m=>selected.has(m.id))} disabled={!rows.length||selectionBusy} onChange={e=>{const map=new Map(selected);for(const m of rows){if(e.target.checked){if(map.size<20&&!mediaSelectionBlocker(m,articleHasImages))map.set(m.id,m);}else map.delete(m.id);}setBoundDraft(undefined);void persistMediaIds([...map.keys()],map);}}/>本页全选<span style={{color:'#d3c6cf',margin:'0 4px'}}>|</span><strong id="b-selection-count">已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>favorite('')}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={()=>setDialogMessage('clear')}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
+   <div className="y-horizontal-scroll"><RowHead/><div id="b-third-table" className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onFavorite={()=>favorite(media.id)} onQuote={()=>{setQuoteError('');setQuoteMedia(media);}} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&<div className="x-empty"><strong>{mediaQuery.loading||ruleData.loading?'正在读取媒体目录':mediaQuery.error||ruleData.error?'媒体资料暂不可用':'没有匹配的媒体'}</strong><p>{mediaQuery.error?.message||ruleData.error||'调整平台、关键词或其他条件后再试。已选媒体保持不变。'}</p><button className="button secondary x-small-button" onClick={()=>{reset();mediaQuery.reload();}}>显示全部媒体</button></div>}</div></div>
+   <div id="b-third-pages" className="y-pages"><span>共 {total} 家 · 第 {filters.page} / {pageCount} 页　<select aria-label="每页媒体数" value={filters.pageSize} onChange={e=>updateFilter('pageSize',Number(e.target.value))}>{[10,20,50].map(n=><option key={n} value={n}>{n} 家 / 页</option>)}</select></span><div className="y-page-buttons"><button aria-label="上一页" disabled={filters.page<=1} onClick={()=>updateFilter('page',filters.page-1)}>‹</button>{Array.from({length:pageCount},(_,i)=>i+1).filter(n=>pageCount<=8||n===1||n===pageCount||Math.abs(n-filters.page)<2).map(n=><button className={n===filters.page?'active':''} aria-label={'第 '+n+' 页'} aria-current={n===filters.page?'page':undefined} key={n} onClick={()=>updateFilter('page',n)}>{n}</button>)}<button aria-label="下一页" disabled={filters.page>=pageCount} onClick={()=>updateFilter('page',filters.page+1)}>›</button></div></div>
+   <p className="y-list-footnote">媒体资源来自供应商目录。同名不同平台分别保留；报价与发布要求以发布前核验结果为准。</p>{footer}
+  </div>}
+  <MediaDialog open={dataInfoOpen} title="导入数据说明" description="媒体资料来自供应商目录；未提供的字段保留为未知。" confirmLabel="知道了" footer={<><button className="button secondary" onClick={()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({catalog:mediaQuery.data,rules:ruleData.rules},null,2)],{type:'application/json;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download='FrontMind-原始抓取与备注.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),0);}}>导出原始记录</button><button className="button primary" onClick={()=>setDataInfoOpen(false)}>知道了</button></>} onCancel={()=>setDataInfoOpen(false)} onConfirm={()=>setDataInfoOpen(false)}><div className="y-info-metrics"><div><strong>{total}</strong><span>匹配媒体记录</span></div><div><strong>{sourceRows.length}</strong><span>当前页记录</span></div><div><strong>{sourceRows.filter(m=>!!ruleData.rules[m.id]?.rawRemark).length}</strong><span>当前页有备注</span></div><div><strong>{selected.size}</strong><span>已选媒体</span></div></div><p>{ruleData.error||'原始备注和解析规则按媒体 ID 关联；未知要求需人工核验。'}</p></MediaDialog>
+  <MediaDialog description="" open={batchOpen} title="批量搜索媒体" confirmLabel="查找匹配" footer={<><button className="button secondary" onClick={()=>setBatchOpen(false)}>关闭</button><button className="button primary" onClick={()=>{updateFilter('batchQuery',batchQueryDraft);setBatchOpen(false);}}>查找匹配</button></>} onCancel={()=>setBatchOpen(false)} onConfirm={()=>{updateFilter('batchQuery',batchQueryDraft);setBatchOpen(false);}}><p className="small muted">每行或逗号分隔名称 / 平台 / 资源 ID，多义结果需逐条选择。</p><textarea id="b-batch-input" value={batchQueryDraft} onChange={e=>setBatchQueryDraft(e.target.value)} placeholder={"media-a\n行业观察"}/><div id="b-batch-results" style={{marginTop:15}}/></MediaDialog>
+  <MediaDialog description="" open={!!(dialogMessage||selectionError||marketNotice)} title={dialogMessage==='clear'?(view==='cart'?'清空第三方购物车':'清空已选媒体'):'操作提示'} confirmLabel={dialogMessage==='clear'?'确认清空':'关闭'} onCancel={()=>{setDialogMessage('');setSelectionError('');setMarketNotice('');}} onConfirm={()=>{if(dialogMessage==='clear')clearSelection();setDialogMessage('');setSelectionError('');setMarketNotice('');}}><p className={dialogMessage==='clear'?'reading':undefined}>{dialogMessage==='clear'?(view==='cart'?'移除当前任务所有第三方媒体。稿件、自有账号清单和已保存模板保留。':'将移除当前清单的全部媒体；稿件、已填写标题和已保存方案不受影响。'):dialogMessage||selectionError||marketNotice}</p></MediaDialog>
+  <MediaDialog open={previewOpen} title="稿件预览" confirmLabel="返回" footer={<button className="button primary" onClick={()=>setPreviewOpen(false)}>返回</button>} onCancel={()=>setPreviewOpen(false)} onConfirm={()=>setPreviewOpen(false)}><div className="actions" style={{justifyContent:'center',marginBottom:16}}><button className="button secondary" onClick={()=>setMobilePreview(false)}>桌面</button><button className="button secondary" onClick={()=>setMobilePreview(true)}>手机</button></div><article id="preview-paper" className={'article-preview'+(mobilePreview?' mobile':'')}><h1>{task?.articleTitle||'未命名稿件'}</h1><div className="reading"><p className="block-error" role="alert">已确认 v{task?.articleVersion}。当前接口未返回此版本的完整正文，请返回编辑查看稿件。</p></div></article></MediaDialog>
+  <MediaDialog open={templateOpen} title="保存组合模板" confirmLabel="保存模板" onCancel={()=>setTemplateOpen(false)} onConfirm={()=>setTemplateError('组合模板接口尚未配置，未保存本次组合。')}><label className="label" htmlFor="b-template-name">模板名称</label><input id="b-template-name" className="field" placeholder="例如：科技选型组合" value={templateName} onChange={e=>setTemplateName(e.target.value)}/>{templateError&&<p className="block-error" role="alert">{templateError}</p>}</MediaDialog>
+  <MediaDialog open={!!quoteMedia} title={'录入已确认报价 · '+(quoteMedia?.name??'')} confirmLabel="保存已确认报价" onCancel={()=>setQuoteMedia(undefined)} onConfirm={()=>setQuoteError('报价写入接口尚未配置，未保存本次报价。')}><div className="notice">请填写已向供应商确认的单篇报价；保存前需要供应商报价写入接口。</div><label className="label" style={{marginTop:20}} htmlFor="y-quote-price">单篇价格（元） *</label><input className="field" type="number" id="y-quote-price" min="0" step="0.01" placeholder="请输入已确认价格" value={quotePrice} onChange={e=>setQuotePrice(e.target.value)}/><label className="label" style={{marginTop:14}} htmlFor="y-quote-source">报价来源 / 供应商 *</label><input className="field" id="y-quote-source" placeholder="例如：供应商名称与确认记录" value={quoteSource} onChange={e=>setQuoteSource(e.target.value)}/><label className="ack"><input type="checkbox" id="y-quote-ack" checked={quoteAck} onChange={e=>setQuoteAck(e.target.checked)}/><span>我已核对报价与可投状态。人工录入不代表系统核验或锁定供应商价格。</span></label><p id="y-quote-error" className="block-error" role="alert">{quoteError}</p></MediaDialog>
+  <MediaDetails checked={!!detailMedia&&selected.has(detailMedia.id)} onToggle={()=>{if(detailMedia)toggle(detailMedia);}} onQuote={()=>setQuoteMedia(detailMedia)} media={detailMedia} rules={detailMedia?ruleData.rules[detailMedia.id]:undefined} onClose={()=>setDetailMedia(undefined)}/>
+  <MediaDialog open={articleChooserOpen} title="绑定已确认稿件" confirmLabel="绑定并继续" busy={selectionBusy} onCancel={()=>setArticleChooserOpen(false)} onConfirm={()=>void bindArticle()} footer={<><Link className="button secondary" href={projectWorkspaceUrl('/publishing/articles')} onClick={()=>setArticleChooserOpen(false)}>查看稿件</Link><button className="button primary" disabled={selectionBusy} onClick={()=>void bindArticle()}>绑定并继续</button></>}><p className="small muted">选择已有的已确认任务，或返回编辑页确认稿件。研究清单将按资源去重复制到该任务，不覆盖任务原有选择。</p><select id="b-bind" value={chosenVersion} onChange={e=>setChosenVersion(e.target.value)}>{frozenArticles.map(article=><option key={article.currentVersionId} value={article.currentVersionId}>{article.title}</option>)}</select>{(articlesQuery.loading||articlesQuery.error||selectionError||!frozenArticles.length)&&<p className="block-error" role="alert">{selectionError||articlesQuery.error?.message||(articlesQuery.loading?'正在加载稿件…':'请先在稿件页面确认一份稿件')}</p>}</MediaDialog>
+    </MediaShell>;
 }
-function FilterLine({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="publishing-filter-line">
-      <strong>{label}</strong>
-      {children}
-    </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value?: string;
-  options?: Array<{ value: string; label: string; count: number }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="publishing-inline-select">
-      <span className="publishing-visually-hidden">{label}</span>
-      <select
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{label}</option>
-        {options?.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label} ({option.count})
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function ThresholdSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value?: string;
-  options?: Array<{ value: string; label: string; count: number }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label>
-      <span>{label}</span>
-      <select
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">不限</option>
-        {options
-          ?.filter((option) => option.count > 0)
-          .map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label} ({option.count})
-            </option>
-          ))}
-      </select>
-    </label>
-  );
-}
-
 function facetCount(
   options: Array<{ value: string; count: number }> | undefined,
   value: string,
@@ -1103,18 +928,3 @@ function facetCount(
   return options.find((option) => option.value === value)?.count ?? 0;
 }
 
-function capabilityFacetOptions(
-  options: Array<{ value: string; label: string; count: number }> | undefined,
-) {
-  return (options ?? [])
-    .filter((option) => option.count > 0)
-    .map((option) => ({
-      ...option,
-      value:
-        option.value === "verified"
-          ? "image"
-          : option.value === "unsupported"
-            ? "text"
-            : "image_pending",
-    }));
-}

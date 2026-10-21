@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
-import { Redirect, Route, Switch } from "wouter";
+import { Redirect, Route, Switch, useSearch } from "wouter";
 
+import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
 import { PublishingLoading } from "./components/PublishingUi";
@@ -36,6 +37,8 @@ export type PublishingRoutesProps = {
 };
 
 export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
+  const search=useSearch();
+  const matrixDraftHref=(draftId:string)=>{const params=new URLSearchParams(search);params.set("draftId",draftId);return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());};
   return (
     <PublishingGatewayProvider gateway={gateway}>
         <Suspense
@@ -59,6 +62,13 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             </Route>
             <Route path="/publishing/articles">
               <ArticlesPage />
+            </Route>
+            <Route path="/publishing/media/matrix"><SourceMatrixPage /></Route>
+            <Route path="/publishing/media/sources"><SourceMatrixPage view="analysis" /></Route>
+            <Route path="/publishing/media/industry"><SourceMatrixPage view="industry" /></Route>
+            <Route path="/publishing/media/report"><SourceMatrixPage view="report" /></Route>
+            <Route path="/publishing/drafts/:draftId/media/matrix">
+              {(params) => <Redirect to={matrixDraftHref(params.draftId)} />}
             </Route>
             <Route path="/publishing/media/:view">
               {(params) => <MediaLibraryPage view={(["home","owned","third","cart"] as const).find(v=>v===params.view)??"third"} />}
