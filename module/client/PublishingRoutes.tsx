@@ -22,6 +22,8 @@ const LegacyPublicationListRedirect = lazy(() =>
   })),
 );
 const ArticlesPage = lazy(() => import("./pages/ArticlesPage"));
+const PublicationsPage = lazy(() => import("./pages/PublicationsPage"));
+const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const ImportPage = lazy(() => import("./pages/ImportPage"));
 const ArticleEditorPage = lazy(() => import("./pages/ArticleEditorPage"));
 const MediaLibraryPage = lazy(() => import("./pages/MediaLibraryPage"));
@@ -97,6 +99,15 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
                   initialStage="review"
                 />
               )}
+            </Route>
+            <Route path="/publishing/review/:draftId">
+              {(params) => <ReviewPage draftId={params.draftId} />}
+            </Route>
+            <Route path="/publishing/records">
+              <PublicationsPage />
+            </Route>
+            <Route path="/publishing/record/:batchId">
+              {(params) => <PublicationDetailPage batchId={params.batchId} />}
             </Route>
             <Route path="/publishing/publications/:batchId">
               {(params) => <PublicationDetailPage batchId={params.batchId} />}
