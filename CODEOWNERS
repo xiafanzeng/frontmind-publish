@@ -1,0 +1,13 @@
+# FrontMind publish 模块文件归属登记
+# 作用：当有人通过 PR 修改以下文件时，GitHub 会自动请求对应负责人审核。
+# 直接推送流程不受影响。B/C 可按相同格式补充自己的条目。
+
+# A（王一冉）负责的板块
+/module/client/source-matrix/                @wyr20031216
+/module/server/source-matrix/                @wyr20031216
+/module/server/media-requirements-api.ts     @wyr20031216
+/module/server/providers/kol/                @wyr20031216
+/module/client/pages/MediaLibraryPage.tsx    @wyr20031216
+/module/client/publishing.market.css         @wyr20031216
+/module/client/publishing.titles.css         @wyr20031216
+/module/client/publishing.remarks.css        @wyr20031216
