@@ -20,8 +20,10 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { PublishingRemark } from "../components/PublishingRemark";
+import { MarketRow, RowHead, MediaTabs, MediaTaskbar, MediaDetails, useMarketRules, exportRows, rulesRequest } from "../source-matrix/MediaMarket";
 import "../publishing.market.css";
+import type { MediaRules } from "../../server/providers/kol/media-rules";
+import { MarketRemark as PublishingRemark } from "../source-matrix/MediaMarket";
 import { usePublishingWorkspaceKey } from "../host";
 import { projectWorkspaceUrl } from "../host";
 import {
@@ -61,6 +63,7 @@ import {
 } from "../queryState";
 import {
   formatPublishingMoney,
+  type MediaList,
   type MediaFilters,
   type MediaResource,
   type PublicationDraft,
@@ -94,8 +97,10 @@ function compactNumber(value?: number) {
 
 export default function PublishingMediaLibraryPage({
   draftId: routeDraftId,
+  view = "third",
 }: {
   draftId?: string;
+  view?: "home" | "third" | "owned" | "cart";
 }) {
   const gateway = usePublisherGateway();
   const flow = usePublishingFlow();
@@ -256,9 +261,39 @@ export default function PublishingMediaLibraryPage({
     current: string;
   }>();
 
+  const [marketNotice,setMarketNotice]=useState('');
+  const [scope, setScope] = useState<'all'|'favorites'|'cart'>('all');
+  const [remarkFilter,setRemarkFilter]=useState('');
+  const [ruleFilter,setRuleFilter]=useState('');
+  const [compact,setCompact]=useState(false);
+  const [detailMedia,setDetailMedia]=useState<MediaResource>();
+  const favoriteKey=`${accountShortlistKey??workspaceKey}:favorites`;
+  const [favoriteState,setFavoriteState]=useState<{key:string;ids:string[]}>({key:'',ids:[]});
+  useEffect(()=>{try{const value=JSON.parse(localStorage.getItem(favoriteKey)??'[]');setFavoriteState({key:favoriteKey,ids:Array.isArray(value)?value.filter((x):x is string=>typeof x==='string'):[]});}catch{setFavoriteState({key:favoriteKey,ids:[]});}},[favoriteKey]);
+  const favorites=favoriteState.key===favoriteKey?favoriteState.ids:[];
+  const favorite=(id:string)=>{const ids=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];try{localStorage.setItem(favoriteKey,JSON.stringify(ids));setFavoriteState({key:favoriteKey,ids});}catch{setSelectionError('收藏保存失败，请检查浏览器存储权限。');}};
+  const [dataInfoOpen,setDataInfoOpen]=useState(false);
   const loadMedia = useCallback(
-    (signal: AbortSignal) => gateway.listMedia(filters, signal),
-    [filters, gateway],
+    async (signal: AbortSignal, pageOverride=filters.page):Promise<MediaList> => {
+      if(scope==='all'&&!remarkFilter&&!ruleFilter)return gateway.listMedia({...filters,page:pageOverride},signal);
+      // Filters derived from official remarks apply to the complete matching
+      // directory, before paging. Never relabel one browser page as all results.
+      const first=await gateway.listMedia({...filters,page:1,pageSize:100},signal);
+      const all=[...first.items];
+      for(let page=2;(page-1)*100<first.total;page++){
+        const next=await gateway.listMedia({...filters,page,pageSize:100},signal);
+        if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('目录在筛选期间已更新，请刷新后重试。');
+        all.push(...next.items);
+      }
+      let matching=all.filter(m=>(scope!=='favorites'||favorites.includes(m.id))&&(scope!=='cart'||selected.has(m.id)));
+      if(remarkFilter||ruleFilter){
+        const ruleMap=new Map<string,MediaRules>();
+        for(let i=0;i<matching.length;i+=100){const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(matching.slice(i,i+100).map(m=>m.id).join(',')),signal);for(const row of data.items)ruleMap.set(row.id,row.rules);}
+        matching=matching.filter(m=>{const rules=ruleMap.get(m.id);return !!rules&&(!remarkFilter||(remarkFilter==='provided'?!!rules.rawRemark:!rules.rawRemark))&&(!ruleFilter||rules.rules.some(r=>r.field===ruleFilter&&r.state==='constrained'));});
+      }
+      return {...first,total:matching.length,page:pageOverride,pageSize:filters.pageSize,items:matching.slice((pageOverride-1)*filters.pageSize,pageOverride*filters.pageSize)};
+    },
+    [filters,gateway,scope,favorites.join(','),remarkFilter,ruleFilter,scope==='cart'?[...selected.keys()].join(','):''],
   );
   const loadFacets = useCallback(
     (signal: AbortSignal) => gateway.getMediaFacets(filters, signal),
@@ -275,7 +310,7 @@ export default function PublishingMediaLibraryPage({
   );
   const mediaQuery = usePublisherQuery(
     loadMedia,
-    `media:${JSON.stringify(filters)}`,
+    `media:${JSON.stringify(filters)}:${scope}:${favorites.join(',')}:${remarkFilter}:${ruleFilter}`,
   );
   const facetsQuery = usePublisherQuery(
     loadFacets,
@@ -872,904 +907,56 @@ export default function PublishingMediaLibraryPage({
     "true",
   );
 
-  return (
-    <PublishingPage
-      title="媒体库"
-      description={
-        flow
-          ? undefined
-          : filters.kind === "self_media"
-            ? "按平台、账号影响力与报价挑选自媒体，加入清单后统一配置稿件。"
-            : "按媒体、频道、收录表现与报价筛选软文资源，加入清单后统一配置稿件。"
-      }
-      busy={mediaQuery.loading || mediaQuery.refreshing || selectionBusy}
-      actions={
-        !flow && mediaQuery.data ? (
-          <span className="publishing-catalog-count">
-            {mediaQuery.data.catalog.stale
-              ? "媒体目录待更新"
-              : "媒体目录已同步"}
-          </span>
-        ) : undefined
-      }
-    >
-      <div className="am-selection-layout"><div className="am-selection-main">
-      {flow && (
-        <PublishingQuestion
-          title="这次想怎样选择媒体？"
-          description="先选媒体，再确定稿件。报价会在发布前再次核对。"
-          value={entry}
-          choices={[
-            {
-              value: "catalog",
-              label: "浏览媒体目录",
-              description: "按媒体、指标与报价挑选",
-            },
-            {
-              value: "requirements",
-              label: "按投放需求筛选",
-              description: "从行业、产品和受众开始",
-            },
-            ...(selected.size
-              ? [
-                  {
-                    value: "selected",
-                    label: "查看已选媒体",
-                    description: `继续当前 ${selected.size} 家媒体的选择`,
-                  },
-                ]
-              : []),
-          ]}
-          onChoose={(next) => {
-            chooseEntry(next);
-            setBusinessFiltersOpen(next === "requirements");
-            if (next === "selected") setDrawerOpen(true);
-          }}
-        />
-      )}
-      {(!flow || entry) && (
-        <div
-          className="publishing-conversation-business"
-          data-reading-anchor="media-directory"
-        >
-          {!flow && (articleVersionId || draft) ? (
-            <PublishingSteps current={2} />
-          ) : null}
+  const sourceRows=view==='cart'?selectedValues:mediaQuery.data?.items??[];
+  const ruleData=useMarketRules([...new Set([...sourceRows.map(x=>x.id),...(detailMedia?[detailMedia.id]:[])])],mediaQuery.data?.catalog.activeRevision??'');
+  const rows=ruleData.ready?sourceRows.filter(m=>(scope!=='favorites'||favorites.includes(m.id))&&(!remarkFilter||(remarkFilter==='provided'?!!ruleData.rules[m.id]?.rawRemark:!ruleData.rules[m.id]?.rawRemark))&&(!ruleFilter||ruleData.rules[m.id]?.rules.some(r=>r.field===ruleFilter&&r.state==='constrained'))):[];
+  const base=draftId?`/publishing/drafts/${encodeURIComponent(draftId)}/media`:'/publishing/media';
+  const titles={home:'媒体库',third:'第三方媒体选择',owned:'自有社媒发布',cart:'第三方购物车'};
+  const next=()=>boundDraft&&flow?void handoff():void continueSelection();
+  const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
+  useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,remarkFilter,ruleFilter]);
+  const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setSelectionError(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
 
-          {!flow && (
-            <section className="publishing-context-bar" aria-label="发布稿件">
-              <div>
-                <span>当前稿件</span>
-                {draft ? (
-                  <strong>
-                    {draft.articleTitle} <small>v{draft.articleVersion}</small>
-                  </strong>
-                ) : (
-                  <strong>{selectedArticle?.title ?? "尚未选择"}</strong>
-                )}
-                <button
-                  type="button"
-                  className="publishing-button publishing-button-secondary"
-                  onClick={() => chooseArticle()}
-                  disabled={selectionBusy || Boolean(draftId && !draft)}
-                >
-                  {draft || articleVersionId ? "更换稿件" : "选择稿件"}
-                </button>
-              </div>
-              {!articleVersionId && !draft ? (
-                <p>可以先选媒体，再选择稿件；确认发布前统一核对报价。</p>
-              ) : null}
-              <Link href="/publishing/articles">管理稿件</Link>
-            </section>
-          )}
-
-          {flow && (
-            <button
-              type="button"
-              className="publishing-button publishing-button-secondary publishing-business-filter-trigger"
-              aria-expanded={businessFiltersOpen}
-              onClick={() => setBusinessFiltersOpen((value) => !value)}
-            >
-              <Filter size={15} />
-              按业务需求筛选
-            </button>
-          )}
-          {(!flow || businessFiltersOpen) && (
-            <form
-              className="publishing-media-recommendation"
-              noValidate
-              aria-label="按业务需求筛选媒体"
-              onSubmit={applySmartRecommendation}
-            >
-              <div className="publishing-media-recommendation-copy">
-                <strong>按业务需求筛选媒体</strong>
-                <span>组合行业与产品关键词，查找目录中的推荐媒体。</span>
-              </div>
-              {[
-                ["industry", "行业"],
-                ["product", "产品或服务"],
-                ["region", "目标地区"],
-                ["audience", "目标受众"],
-                ["keywords", "行业词或品牌词"],
-                ["budget", "预算（可选）"],
-                ["format", "图文要求（可选）"],
-              ].map(([key = "", label]) => (
-                <input
-                  key={key}
-                  aria-label={label}
-                  placeholder={label}
-                  value={
-                    recommendationDraft[key as keyof typeof recommendationDraft]
-                  }
-                  onChange={(event) =>
-                    setRecommendationDraft((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                />
-              ))}
-              <button
-                className="publishing-button publishing-button-primary"
-                type="submit"
-                disabled={
-                  !Object.values(recommendationDraft).some((value) =>
-                    value.trim(),
-                  )
-                }
-              >
-                <Search size={15} />
-                应用筛选
-              </button>
-            </form>
-          )}
-
-          <section
-            className="publishing-media-workbench"
-            aria-label="媒体筛选工作台"
-          >
-            <nav className="publishing-kind-tabs" aria-label="媒体类型">
-              <button
-                type="button"
-                className={filters.kind === "news" ? "is-active" : ""}
-                aria-pressed={filters.kind === "news"}
-                onClick={() => setKind("news")}
-              >
-                软文媒体 <span>{facetsQuery.data?.kinds.news ?? "—"}</span>
-              </button>
-              <button
-                type="button"
-                className={filters.kind === "self_media" ? "is-active" : ""}
-                aria-pressed={filters.kind === "self_media"}
-                disabled={facetsQuery.data?.catalog.kindComplete === false}
-                title={
-                  facetsQuery.data?.catalog.kindComplete === false
-                    ? "双媒体目录尚未完成同步"
-                    : undefined
-                }
-                onClick={() => setKind("self_media")}
-              >
-                自媒体 <span>{facetsQuery.data?.kinds.self_media ?? "—"}</span>
-              </button>
-            </nav>
-
-            <div className="publishing-media-search-row am-search-row">
-              <label className="publishing-search-field">
-                <Search size={18} />
-                <span className="publishing-visually-hidden">搜索媒体</span>
-                <input
-                  value={queryDraft}
-                  onChange={(event) => setQueryDraft(event.target.value)}
-                  placeholder="搜索媒体名称、平台或资源 ID"
-                />
-                {queryDraft && <button type="button" aria-label="清空媒体搜索" onClick={event => { setQueryDraft(""); event.currentTarget.parentElement?.querySelector("input")?.focus(); }}><X size={15}/></button>}
-              </label>
-              <button
-                className={`publishing-button publishing-button-secondary ${batchOpen ? "is-active" : ""}`}
-                type="button"
-                onClick={() => setBatchOpen((value) => !value)}
-              >
-                <Layers3 size={16} />
-                批量搜索
-                {parseBatchQuery(filters.batchQuery ?? "").length
-                  ? ` (${parseBatchQuery(filters.batchQuery ?? "").length})`
-                  : ""}
-              </button>
-              <label className="publishing-sort-field">
-                排序
-                <select
-                  value={filters.sort}
-                  onChange={(event) =>
-                    updateFilter(
-                      "sort",
-                      event.target.value as MediaFilters["sort"],
-                    )
-                  }
-                >
-                  <option value="recommended">综合推荐</option>
-                  <option value="price_asc">价格从低到高</option>
-                  <option value="price_desc">价格从高到低</option>
-                  <option value="success_desc">通过率优先</option>
-                  <option value="include_desc">收录率优先</option>
-                  <option value="weight_desc">百度权重优先</option>
-                  <option value="updated_desc">最近更新</option>
-                </select>
-              </label>
-            </div>
-
-            {batchOpen ? (
-              <label className="publishing-batch-search">
-                <span>
-                  批量搜索 <small>每行一个媒体名称或资源 ID，最多 50 项</small>
-                </span>
-                <textarea
-                  value={batchQueryDraft}
-                  onChange={(event) => setBatchQueryDraft(event.target.value)}
-                  rows={3}
-                  placeholder={"中国财经时报网\n100023\n科技商业观察"}
-                />
-                <b>{parseBatchQuery(batchQueryDraft).length} / 50</b>
-              </label>
-            ) : null}
-
-            <div className="publishing-filter-groups">
-              <FilterLine label="平台">
-                <FilterSelect
-                  label="全部平台"
-                  value={filters.platform}
-                  options={facetsQuery.data?.platforms}
-                  onChange={(value) => updateFilter("platform", value)}
-                />
-              </FilterLine>
-              <FilterLine label="频道分类">
-                <FilterSelect
-                  label="全部频道"
-                  value={filters.taxonomy}
-                  options={facetsQuery.data?.taxonomies}
-                  onChange={(value) => updateFilter("taxonomy", value)}
-                />
-              </FilterLine>
-              <FilterLine label="媒体类别">
-                <FilterSelect
-                  label="全部类别"
-                  value={filters.mediaType}
-                  options={facetsQuery.data?.mediaTypes}
-                  onChange={(value) => updateFilter("mediaType", value)}
-                />
-              </FilterLine>
-              <FilterLine label="覆盖区域">
-                <FilterSelect
-                  label="全部地区"
-                  value={filters.area}
-                  options={facetsQuery.data?.areas}
-                  onChange={(value) => updateFilter("area", value)}
-                />
-              </FilterLine>
-              <FilterLine label="价格">
-                <div className="publishing-filter-pills">
-                  {[
-                    { label: "不限", min: "", max: "" },
-                    { label: "¥100 以下", min: "", max: "100" },
-                    { label: "¥100–300", min: "100", max: "300" },
-                    { label: "¥300 以上", min: "300", max: "" },
-                  ].map((option) => (
-                    <button
-                      key={option.label}
-                      type="button"
-                      className={
-                        filters.priceMin === option.min &&
-                        filters.priceMax === option.max
-                          ? "is-active"
-                          : ""
-                      }
-                      onClick={() =>
-                        navigateFilters({
-                          ...filters,
-                          priceMin: option.min,
-                          priceMax: option.max,
-                          page: 1,
-                        })
-                      }
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                  <span className="publishing-price-range">
-                    <i>¥</i>
-                    <input
-                      inputMode="decimal"
-                      aria-label="最低价格"
-                      value={filters.priceMin}
-                      onChange={(event) =>
-                        updateFilter(
-                          "priceMin",
-                          event.target.value.replace(/[^\d.]/gu, ""),
-                        )
-                      }
-                      placeholder="最低"
-                    />
-                    <em>—</em>
-                    <input
-                      inputMode="decimal"
-                      aria-label="最高价格"
-                      value={filters.priceMax}
-                      onChange={(event) =>
-                        updateFilter(
-                          "priceMax",
-                          event.target.value.replace(/[^\d.]/gu, ""),
-                        )
-                      }
-                      placeholder="最高"
-                    />
-                  </span>
-                </div>
-              </FilterLine>
-              {recommendedCount !== 0 || filters.recommended === "true" ? (
-                <FilterLine label="媒体推荐">
-                  <div className="publishing-filter-pills">
-                    <button
-                      type="button"
-                      className={!filters.recommended ? "is-active" : ""}
-                      onClick={() => updateFilter("recommended", "")}
-                    >
-                      不限
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        filters.recommended === "true" ? "is-active" : ""
-                      }
-                      disabled={
-                        recommendedCount === 0 && filters.recommended !== "true"
-                      }
-                      onClick={() => updateFilter("recommended", "true")}
-                    >
-                      平台推荐
-                      {recommendedCount === undefined
-                        ? ""
-                        : ` (${recommendedCount})`}
-                    </button>
-                  </div>
-                </FilterLine>
-              ) : null}
-            </div>
-
-            <button
-              className="publishing-advanced-toggle"
-              type="button"
-              aria-expanded={advancedOpen}
-              onClick={() => setAdvancedOpen((value) => !value)}
-            >
-              <Filter size={16} />
-              高级筛选{activeFilterCount ? <b>{activeFilterCount}</b> : null}
-              <ChevronDown
-                className={advancedOpen ? "is-open" : ""}
-                size={16}
-              />
-            </button>
-            {advancedOpen ? (
-              <div className="publishing-advanced-grid">
-                <FilterSelect
-                  label="收录类型"
-                  value={filters.includeType}
-                  options={facetsQuery.data?.includeTypes}
-                  onChange={(value) => updateFilter("includeType", value)}
-                />
-                <FilterSelect
-                  label="发布速度"
-                  value={filters.publishSpeed}
-                  options={facetsQuery.data?.publishSpeeds}
-                  onChange={(value) => updateFilter("publishSpeed", value)}
-                />
-                <FilterSelect
-                  label="入口类型"
-                  value={filters.entryType}
-                  options={facetsQuery.data?.entryTypes}
-                  onChange={(value) => updateFilter("entryType", value)}
-                />
-                <FilterSelect
-                  label="链接类型"
-                  value={filters.linkType}
-                  options={facetsQuery.data?.linkTypes}
-                  onChange={(value) => updateFilter("linkType", value)}
-                />
-                <ThresholdSelect
-                  label="百度权重"
-                  value={filters.pcWeight}
-                  options={facetsQuery.data?.pcWeightThresholds}
-                  onChange={(value) => updateFilter("pcWeight", value)}
-                />
-                <ThresholdSelect
-                  label="收录率"
-                  value={filters.includeRate}
-                  options={facetsQuery.data?.includeRateThresholds}
-                  onChange={(value) => updateFilter("includeRate", value)}
-                />
-                <ThresholdSelect
-                  label="通过率"
-                  value={filters.successRate}
-                  options={facetsQuery.data?.successRateThresholds}
-                  onChange={(value) => updateFilter("successRate", value)}
-                />
-                <label>
-                  <span>内容能力</span>
-                  <select
-                    value={filters.capability}
-                    onChange={(event) =>
-                      updateFilter(
-                        "capability",
-                        event.target.value as MediaFilters["capability"],
-                      )
-                    }
-                  >
-                    <option value="">不限</option>
-                    {capabilityFacetOptions(
-                      facetsQuery.data?.imageSupports,
-                    ).map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label} ({option.count})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="publishing-check-filter">
-                  <input
-                    type="checkbox"
-                    checked={filters.authenticated === "true"}
-                    disabled={
-                      authenticatedCount === 0 &&
-                      filters.authenticated !== "true"
-                    }
-                    onChange={(event) =>
-                      updateFilter(
-                        "authenticated",
-                        event.target.checked ? "true" : "",
-                      )
-                    }
-                  />
-                  <span>
-                    已认证
-                    {authenticatedCount === undefined
-                      ? ""
-                      : ` (${authenticatedCount})`}
-                  </span>
-                </label>
-                <label className="publishing-check-filter">
-                  <input
-                    type="checkbox"
-                    checked={filters.festival === "true"}
-                    disabled={
-                      festivalCount === 0 && filters.festival !== "true"
-                    }
-                    onChange={(event) =>
-                      updateFilter(
-                        "festival",
-                        event.target.checked ? "true" : "",
-                      )
-                    }
-                  />
-                  <span>
-                    节假日可发
-                    {festivalCount === undefined ? "" : ` (${festivalCount})`}
-                  </span>
-                </label>
-                <button
-                  className="publishing-filter-reset"
-                  type="button"
-                  onClick={() =>
-                    navigateFilters({
-                      ...DEFAULT_MEDIA_FILTERS,
-                      kind: filters.kind,
-                    })
-                  }
-                >
-                  重置全部筛选
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          {catalogRevisionChange ? (
-            <div
-              className="publishing-catalog-update"
-              role="status"
-              aria-live="polite"
-            >
-              <RefreshCw size={19} />
-              <div>
-                <strong>媒体目录已更新</strong>
-                <p>
-                  已有新的媒体信息与报价。刷新后会回到第 1 页，
-                  并保留当前筛选与草稿中的已选媒体。
-                </p>
-              </div>
-              <button
-                className="publishing-button publishing-button-secondary"
-                type="button"
-                onClick={refreshChangedCatalog}
-              >
-                刷新目录并回到第一页
-              </button>
-            </div>
-          ) : null}
-
-          {selectionError ? (
-            <p className="publishing-form-error" role="alert">
-              {selectionError}
-            </p>
-          ) : null}
-          {mediaQuery.loading ? (
-            <PublishingLoading
-              label={`正在加载${filters.kind === "self_media" ? "自媒体" : "软文媒体"}…`}
-            />
-          ) : null}
-          {mediaQuery.refreshing ? (
-            <p className="publishing-media-refresh" role="status">
-              <LoaderCircle size={14} className="publishing-spin" />
-              正在更新{filters.kind === "self_media" ? "自媒体" : "软文媒体"}…
-            </p>
-          ) : null}
-          {mediaQuery.error ? (
-            <PublishingError
-              error={mediaQuery.error}
-              onRetry={mediaQuery.reload}
-            />
-          ) : null}
-          {mediaQuery.data && !mediaQuery.data.items.length ? (
-            <PublishingEmpty
-              title="没有匹配的媒体"
-              description="调整搜索词或筛选条件后再试。"
-              action={
-                <button
-                  className="publishing-button publishing-button-secondary"
-                  type="button"
-                  onClick={() =>
-                    navigateFilters({
-                      ...DEFAULT_MEDIA_FILTERS,
-                      kind: filters.kind,
-                    })
-                  }
-                >
-                  清空筛选
-                </button>
-              }
-            />
-          ) : null}
-          {mediaQuery.data?.items.length ? (
-            <>
-              <section className="am-market-list" aria-label="媒体目录">
-                <div className="am-market-toolbar">
-                  <div><strong>媒体市场</strong><span> {mediaQuery.data.total.toLocaleString("zh-CN")} 家匹配资源</span></div>
-                  <span>已选 {selected.size} / 20 · 勾选后保留到当前清单</span>
-                </div>
-                {mediaQuery.data.items.map((media) => {
-                  const checked = selected.has(media.id);
-                  const blocker = mediaSelectionBlocker(media, articleHasImages);
-                  const selectionLimitReached = !checked && selected.size >= 20;
-                  const disabled = (!checked && Boolean(blocker)) || selectionLimitReached || selectionBusy || Boolean(draftId && !draft);
-                  return (
-                    <article className={`am-market-row ${checked ? "is-selected" : ""}`} key={media.id} aria-label={media.name}>
-                      <div className="am-market-identity">
-                        <div className="publishing-media-name">
-                          <MediaMark name={media.shortName} id={media.id} logoUrl={media.logoUrl} logoSource={media.logoSource} logoResolutionStatus={media.logoResolutionStatus}/>
-                          <div><h3>{media.name}{media.recommended && <b className="publishing-recommended">荐</b>}</h3>
-                            <small>{kindLabel(media.kind)} · {media.platform || "平台未提供"}</small>
-                            <small>ID {media.externalResourceId ?? media.id}</small>
-                          </div>
-                        </div>
-                        <div className="am-market-actions">
-                          <label><input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggle(media)} aria-label={`选择 ${media.name}`}/>{checked ? "已选择" : "选择媒体"}</label>
-                          {media.caseUrl && <a href={media.caseUrl} target="_blank" rel="noreferrer">案例 <ExternalLink size={12}/></a>}
-                        </div>
-                        <div className="publishing-media-tags">
-                          {media.recommendationTags?.slice(0, 3).map((tag, index) => <span key={`media-${index}`} title={media.recommendationRemark || "媒体推荐标签"}>{tag}</span>)}
-                          {media.platformRecommendationTags?.slice(0, 2).map((tag, index) => <span key={`platform-${index}`} className="is-platform">{tag}</span>)}
-                        </div>
-                      </div>
-                      <div className="am-market-price"><strong>{formatPublishingMoney(media.priceTenThousandths)}</strong><small>元 / 篇 · 目录报价</small><small>{media.active ? "目录在售" : "状态待确认"}</small></div>
-                      <div className="am-market-facts">
-                        <div><span>覆盖区域</span><strong>{media.region || "未提供"}</strong></div>
-                        <div><span>频道类型</span><strong>{media.taxonomy || "未提供"}</strong></div><div><span>媒体类别</span><strong>{media.mediaType || kindLabel(media.kind)}</strong></div>
-                        <div><span>发布速度</span><strong>{media.turnaround || "未提供"}</strong></div>
-                        {media.kind === "self_media" ? <>
-                          <div><span>粉丝 / 点赞</span><strong>{compactNumber(media.followers)} / {compactNumber(media.likes)}</strong></div>
-                          <div><span>账号认证</span><strong title={media.authenticationDescription}>{media.authenticated === true ? media.authenticationType || "已认证" : media.authenticated === false ? "未认证" : "未提供"}</strong></div>
-                        </> : <>
-                          <div><span>收录展示</span><strong>{media.includeType || "未提供"}</strong></div>
-                          <div><span>收录率 / PC 权重</span><strong>{percentage(media.includeRate)} / {media.pcWeight ?? "—"}</strong></div>
-                        </>}
-                        <div><span>通过率</span><strong>{percentage(media.successRate)}</strong></div>
-                        <div><span>内容能力</span><strong>{capabilityLabel(media.capability)}</strong></div>
-                        <div><span>标题上限</span><strong>≤ {media.titleLimit} 字</strong></div>
-                        <div><span>入口 / 链接</span><strong>{media.entryType || "—"} / {media.linkType || "—"}</strong></div>
-                        <PublishingRemark text={media.remark}/>
-                      </div>
-                      <footer className="am-market-foot">
-                        <span className={blocker || selectionLimitReached ? "is-warning" : ""}>{blocker || (selectionLimitReached ? "已达到一次最多 20 家媒体的选择上限" : "报价与实际内容要求将在发布前重新核对")}</span>
-                        <span>{checked ? "已在当前清单" : "未选择"}</span>
-                      </footer>
-                    </article>
-                  );
-                })}
-              </section>
-              <footer className="publishing-media-footer">
-                <span>
-                  当前类型共{" "}
-                  <strong>
-                    {(currentKindCount ?? mediaQuery.data.total).toLocaleString(
-                      "zh-CN",
-                    )}
-                  </strong>{" "}
-                  家 · 筛选后 {mediaQuery.data.total.toLocaleString("zh-CN")} 家
-                </span>
-                <label>
-                  每页{" "}
-                  <select
-                    value={filters.pageSize}
-                    onChange={(event) =>
-                      updateFilter("pageSize", Number(event.target.value))
-                    }
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </label>
-                <PublishingPagination
-                  page={filters.page}
-                  pageCount={pageCount}
-                  onChange={(page) => updateFilter("page", page)}
-                />
-              </footer>
-            </>
-          ) : null}
-        </div>
-      )}
-
-      <section className="am-title-preview" aria-label="实际发布标题">
-        <header><div><span className="am-kicker">发布配置</span><h2>实际发布标题</h2><p>每家媒体分别核对标题上限；编辑与保存沿用原标题配置步骤。</p></div>{(boundDraft ?? draft) && <button type="button" className="publishing-button publishing-button-secondary" disabled={selectionBusy} onClick={() => boundDraft && flow ? void handoff() : continueSelection()}>配置实际标题 →</button>}</header>
-        {(boundDraft ?? draft) ? (boundDraft ?? draft)!.items.map(item => {
-          const value = (boundDraft ?? draft)!.titleMode === "single" ? (boundDraft ?? draft)!.sharedTitle ?? (boundDraft ?? draft)!.articleTitle : item.title;
-          const length = Array.from(value).length;
-          const invalid = !value.trim() || length > item.media.titleLimit;
-          return <article className="am-title-preview-row" key={item.media.id}>
-            <div><strong>{item.media.name}</strong><small>标题上限 ≤ {item.media.titleLimit} 字</small></div>
-            <p>{value || "尚未填写标题"}</p><span className={invalid ? "is-warning" : "is-valid"}>{invalid ? !value.trim() ? "待填写" : "超出上限" : "长度有效"}<small>{length} / {item.media.titleLimit}</small></span>
-          </article>;
-        }) : <p className="am-empty-note">尚未绑定发布稿件。先确认媒体与稿件，再配置实际发布标题。</p>}
-        <p className="am-empty-note">长度有效不代表稿件已通过预检，正式发布前仍需核对当前版本。</p>
-      </section>
-      </div>
-      <aside className="am-handoff" aria-label="投放交接摘要">
-        <header><span className="am-kicker">本次投放</span><h2>交接摘要</h2><p>选择、稿件与报价集中核对</p></header>
-        <dl className="am-handoff-facts">
-          <div><dt>当前稿件</dt><dd>{(boundDraft ?? draft)?.articleTitle ?? selectedArticle?.title ?? "尚未绑定"}</dd></div>
-          <div><dt>冻结版本</dt><dd>{(boundDraft ?? draft) ? `v${(boundDraft ?? draft)!.articleVersion}` : "待确认"}</dd></div>
-          <div><dt>投放媒体</dt><dd>{selected.size} 家<small>软文 {selectedCounts.news} · 自媒体 {selectedCounts.self_media}</small></dd></div>
-          <div className="am-handoff-total"><dt>预计合计</dt><dd>{formatPublishingMoney(selectedTotal)}<small>最终报价以预检为准</small></dd></div>
-        </dl>
-        <ol className="am-handoff-steps"><li data-complete={selected.size > 0}>确认媒体清单</li><li data-complete={Boolean(boundDraft ?? draft)}>绑定冻结稿件</li><li>配置标题，交接发布预检</li></ol>
-      {flow && boundDraft ? (
-        <section className="publishing-flow-result" aria-label="投放选择已保存">
-          <Check size={20} />
-          <div>
-            <strong>
-              {publishingTarget ? "已交接到发布任务" : "稿件与媒体已准备好"}
-            </strong>
-            <p>
-              {boundDraft.articleTitle} · v{boundDraft.articleVersion}，
-              {boundDraft.items.length} 家媒体。继续配置标题并确认发布。
-            </p>
-            <button
-              type="button"
-              className="publishing-button publishing-button-primary"
-              disabled={selectionBusy}
-              onClick={() => void handoff()}
-            >
-              {publishingTarget ? "打开发布任务" : "交给发布助手"}
-            </button>
-            <button
-              type="button"
-              className="publishing-button publishing-button-secondary"
-              disabled={selectionBusy}
-              onClick={() => chooseArticle()}
-            >
-              返回修改稿件
-            </button>
-            {selectionError && <p role="alert">{selectionError}</p>}
-          </div>
-        </section>
-      ) : null}
-      {selected.size && !boundDraft && (!flow || entry) ? (
-        <aside className="publishing-selection-bar" aria-label="已选媒体">
-          <button
-            className="publishing-selection-summary"
-            type="button"
-            onClick={() => setDrawerOpen((value) => !value)}
-            aria-expanded={drawerOpen}
-          >
-            <span className="publishing-selection-check">
-              <Check size={17} />
-            </span>
-            <strong>已选 {selected.size} 家媒体</strong>
-            <span>
-              软文 {selectedCounts.news} · 自媒体 {selectedCounts.self_media}
-            </span>
-            <span>
-              预计总价 <b>{formatPublishingMoney(selectedTotal)}</b>
-            </span>
-            <ShoppingBag size={17} />
-          </button>
-          <button
-            className="publishing-button publishing-button-dark"
-            type="button"
-            onClick={clearSelection}
-            disabled={selectionBusy || Boolean(draftId && !draft)}
-            aria-label="清空已选媒体"
-          >
-            <Trash2 size={17} />
-            清空
-          </button>
-          <button
-            className="publishing-button publishing-button-accent"
-            type="button"
-            disabled={selectionBusy || Boolean(draftId && !draft)}
-            onClick={continueSelection}
-          >
-            {selectionBusy ? (
-              <LoaderCircle className="publishing-spin" size={17} />
-            ) : null}
-            {flow
-              ? "确认媒体，选择稿件"
-              : draft
-                ? "下一步：配置标题"
-                : "选择稿件并继续"}
-          </button>
-        </aside>
-      ) : null}
-
-        {!selected.size && <p className="am-empty-note">尚未选择媒体。可先筛选资源，勾选后再确认稿件。</p>}
-        <Link className="am-requirements-link" href={projectWorkspaceUrl("/publishing/media-requirements")}>查看媒体要求与稿件预检 →</Link>
-      </aside></div>
-      {drawerOpen && flow ? (
-        <section
-          className="publishing-inline-step"
-          aria-label="已选媒体明细"
-          data-reading-anchor="media-selection"
-        >
-          <h2>这份媒体清单还需要调整吗？</h2>
-          <p>
-            已选 {selected.size} 家，预估合计{" "}
-            {formatPublishingMoney(selectedTotal)}。最终报价以预检为准。
-          </p>
-          <ul className="publishing-confirmed-media-list">
-            {selectedValues.map((media) => (
-              <li key={media.id}>
-                <span>
-                  <strong>{media.name}</strong>
-                  <small>{kindLabel(media.kind)}</small>
-                </span>
-                <span>{formatPublishingMoney(media.priceTenThousandths)}</span>
-                <button
-                  type="button"
-                  className="publishing-button publishing-button-secondary"
-                  disabled={selectionBusy}
-                  onClick={() => toggle(media)}
-                  aria-label={`移除 ${media.name}`}
-                >
-                  移除
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="publishing-inline-actions">
-            <button
-              type="button"
-              className="publishing-button publishing-button-secondary"
-              onClick={() => setDrawerOpen(false)}
-            >
-              收起清单
-            </button>
-            <button
-              type="button"
-              className="publishing-button publishing-button-primary"
-              disabled={!selected.size || selectionBusy}
-              onClick={continueSelection}
-            >
-              确认清单，选择稿件
-            </button>
-          </div>
-        </section>
-      ) : null}
-      {drawerOpen && !flow ? (
-        <div
-          className="publishing-drawer-backdrop"
-          role="presentation"
-          onMouseDown={() => setDrawerOpen(false)}
-        >
-          <aside
-            className="publishing-selection-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="已选媒体明细"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <span>{draft ? "投放草稿" : "待选清单"}</span>
-                <h2>
-                  已选媒体 <b>{selected.size}</b>
-                </h2>
-              </div>
-              <button
-                type="button"
-                aria-label="关闭已选媒体"
-                onClick={() => setDrawerOpen(false)}
-              >
-                <X size={20} />
-              </button>
-            </header>
-            <div className="publishing-drawer-summary">
-              <span>
-                软文媒体 <b>{selectedCounts.news}</b>
-              </span>
-              <span>
-                自媒体 <b>{selectedCounts.self_media}</b>
-              </span>
-              <span>
-                预计总价 <b>{formatPublishingMoney(selectedTotal)}</b>
-              </span>
-            </div>
-            <div className="publishing-drawer-list">
-              {selectedValues.map((media) => (
-                <article key={media.id}>
-                  <MediaMark
-                    name={media.shortName}
-                    id={media.id}
-                    logoUrl={media.logoUrl}
-                    logoSource={media.logoSource}
-                    logoResolutionStatus={media.logoResolutionStatus}
-                  />
-                  <span>
-                    <strong>{media.name}</strong>
-                    <small>
-                      {kindLabel(media.kind)} · {media.platform}
-                    </small>
-                  </span>
-                  <b>{formatPublishingMoney(media.priceTenThousandths)}</b>
-                  <button
-                    type="button"
-                    aria-label={`移除 ${media.name}`}
-                    disabled={selectionBusy || Boolean(draftId && !draft)}
-                    onClick={() => toggle(media)}
-                  >
-                    <X size={16} />
-                  </button>
-                </article>
-              ))}
-            </div>
-            <footer>
-              <button
-                className="publishing-button publishing-button-secondary"
-                type="button"
-                onClick={clearSelection}
-                disabled={selectionBusy || Boolean(draftId && !draft)}
-              >
-                清空全部
-              </button>
-              <button
-                type="button"
-                className="publishing-button publishing-button-accent"
-                disabled={selectionBusy || !selected.size}
-                onClick={continueSelection}
-              >
-                {draft ? "配置标题" : "选择稿件并继续"}
-              </button>
-            </footer>
-          </aside>
-        </div>
-      ) : null}
+  return <PublishingPage title={titles[view]} description={view==='third'?'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。':view==='home'?'从信源研究到媒体选择，再到可回退修正的发布预检。':undefined} busy={selectionBusy} actions={view==='third'?<div className="fm-media"><button className="button secondary" disabled={exporting||!ruleData.ready} onClick={()=>void exportCatalogue()}>{exporting?'正在导出…':'导出媒体清单'}</button></div>:undefined}>
+    <div className="fm-media">
+      <MediaTaskbar title={(boundDraft??draft)?.articleTitle??selectedArticle?.title} count={selected.size} total={selectedTotal} cartHref={base+'/cart'}>
+       <select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='choose')chooseArticle();else if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'当前投放任务'}</option>}<option value="choose">选择已确认稿件…</option></select>
+       {(draft??boundDraft)&&<button className="link small" onClick={()=>chooseArticle()}>查看 / 更换稿件</button>}
+      </MediaTaskbar>
+      <MediaTabs active={view} base={base} query={search.replace(/^\?/,'')}/>
+      {selectionError&&<p className="notice warn" role="alert">{selectionError}</p>}{marketNotice&&<p className="notice" role="status">{marketNotice}</p>}
+      {catalogRevisionChange&&<div className="notice warn">媒体目录已更新，请刷新报价与要求。<button className="link" onClick={refreshChangedCatalog}>刷新目录</button></div>}
+      {view==='home'?<><div className="x-source-grid">{[['/publishing/source-matrix','信源矩阵','输入引用记录与行业清单，结合投放需求生成分层推荐。','生成信源推荐'],['/publishing/source-industry','行业信源推荐','按行业查看推荐理由、来源和可投状态；研究信源与可投媒体分别标注。','查看行业推荐'],[base+'/third','第三方媒体','筛选媒体、悬停查看特殊要求，勾选即加入同一购物车。','选择第三方媒体']].map(([href,title,note,cta])=><section className="panel b-entry" key={href}><div className="metric-icon">{title==='信源矩阵'?<Layers3/>:title==='行业信源推荐'?<Search/>:<ShoppingBag/>}</div><h2>{title}</h2><p>{note}</p><Link className="button primary" href={projectWorkspaceUrl(href)}>{cta} →</Link></section>)}</div><div className="x-summary-grid"><div className="x-summary-item"><small>已选第三方媒体</small><strong>{selected.size}</strong><Link className="link small" href={projectWorkspaceUrl(base+'/cart')}>查看购物车 →</Link></div><div className="x-summary-item"><small>已确认费用</small><strong>{formatPublishingMoney(selectedTotal)}</strong><span className="small muted">发布前复核报价</span></div><div className="x-summary-item"><small>已输入引用记录</small><strong>—</strong><Link className="link small" href={projectWorkspaceUrl('/publishing/source-analysis')}>引用信源 →</Link></div><div className="x-summary-item"><small>已输入行业推荐</small><strong>—</strong><Link className="link small" href={projectWorkspaceUrl('/publishing/source-industry')}>行业清单 →</Link></div></div></>:view==='owned'?<section className="panel panel-pad"><h2>自有社媒发布</h2><div className="x-empty"><strong>尚未连接自有账号</strong><p>当前仓库未提供自有社媒账号授权与发布接口。请先完成账号接入；第三方自媒体不会作为自有账号展示。</p></div></section>:view==='cart'?<div className="y-catalogue">
+       <div className="actions" style={{marginBottom:18}}><Link className="button secondary" href={projectWorkspaceUrl(base+'/third')}>← 继续选择媒体</Link><button className="button quiet" onClick={()=>exportRows(selectedValues)}>导出清单</button><button className="button quiet" disabled={!selected.size} onClick={()=>{try{const key=`${accountShortlistKey??workspaceKey}:templates`;const saved=JSON.parse(localStorage.getItem(key)??'[]');localStorage.setItem(key,JSON.stringify([...(Array.isArray(saved)?saved:[]),{savedAt:new Date().toISOString(),mediaIds:selectedValues.map(m=>m.id)}].slice(-20)));setMarketNotice('当前组合模板已保存在此浏览器。重新使用前需复核媒体报价与要求。');}catch{setSelectionError('组合模板保存失败，请检查浏览器存储权限。');}}}>保存组合模板</button><button className="link danger" onClick={clearSelection}>清空购物车</button></div>
+       {!draft&&!boundDraft&&<div className="notice" style={{marginBottom:16}}>当前是独立研究清单。配置标题前，请绑定已确认稿件；清单与报价会一并保留。</div>}
+       {ruleData.error&&<p className="notice warn" role="status">{ruleData.error}</p>}
+       <div className="panel y-cart-panel">{ruleData.ready&&selected.size?<div className="table-wrap"><table className="y-cart-table"><thead><tr><th>媒体 / 发布备注</th><th>单篇报价</th><th>投放稿件</th><th>规则与操作</th></tr></thead><tbody>{selectedValues.map(m=><tr key={m.id}><td className="y-cart-resource"><strong>{m.name}</strong><p className="small muted">{m.platform||'平台未注明'}</p><div className="y-remarks-line"><span>发布备注</span><PublishingRemark text={ruleData.rules[m.id]?.rawRemark??m.remark}/></div></td><td><strong className="b-price">{formatPublishingMoney(m.priceTenThousandths)}</strong><p className="small muted">目录报价 · 发布前复核</p></td><td><label><input type="checkbox" checked={!!(draft??boundDraft)} disabled/>{(draft??boundDraft)?.articleTitle??'尚未绑定稿件'}</label><button className="link small" onClick={()=>chooseArticle()}>选择 / 更换稿件</button></td><td><button className="link small" onClick={()=>setDetailMedia(m)}>要求与预检</button><button className="link small" disabled={selectionBusy} onClick={()=>toggle(m)}>移除</button></td></tr>)}</tbody></table></div>:<div className="x-empty"><strong>{ruleData.loading?'正在读取目录资料':!ruleData.ready?'等待官方 API 配置':'购物车还没有媒体'}</strong><p>从第三方媒体或信源矩阵中选择资源。</p></div>}</div>
+       <div className="b-bottom"><div><strong>购物车 {selected.size} 家 · {formatPublishingMoney(selectedTotal)}</strong><p className="small muted">发布前按实际稿件与媒体组合重新核对费用。</p></div><div className="actions"><button className="button secondary" onClick={()=>chooseArticle()}>绑定已确认稿件</button><button className="button primary" disabled={!selected.size||selectionBusy} onClick={next}>配置标题 →</button></div></div>
+      </div>:<div className={'y-catalogue '+(compact?'y-compact':'')}>
+       <div className="y-data-strip"><span><strong>{ruleData.loading?'正在读取官方目录状态':ruleData.ready?`已载入 ${sourceRows.length} 条目录记录`:'官方 API 待配置'}</strong>　备注悬停可展开；未提供的要求保留为待确认。</span><button className="link" onClick={()=>setDataInfoOpen(true)}>数据说明 ⓘ</button></div>
+       {ruleData.error&&<p className="notice warn fm-status" role="status">{ruleData.error}</p>}
+       {view==='third'&&<>
+       <section className={'panel y-filter-panel '+(advancedOpen?'':'y-filter-collapsed')}>
+        <div className="y-search-line"><div className="y-search-box"><Search size={18}/><input type="search" className="field" aria-label="搜索媒体" value={queryDraft} placeholder="搜索媒体、平台或资源编号" onChange={e=>setQueryDraft(e.target.value)}/></div><button className="button secondary x-small-button" onClick={()=>setBatchOpen(!batchOpen)}>批量搜索</button><select aria-label="媒体排序" value={filters.sort??'recommended'} onChange={e=>updateFilter('sort',e.target.value as MediaFilters['sort'])}><option value="recommended">按目录顺序</option><option value="price_asc">报价从低到高</option><option value="price_desc">报价从高到低</option></select><button className="button secondary x-small-button" aria-expanded={advancedOpen} onClick={()=>setAdvancedOpen(!advancedOpen)}>{advancedOpen?'收起筛选 ▴':'筛选条件 ▾'}</button><button className="link small" onClick={()=>{navigateFilters({...DEFAULT_MEDIA_FILTERS,kind:filters.kind});setRemarkFilter('');setRuleFilter('');}}>重置</button></div>
+        {batchOpen&&<textarea className="field" aria-label="批量搜索媒体" value={batchQueryDraft} onChange={e=>setBatchQueryDraft(e.target.value)} placeholder="每行一个媒体名称或资源编号"/>}
+        <div className="y-filter-line"><span className="y-filter-label">媒体平台</span><div className="y-chip-options"><button className={!filters.platform?'active':''} onClick={()=>updateFilter('platform','')}>全部</button>{facetsQuery.data?.platforms.map(p=><button key={p.value} className={filters.platform===p.value?'active':''} onClick={()=>updateFilter('platform',p.value)}>{p.label}<small>{p.count}</small></button>)}</div></div>
+        <div className="y-filter-line"><span className="y-filter-label">备注状态</span><div className="y-chip-options">{[['','全部'],['provided','有发布备注'],['unknown','未注明备注']].map(([v,t])=><button key={v} className={remarkFilter===v?'active':''} onClick={()=>{setRemarkFilter(v);updateFilter('page',1);}}>{t}</button>)}</div></div>
+        <div className="y-filter-line"><span className="y-filter-label">发布条件</span><div className="y-chip-options">{[['','全部'],['title_chars','标题限制'],['body_chars','正文限制'],['images','图片限制'],['links','链接限制']].map(([v,t])=><button key={v} className={ruleFilter===v?'active':''} onClick={()=>{setRuleFilter(v);updateFilter('page',1);}}>{t}</button>)}</div></div>
+        <details className="y-more"><summary>更多条件：行业、报价与稿件适配</summary><div className="x-filter-grid"><label>行业<select value={filters.taxonomy??''} onChange={e=>updateFilter('taxonomy',e.target.value)}><option value="">全部行业</option>{facetsQuery.data?.taxonomies.map(p=><option value={p.value} key={p.value}>{p.label}</option>)}</select></label><label>最低价（元 / 篇）<input className="field" value={filters.priceMin??''} inputMode="decimal" onChange={e=>updateFilter('priceMin',e.target.value)}/></label><label>最高价（元 / 篇）<input className="field" value={filters.priceMax??''} inputMode="decimal" onChange={e=>updateFilter('priceMax',e.target.value)}/></label><label>素材能力<select value={filters.capability??''} onChange={e=>updateFilter('capability',e.target.value as MediaFilters['capability'])}><option value="">不限</option><option value="image">支持图文</option><option value="text">仅文字</option></select></label></div><p className="y-subtle-note">平台、行业与价格筛选查询真实目录；备注与结构化要求在完整匹配目录中筛选后分页。</p></details>
+       </section>
+       <div className="y-resultbar"><div className="y-result-tabs">{[['all','全部'],['favorites','我的收藏'],['cart','购物车']].map(([v,t])=><button key={v} className={scope===v?'active':''} onClick={()=>{setScope(v as typeof scope);updateFilter('page',1);}}>{t}<small>{v==='cart'?selected.size:v==='favorites'?favorites.length:mediaQuery.data?.total??'—'}</small></button>)}</div><span className="y-result-count">为您找到 <strong>{mediaQuery.data?.total??'—'}</strong> 条媒体资源</span></div>
+       <div className="y-typebar"><button className={!filters.kind?'active':''} onClick={()=>navigateFilters({...filters,kind:undefined,page:1})}>全部媒体</button><button className={filters.kind==='news'?'active':''} onClick={()=>navigateFilters({...filters,kind:'news',page:1})}>门户媒体</button><button className={filters.kind==='self_media'?'active':''} onClick={()=>navigateFilters({...filters,kind:'self_media',page:1})}>第三方自媒体</button></div>
+       </>}
+       <div className="y-selection"><label><input type="checkbox" aria-label="本页全选" checked={rows.length>0&&rows.every(m=>selected.has(m.id))} disabled={selectionBusy||!rows.length} onChange={e=>{const next=new Map(selected);for(const m of rows){if(e.target.checked){if(next.size<20&&!mediaSelectionBlocker(m,articleHasImages))next.set(m.id,m);}else next.delete(m.id);}setBoundDraft(undefined);void persistMediaIds([...next.keys()],next);}}/>本页全选 <span> | </span><strong>已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>{const ids=[...new Set([...favorites,...selectedValues.map(m=>m.id)])];try{localStorage.setItem(favoriteKey,JSON.stringify(ids));setFavoriteState({key:favoriteKey,ids});}catch{setSelectionError('收藏保存失败');}}}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={clearSelection}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
+       {mediaQuery.loading&&<PublishingLoading label="正在读取媒体目录…"/>}{mediaQuery.error&&<PublishingError error={mediaQuery.error} onRetry={mediaQuery.reload}/>}
+       <div className="y-horizontal-scroll"><RowHead/><div className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} favorite={favorites.includes(media.id)} onFavorite={()=>favorite(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&!ruleData.loading&&<div className="x-empty"><strong>{ruleData.ready?'没有匹配的媒体':'等待官方 API 配置'}</strong><p>{ruleData.ready?'调整平台、关键词或其他条件后再试。已选媒体保持不变。':'完成服务端凭据和目录同步后，将直接在此列表显示真实媒体与发布要求。'}</p></div>}</div></div>
+       {view==='third'&&scope!=='cart'&&<div className="y-pages"><span>共 {mediaQuery.data?.total??'—'} 家 · 第 {filters.page} / {pageCount} 页　<select aria-label="每页媒体数" value={filters.pageSize} onChange={e=>updateFilter('pageSize',Number(e.target.value))}>{[10,20,50].map(n=><option key={n} value={n}>{n} 家 / 页</option>)}</select></span><PublishingPagination page={filters.page} pageCount={pageCount} onChange={page=>updateFilter('page',page)}/></div>}
+       <p className="y-list-footnote">报价与要求来自官方目录。无法解析的备注须人工核验，不作收录或 AI 引用承诺。</p>
+       <div className="b-bottom"><div><strong>购物车 {selected.size} 家 · {formatPublishingMoney(selectedTotal)}</strong><p className="small muted">勾选即加入，取消勾选即移除。发布前重新核对报价与稿件。</p></div><div className="actions"><Link className="button secondary" href={projectWorkspaceUrl(base+'/cart')}>查看购物车</Link><button className="button primary" disabled={!selected.size||selectionBusy} onClick={next}>配置标题 →</button></div></div>
+      </div>}
+      <PublishingConfirmDialog open={dataInfoOpen} title="媒体数据说明" description="列表使用官方 API 同步的媒体档案，不是演示库存。" confirmLabel="关闭" onCancel={()=>setDataInfoOpen(false)} onConfirm={()=>setDataInfoOpen(false)}><div className="fm-media"><div className="y-info-metrics"><div><strong>{mediaQuery.data?.total??'—'}</strong><span>匹配媒体记录</span></div><div><strong>{sourceRows.length}</strong><span>当前页记录</span></div><div><strong>{sourceRows.filter(m=>!!ruleData.rules[m.id]?.rawRemark).length}</strong><span>当前页有备注</span></div><div><strong>{selected.size}</strong><span>已选媒体</span></div></div><div className="reading"><p>原始发布备注与解析规则以媒体内部 ID 关联，同名媒体与跨平台账号不合并。无法解析的文字保留为待核验。</p><p>报价来自仓库既有官方目录同步链路；规则从当前档案的原始备注或最新采集快照解析。没有报价、地区、权重与引用监测的字段，不使用参考稿的示例值填充。</p><p>目录更新后须重新核对选择、标题与稿件。正式下单继续使用现有业务的实时重报价和发布预检。</p></div></div></PublishingConfirmDialog>
+      <MediaDetails media={detailMedia} rules={detailMedia?ruleData.rules[detailMedia.id]:undefined} onClose={()=>setDetailMedia(undefined)}/>
+    </div>
       <PublishingConfirmDialog
         inline={Boolean(flow)}
         open={articleChooserOpen}
@@ -1831,10 +1018,8 @@ export default function PublishingMediaLibraryPage({
           </p>
         ) : null}
       </PublishingConfirmDialog>
-    </PublishingPage>
-  );
+    </PublishingPage>;
 }
-
 function FilterLine({
   label,
   children,
