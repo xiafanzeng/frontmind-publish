@@ -1,9 +1,1 @@
-/* Source matrix uses the final reference layout in publishing.market.css. */
-.fm-media fieldset{border:0;margin:0;padding:0;min-width:0}
-.fm-media .r-data-note{margin:0 0 18px}
-.fm-media .r-data-note select{max-width:100%;margin-left:8px}
-.fm-media .r-rank strong{overflow:hidden;text-overflow:ellipsis}
-.fm-media .r-report section{margin-top:16px}
-.fm-media .z-budget-result{margin-top:20px}
-.fm-media .z-budget-result table{width:100%}
-@media print{.fm-media .b-task,.fm-media .b-subtabs,.fm-media .x-matrix-nav,.fm-media>.actions{display:none}.fm-media .r-report{box-shadow:none;border:0}}
+/* Source matrix shares the exact, scoped reference transcription in ../publishing.market.css. */
