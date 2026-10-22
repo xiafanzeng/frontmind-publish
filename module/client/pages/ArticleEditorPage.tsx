@@ -87,8 +87,10 @@ export function ArticleEditorSurface({
 
 export default function PublishingArticleEditorPage({
   articleId,
+  embedded = false,
 }: {
   articleId: string;
+  embedded?: boolean;
 }) {
   const gateway = usePublisherGateway();
   const flow = usePublishingFlow();
@@ -118,6 +120,11 @@ export default function PublishingArticleEditorPage({
   // Presentation-only organization modes. They do not add fields to the gateway contract.
   const [editorMode, setEditorMode] = useState<"single" | "multi" | "batch">("single");
   const [alternateTitles, setAlternateTitles] = useState(["", ""]);
+  const loadArticleStack = useCallback(
+    (signal: AbortSignal) => gateway.listArticles(signal),
+    [gateway],
+  );
+  const articleStack = usePublisherQuery(loadArticleStack, "article-editor-stack");
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
 
@@ -375,10 +382,30 @@ export default function PublishingArticleEditorPage({
     [article, gateway, operationScope],
   );
 
+  if (editorMode === "batch" && !embedded) {
+    return (
+      <PublishingPage title="批量投放 · 稿件准备" description="按 DEMO 的 article-stack 组织多篇真实稿件。每张卡关联现有稿件记录，编辑与保存仍使用真实稿件 API；本轮不创建虚构批量任务。" busy={articleStack.loading}>
+        <nav className="publishing-article-subnav" aria-label="稿件子页面">
+          <Link href="/publishing/articles">管理稿件</Link>
+          <Link href="/publishing/records">发布记录</Link>
+          <Link href="/publishing/articles/edit" className="is-active" aria-current="page">编辑稿件</Link>
+        </nav>
+        <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
+          {([["single", "单标题", "一篇文章，一个正式标题"], ["multi", "多标题", "同一正文，多个备选标题"], ["batch", "批量投放", "逐篇准备真实稿件"]] as const).map(([mode,label,hint]) => <button key={mode} type="button" role="tab" aria-selected={editorMode===mode} className={editorMode===mode ? "is-active" : ""} onClick={() => setEditorMode(mode)}><strong>{label}</strong><span>{hint}</span></button>)}
+        </div>
+        <div className="publishing-article-stack-heading"><div><h2>批量稿件堆栈</h2><p>每张卡都是通过稿件列表 / 导入 API 建立的真实稿件，不会虚构批量任务字段。</p></div><Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">＋ 添加稿件（导入 DOCX）</Link></div>
+        {articleStack.loading ? <PublishingLoading label="正在读取真实稿件…" /> : null}
+        {articleStack.error ? <PublishingError error={articleStack.error} onRetry={articleStack.reload} /> : null}
+        {articleStack.data?.length ? <section className="publishing-article-stack" aria-label="批量稿件卡片">{articleStack.data.map((item,index) => <article className="publishing-article-stack-card publishing-article-stack-editor" key={item.id}><div className="publishing-article-stack-heading"><span className="publishing-article-stack-number">文章 {index+1}</span><span className="publishing-editor-inline-note">真实稿件 ID：{item.id}</span></div><PublishingArticleEditorPage articleId={item.id} embedded /></article>)}</section> : <div className="publishing-empty-state"><strong>还没有可加入批量准备的稿件</strong><p>导入 DOCX 后，稿件会作为真实记录出现在此处。</p><Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">导入第一篇稿件</Link></div>}
+        <p className="publishing-editor-inline-note">当前 Gateway 没有删除稿件或创建空白稿件的接口，因此此处不提供伪删除按钮；新稿件通过现有 DOCX 导入流程逐篇落库。</p>
+      </PublishingPage>
+    );
+  }
+
   return (
     <PublishingPage
-      title="稿件编辑"
-      description="编辑正文并冻结可追溯版本"
+      title={embedded ? (article?.title || "文章编辑") : "稿件编辑"}
+      description={embedded ? "批量准备中的独立真实稿件卡；保存与冻结均作用于此稿件。" : "编辑正文并冻结可追溯版本"}
       busy={query.loading || saving}
       actions={
         article ? (
@@ -424,6 +451,11 @@ export default function PublishingArticleEditorPage({
         ) : undefined
       }
     >
+      {!embedded ? <nav className="publishing-article-subnav" aria-label="稿件子页面">
+        <Link href="/publishing/articles">管理稿件</Link>
+        <Link href="/publishing/records">发布记录</Link>
+        <Link href="/publishing/articles/edit" className="is-active" aria-current="page">编辑稿件</Link>
+      </nav> : null}
       {flow && frozenResult && !dirty && (
         <section className="publishing-flow-result" aria-label="稿件冻结完成">
           <CheckCircle2 size={20} />
@@ -443,13 +475,13 @@ export default function PublishingArticleEditorPage({
           </div>
         </section>
       )}
-      <PublishingBreadcrumbs
+      {!embedded ? <PublishingBreadcrumbs
         items={[
           { label: "稿件", href: "/publishing/articles" },
           { label: article?.title || "编辑" },
         ]}
-      />
-      <section className="publishing-editor-mode-panel" aria-label="编辑组织模式">
+      /> : null}
+      {!embedded ? <section className="publishing-editor-mode-panel" aria-label="编辑组织模式">
         <div className="publishing-editor-mode-heading">
           <div>
             <span className="publishing-overview-kicker">CONTENT WORKSPACE</span>
@@ -460,9 +492,9 @@ export default function PublishingArticleEditorPage({
         </div>
         <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
           {([
-            ["single", "单篇编辑", "一份标题与正文"],
+            ["single", "单标题", "一篇文章，一个正式标题"],
             ["multi", "多标题", "同一正文，准备不同标题"],
-            ["batch", "批量准备", "聚焦当前稿件并逐篇处理"],
+            ["batch", "批量投放", "逐篇准备真实稿件"],
           ] as const).map(([mode, label, hint]) => (
             <button
               key={mode}
@@ -480,26 +512,27 @@ export default function PublishingArticleEditorPage({
           <div className="publishing-alternate-titles">
             <div><strong>标题草拟区</strong><p>以下备选标题只保存在当前编辑页面，不会写入稿件 API；请在实际媒体流程中按媒体规则确认最终标题。</p></div>
             {alternateTitles.map((value, index) => (
-              <label key={index}>
-                <span>备选标题 {index + 1}</span>
-                <input
-                  value={value}
-                  maxLength={100}
-                  placeholder={title || "输入备选标题"}
-                  onChange={(event) => setAlternateTitles((current) => current.map((item, i) => i === index ? event.target.value : item))}
-                />
-              </label>
+              <div className="publishing-alternate-title-row" key={index}>
+                <label>
+                  <span>备选标题 {index + 1}</span>
+                  <input
+                    value={value}
+                    maxLength={100}
+                    placeholder={title || "输入备选标题"}
+                    onChange={(event) => setAlternateTitles((current) => current.map((item, i) => i === index ? event.target.value : item))}
+                  />
+                </label>
+                <div className="publishing-inline-actions">
+                  <button type="button" className="publishing-button publishing-button-primary" disabled={!value.trim() || saving || freezing} onClick={() => { setTitle(value.trim()); setSaveError(""); }}>应用为正式标题</button>
+                  <button type="button" className="publishing-button publishing-button-secondary" disabled={!value.trim()} onClick={() => { void navigator.clipboard?.writeText(value).catch(() => setSaveError("复制失败，请手动复制标题")); }}>复制</button>
+                  <button type="button" className="publishing-button publishing-button-secondary" disabled={alternateTitles.length <= 1} onClick={() => setAlternateTitles((current) => current.filter((_, i) => i !== index))}>删除</button>
+                </div>
+              </div>
             ))}
             <button type="button" className="publishing-button publishing-button-secondary" onClick={() => setAlternateTitles((current) => [...current, ""])} disabled={alternateTitles.length >= 5}>＋ 添加备选标题</button>
           </div>
-        ) : editorMode === "batch" ? (
-          <div className="publishing-batch-mode-note">
-            <strong>批量准备工作流</strong>
-            <span>当前编辑器仍绑定一篇真实稿件。请先保存或冻结当前稿件，再从稿件管理中打开下一篇；不会在本地创建虚构稿件或批量任务。</span>
-            <Link className="publishing-button publishing-button-secondary" href="/publishing/articles">打开稿件管理 <Eye size={15}/></Link>
-          </div>
         ) : null}
-      </section>
+      </section> : null}
       {query.loading ? <PublishingLoading label="正在读取稿件编辑器…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />

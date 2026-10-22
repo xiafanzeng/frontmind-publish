@@ -1,7 +1,5 @@
 import { lazy, Suspense } from "react";
-import type { ReactNode } from "react";
-import { Link, Redirect, Route, Switch, useLocation, useSearch } from "wouter";
-import { FileText, LayoutDashboard, LibraryBig } from "lucide-react";
+import { Redirect, Route, Switch, useSearch } from "wouter";
 
 import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
@@ -45,8 +43,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const matrixDraftHref=(draftId:string)=>{const params=new URLSearchParams(search);params.set("draftId",draftId);return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());};
   return (
     <PublishingGatewayProvider gateway={gateway}>
-      <PublishingWorkspaceShell>
-        <Suspense
+      <Suspense
           fallback={
             <div className="publishing-page publishing-page-loading">
               <PublishingLoading label="正在准备媒体发布工作台…" />
@@ -61,6 +58,9 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             <Route path="/publishing/source-report"><SourceMatrixPage view="report" /></Route>
             <Route path="/publishing/articles/new/import">
               <ImportPage />
+            </Route>
+            <Route path="/publishing/articles/edit">
+              <Redirect to="/publishing/articles?mode=edit" />
             </Route>
             <Route path="/publishing/articles/:articleId/edit">
               {(params) => <ArticleEditorPage articleId={params.articleId} />}
@@ -127,45 +127,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           </Switch>
           </>
         </Suspense>
-      </PublishingWorkspaceShell>
     </PublishingGatewayProvider>
   );
 }
 
-function PublishingWorkspaceShell({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  const search = useSearch();
-  const isRecords = location === "/publishing/records" ||
-    (location === "/publishing" && new URLSearchParams(search.replace(/^\?/u, "")).get("tab") === "records");
-  const isArticles = location.startsWith("/publishing/articles");
-  const isMedia = location.startsWith("/publishing/media") || location.startsWith("/publishing/source-") || location.startsWith("/publishing/drafts/") && location.includes("/media");
-  const articleNavActive = isArticles || location.startsWith("/publishing/drafts/") || location.startsWith("/publishing/review/");
-  return (
-    <div className="publishing-workspace-shell">
-      <aside className="publishing-sidebar" aria-label="发布模块导航">
-        <Link className="publishing-sidebar-brand" href="/publishing" aria-label="FrontMind Publish 首页">
-          <span className="publishing-sidebar-brand-mark">FM</span>
-          <span>FrontMind<small>Publish</small></span>
-        </Link>
-        <nav className="publishing-sidebar-nav">
-          <Link className={`publishing-sidebar-link${location === "/publishing" && !isRecords ? " is-active" : ""}`} href="/publishing" aria-current={location === "/publishing" && !isRecords ? "page" : undefined}>
-            <LayoutDashboard size={18} /><span>发布工作台</span>
-          </Link>
-          <Link className={`publishing-sidebar-link${articleNavActive ? " is-active" : ""}`} href="/publishing/articles" aria-current={articleNavActive ? "page" : undefined}>
-            <FileText size={18} /><span>稿件</span>
-          </Link>
-          <div className="publishing-sidebar-subnav" aria-label="稿件子页面">
-            <Link className={`publishing-sidebar-sublink${location === "/publishing/articles" && new URLSearchParams(search.replace(/^\?/u, "")).get("mode") !== "edit" ? " is-active" : ""}`} href="/publishing/articles">管理稿件</Link>
-            <Link className={`publishing-sidebar-sublink${isArticles && new URLSearchParams(search.replace(/^\?/u, "")).get("mode") === "edit" ? " is-active" : ""}`} href="/publishing/articles?mode=edit">编辑稿件</Link>
-            <Link className={`publishing-sidebar-sublink${isRecords ? " is-active" : ""}`} href="/publishing?tab=records">发布记录</Link>
-          </div>
-          <Link className={`publishing-sidebar-link${isMedia ? " is-active" : ""}`} href="/publishing/media" aria-current={isMedia ? "page" : undefined}>
-            <LibraryBig size={18} /><span>媒体库</span>
-          </Link>
-        </nav>
-        <div className="publishing-sidebar-foot">媒体发布模块<small>稿件 · 媒体 · 发布记录</small></div>
-      </aside>
-      <div className="publishing-workspace-content">{children}</div>
-    </div>
-  );
-}
