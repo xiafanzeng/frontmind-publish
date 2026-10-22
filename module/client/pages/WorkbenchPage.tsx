@@ -50,21 +50,7 @@ export default function PublishingWorkbenchPage() {
   if (flow && flowEntryRequested)
     return <PublishingConversation initialRecords={records} />;
   return (
-    <>
-      <nav className="publishing-workbench-tabs" aria-label="发布工作台视图">
-        <Link href="/publishing" aria-current={!records ? "page" : undefined}>
-          工作概览
-        </Link>
-        <Link href="/publishing/media-requirements">媒体要求</Link>
-        <Link
-          href="/publishing?tab=records"
-          aria-current={records ? "page" : undefined}
-        >
-          发布记录
-        </Link>
-      </nav>
-      {records ? <PublicationsPage /> : <OverviewPage />}
-    </>
+    <>{records ? <PublicationsPage /> : <OverviewPage />}</>
   );
 }
 

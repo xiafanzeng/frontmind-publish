@@ -37,6 +37,13 @@ export default function PublishingArticlesPage() {
     [gateway],
   );
   const query = usePublisherQuery(load);
+  const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const visibleArticles = (query.data ?? []).filter((article) => {
+    const matchesText = `${article.title} ${article.id}`.toLocaleLowerCase("zh-CN").includes(keyword.trim().toLocaleLowerCase("zh-CN"));
+    const matchesStatus = statusFilter === "all" || article.status === statusFilter;
+    return matchesText && matchesStatus;
+  });
   usePublishingSummary({
     title: "项目稿件",
     items: [
@@ -61,8 +68,8 @@ export default function PublishingArticlesPage() {
 
   return (
     <PublishingPage
-      title="稿件管理"
-      description="统一管理真实稿件、版本状态与最近更新时间；冻结版本不会因后续编辑而改变。"
+      title="管理稿件"
+      description="搜索、筛选并继续编辑真实稿件；冻结版本不会因后续编辑而改变。"
       busy={query.loading || query.refreshing}
       actions={
         <Link
@@ -70,7 +77,7 @@ export default function PublishingArticlesPage() {
           href="/publishing/articles/new/import"
         >
           <Upload size={17} />
-          导入 DOCX
+          导入稿件
         </Link>
       }
     >
@@ -79,7 +86,30 @@ export default function PublishingArticlesPage() {
         <PublishingError error={query.error} onRetry={query.reload} />
       ) : null}
       {query.data ? (
-        query.data.length ? (
+        <>
+          <div className="publishing-article-filterbar" role="search">
+            <label className="publishing-article-search">
+              <span className="publishing-visually-hidden">搜索稿件</span>
+              <input
+                type="search"
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="搜索稿件标题或 ID"
+                aria-label="搜索稿件标题或 ID"
+              />
+            </label>
+            <label className="publishing-article-status-filter">
+              <span>稿件状态</span>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="按稿件状态筛选">
+                <option value="all">全部状态</option>
+                <option value="draft">草稿</option>
+                <option value="frozen">已冻结</option>
+                <option value="importing">导入中</option>
+                <option value="import_failed">导入失败</option>
+              </select>
+            </label>
+          </div>
+          {visibleArticles.length ? (
           <section
             className="publishing-panel publishing-article-table publishing-articles-table"
             aria-label="稿件列表"
@@ -91,7 +121,7 @@ export default function PublishingArticlesPage() {
               <span>最近更新</span>
               <span aria-hidden="true" />
             </div>
-            {query.data.map((article) => (
+            {visibleArticles.map((article) => (
               <Link
                 key={article.id}
                 className="publishing-article-row"
@@ -128,21 +158,22 @@ export default function PublishingArticlesPage() {
               </Link>
             ))}
           </section>
-        ) : (
-          <PublishingEmpty
-            title="还没有稿件"
-            description="导入 DOCX，系统会完成安全检查并建立可编辑稿件。"
-            action={
-              <Link
-                className="publishing-button publishing-button-primary"
-                href="/publishing/articles/new/import"
-              >
-                <Plus size={16} />
-                导入第一篇稿件
-              </Link>
-            }
-          />
-        )
+          ) : (
+            <PublishingEmpty
+              title={query.data.length ? "没有匹配的稿件" : "还没有稿件"}
+              description={query.data.length ? "调整搜索词或稿件状态筛选。" : "导入稿件，系统会完成安全检查并建立可编辑稿件。"}
+              action={query.data.length ? undefined : (
+                <Link
+                  className="publishing-button publishing-button-primary"
+                  href="/publishing/articles/new/import"
+                >
+                  <Plus size={16} />
+                  导入第一篇稿件
+                </Link>
+              )}
+            />
+          )}
+        </>
       ) : null}
     </PublishingPage>
   );

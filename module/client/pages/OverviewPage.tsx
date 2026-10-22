@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, Clock3, FileText, Send } from "lucide-react";
+import { ArrowRight, Clock3, FileText } from "lucide-react";
 import { useCallback } from "react";
 import { Link } from "wouter";
 
@@ -8,7 +8,6 @@ import {
   PublishingEmpty,
   PublishingError,
   PublishingLoading,
-  PublishingPage,
 } from "../components/PublishingUi";
 import { formatPublishingMoney, publishingDateTime } from "../types";
 import { usePublishingSummary } from "../PublishingFlowContext";
@@ -21,48 +20,13 @@ export default function PublishingOverviewPage() {
   );
   const query = usePublisherQuery(load, "overview");
   usePublishingSummary({
-    title: "发布概览",
-    items: [
-      {
-        label: "可继续草稿",
-        value: `${query.data?.resumableDraftCount ?? 0} 个`,
-      },
-      {
-        label: "处理中批次",
-        value: `${query.data?.processingBatchCount ?? 0} 个`,
-      },
-      {
-        label: "需要处理",
-        value: `${query.data?.actionableItemCount ?? 0} 项`,
-      },
-    ],
-    note: "从主区选择当前投放，继续标题、预检与确认步骤。",
+    title: "发布工作台",
+    items: [],
+    note: "从稿件继续准备内容，并追踪可追溯的发布记录。",
   });
 
   return (
-    <PublishingPage
-      title="发布工作台"
-      description="管理稿件、选择媒体并追踪每一笔发布结果。"
-      busy={query.loading || query.refreshing}
-      actions={
-        <>
-          <Link
-            className="publishing-button"
-            href="/publishing?flow=1"
-          >
-            <Send size={17} />
-            新建投放
-          </Link>
-          <Link
-            className="publishing-button publishing-button-primary"
-            href="/publishing/articles/new/import"
-          >
-            <FileText size={17} />
-            导入新稿件
-          </Link>
-        </>
-      }
-    >
+    <div className="publishing-page publishing-overview-page">
       {query.loading ? <PublishingLoading /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
@@ -72,160 +36,72 @@ export default function PublishingOverviewPage() {
           <section className="publishing-overview-hero" aria-label="工作台摘要">
             <div>
               <span className="publishing-overview-kicker">FRONTMIND / PUBLISHING</span>
-              <h2>从内容准备，到可追溯的发布结果</h2>
-              <p>继续编辑真实稿件、恢复投放草稿，并在同一工作台追踪发布批次。</p>
+              <h1>从稿件，到可追溯的发布记录</h1>
+              <p>继续准备真实稿件，查看每一笔发布任务及其执行结果。</p>
               <div className="publishing-inline-actions">
                 <Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">
-                  <FileText size={16} /> 开始准备稿件
+                  <FileText size={16} /> 编辑新稿件
                 </Link>
                 <Link className="publishing-button publishing-button-secondary" href="/publishing?tab=records">
                   查看发布记录 <ArrowRight size={16} />
                 </Link>
               </div>
             </div>
-            <div className="publishing-overview-hero-mark" aria-hidden="true">FM</div>
           </section>
-          <div className="publishing-overview-metrics" aria-label="工作台关键指标">
-            <article><span className="publishing-overview-metric-icon"><FileText size={19}/></span><div><small>可继续草稿</small><strong>{query.data.resumableDraftCount}</strong><span>个投放任务</span></div></article>
-            <article><span className="publishing-overview-metric-icon"><Clock3 size={19}/></span><div><small>处理中批次</small><strong>{query.data.processingBatchCount}</strong><span>个发布批次</span></div></article>
-            <article><span className="publishing-overview-metric-icon"><CheckCircle2 size={19}/></span><div><small>需要处理</small><strong>{query.data.actionableItemCount}</strong><span>项待跟进</span></div></article>
-          </div>
-          <div className="publishing-overview-columns">
-            <section className="publishing-panel" aria-label="可恢复投放草稿">
+          <div className="publishing-overview-columns publishing-overview-primary-columns">
+            <section className="publishing-panel" aria-label="待继续的稿件">
               <header className="publishing-panel-heading">
                 <div>
-                  <h2>投放草稿</h2>
-                  <p>{query.data.resumableDraftCount} 个可继续的投放草稿</p>
-                </div>
-                <Link href="/publishing/articles">从稿件开始</Link>
-              </header>
-              {query.data.resumableDrafts.length ? (
-                <div className="publishing-list">
-                  {query.data.resumableDrafts.map((draft) => (
-                    <Link
-                      key={draft.id}
-                      className="publishing-list-row"
-                      href={`/publishing/drafts/${encodeURIComponent(draft.id)}/${draft.status === "ready" ? "review" : "media"}`}
-                    >
-                      <span className="publishing-file-icon">
-                        <FileText size={20} />
-                      </span>
-                      <span className="publishing-list-copy">
-                        <strong>{draft.articleTitle}</strong>
-                        <span>
-                          版本 v{draft.articleVersion} ·{" "}
-                          {draft.status === "ready"
-                            ? "已配置，可继续预检"
-                            : "配置中"}
-                        </span>
-                      </span>
-                      <span className="publishing-row-time">
-                        {publishingDateTime(draft.updatedAt)}
-                      </span>
-                      <ArrowRight size={17} />
-                    </Link>
-                  ))}
-                </div>
-              ) : query.data.resumableDraftCount ? (
-                <PublishingEmpty
-                  title="草稿列表正在同步"
-                  description={`检测到 ${query.data.resumableDraftCount} 个草稿，请稍后刷新。`}
-                />
-              ) : (
-                <PublishingEmpty
-                  title="没有待继续的投放草稿"
-                  description="从已冻结稿件选择媒体后，草稿会保存在这里。"
-                />
-              )}
-            </section>
-
-            <section className="publishing-panel" aria-label="处理中发布">
-              <header className="publishing-panel-heading">
-                <div>
-                  <h2>处理中发布</h2>
-                  <p>{query.data.processingBatchCount} 个批次正在等待或发布</p>
-                </div>
-                <Link href="/publishing?tab=records">查看全部</Link>
-              </header>
-              {query.data.processingBatches.length ? (
-                <div className="publishing-list">
-                  {query.data.processingBatches.map((batch) => (
-                    <Link
-                      key={batch.id}
-                      className="publishing-list-row"
-                      href={`/publishing/publications/${encodeURIComponent(batch.id)}`}
-                    >
-                      <span className="publishing-file-icon">
-                        <Clock3 size={20} />
-                      </span>
-                      <span className="publishing-list-copy">
-                        <strong>{batch.articleTitle}</strong>
-                        <span>
-                          {batch.id} · {batch.itemCount} 家媒体
-                        </span>
-                      </span>
-                      <BatchStatusBadge status={batch.status} />
-                      <ArrowRight size={17} />
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <PublishingEmpty
-                  title="当前没有处理中发布"
-                  description="提交后的等待与发布中批次会出现在这里。"
-                />
-              )}
-            </section>
-          </div>
-
-          <div className="publishing-overview-columns">
-            <section className="publishing-panel">
-              <header className="publishing-panel-heading">
-                <div>
-                  <h2>继续编辑</h2>
-                  <p>最近更新的稿件</p>
+                  <h2>待继续的稿件</h2>
+                  <p>最近的稿件与投放草稿</p>
                 </div>
                 <Link href="/publishing/articles">查看全部</Link>
               </header>
-              {query.data.resumableArticles.length ? (
+              {query.data.resumableDrafts.length || query.data.resumableArticles.length ? (
                 <div className="publishing-list">
+                  {query.data.resumableDrafts.map((draft) => (
+                    <Link
+                      key={`draft-${draft.id}`}
+                      className="publishing-list-row"
+                      href={`/publishing/drafts/${encodeURIComponent(draft.id)}/${draft.status === "ready" ? "review" : "media"}`}
+                    >
+                      <span className="publishing-file-icon"><FileText size={20} /></span>
+                      <span className="publishing-list-copy">
+                        <strong>{draft.articleTitle}</strong>
+                        <span>投放草稿 · v{draft.articleVersion} · {draft.status === "ready" ? "待预检" : "待继续"}</span>
+                      </span>
+                      <span className="publishing-row-time">{publishingDateTime(draft.updatedAt)}</span>
+                      <ArrowRight size={17} />
+                    </Link>
+                  ))}
                   {query.data.resumableArticles.map((article) => (
                     <Link
-                      key={article.id}
+                      key={`article-${article.id}`}
                       className="publishing-list-row"
-                      href={`/publishing/articles/${article.id}/edit`}
+                      href={`/publishing/articles/${encodeURIComponent(article.id)}/edit`}
                     >
-                      <span className="publishing-file-icon">
-                        <FileText size={20} />
-                      </span>
+                      <span className="publishing-file-icon"><FileText size={20} /></span>
                       <span className="publishing-list-copy">
                         <strong>{article.title}</strong>
-                        <span>
-                          {article.wordCount.toLocaleString("zh-CN")} 字 ·{" "}
-                          {article.imageCount} 张图片 · v
-                          {article.currentVersion}
-                        </span>
+                        <span>稿件 · {article.wordCount.toLocaleString("zh-CN")} 字 · v{article.currentVersion}</span>
                       </span>
-                      <span className="publishing-row-time">
-                        {publishingDateTime(article.updatedAt)}
-                      </span>
+                      <span className="publishing-row-time">{publishingDateTime(article.updatedAt)}</span>
                       <ArrowRight size={17} />
                     </Link>
                   ))}
                 </div>
               ) : (
                 <PublishingEmpty
-                  title="还没有稿件"
-                  description="导入 DOCX 后即可开始编辑。"
+                  title="暂无待继续的稿件"
+                  description="导入或新建稿件后，可在这里继续编辑与投放。"
                 />
               )}
             </section>
-
-            <section className="publishing-panel">
+            <section className="publishing-panel" aria-label="最近订单">
               <header className="publishing-panel-heading">
                 <div>
-                  <h2>最近发布</h2>
-                  <p>批次与逐项资金状态</p>
+                  <h2>最近订单</h2>
+                  <p>最近发布批次及其状态</p>
                 </div>
                 <Link href="/publishing?tab=records">查看全部</Link>
               </header>
@@ -235,17 +111,12 @@ export default function PublishingOverviewPage() {
                     <Link
                       key={batch.id}
                       className="publishing-list-row"
-                      href={`/publishing/publications/${batch.id}`}
+                      href={`/publishing/publications/${encodeURIComponent(batch.id)}`}
                     >
-                      <span className="publishing-file-icon">
-                        <Clock3 size={20} />
-                      </span>
+                      <span className="publishing-file-icon"><Clock3 size={20} /></span>
                       <span className="publishing-list-copy">
                         <strong>{batch.articleTitle}</strong>
-                        <span>
-                          {batch.id} · {batch.itemCount} 家媒体 ·{" "}
-                          {formatPublishingMoney(batch.totalTenThousandths)}
-                        </span>
+                        <span>{batch.id} · {batch.itemCount} 家媒体 · {publishingDateTime(batch.createdAt)}</span>
                       </span>
                       <BatchStatusBadge status={batch.status} />
                       <ArrowRight size={17} />
@@ -254,14 +125,15 @@ export default function PublishingOverviewPage() {
                 </div>
               ) : (
                 <PublishingEmpty
-                  title="还没有发布记录"
-                  description="完成预检后，发布进度会出现在这里。"
+                  title="暂无发布订单"
+                  description="完成投放并生成发布批次后，订单会显示在这里。"
+                  action={<Link className="publishing-button publishing-button-secondary" href="/publishing?tab=records">查看发布记录</Link>}
                 />
               )}
             </section>
           </div>
         </>
       ) : null}
-    </PublishingPage>
+    </div>
   );
 }
