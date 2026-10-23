@@ -20,6 +20,7 @@ import {
   PublishingSteps,
 } from "../components/PublishingUi";
 import { publisherSubmitIdempotencyKey } from "../queryState";
+import PublishingFlowSteps, { flowStagesForMode } from "../components/PublishingFlowSteps";
 import { formatPublishingMoney } from "../types";
 import {
   usePublishingFlow,
@@ -73,7 +74,7 @@ export default function PublishingReviewPage({
       submitLock.current ||
       !acknowledged ||
       query.data.blockers.length ||
-      query.data.items.some((item) => item.blockers.length)
+      !query.data.items.some((item) => !item.blockers.length)
     )
       return;
     const isCurrent = operationScope();
@@ -81,21 +82,39 @@ export default function PublishingReviewPage({
     setSubmitting(true);
     setSubmitError("");
     try {
-      if (
-        submitIntent.current?.quoteFingerprint !== query.data.quoteFingerprint
-      ) {
+      let preflight = query.data;
+      const passedIds = query.data.items
+        .filter((item) => !item.blockers.length)
+        .map((item) => item.media.id);
+      if (passedIds.length < query.data.items.length) {
+        // 部分发布：未通过组合先经真实目录接口移出草稿，再按最新预检快照提交。
+        await gateway.updateDraftMedia(
+          draftId,
+          passedIds,
+          query.data.draftRevision,
+        );
+        preflight = await gateway.preflightDraft(draftId);
+        if (
+          !isCurrent() ||
+          preflight.blockers.length ||
+          preflight.items.some((item) => item.blockers.length)
+        ) {
+          if (isCurrent()) query.reload();
+          throw new Error(
+            "移除未通过媒体后的预检快照仍有阻断项，请重新预检后再提交。",
+          );
+        }
+      }
+      if (submitIntent.current?.quoteFingerprint !== preflight.quoteFingerprint) {
         submitIntent.current = {
-          quoteFingerprint: query.data.quoteFingerprint,
-          key: publisherSubmitIdempotencyKey(
-            draftId,
-            query.data.quoteFingerprint,
-          ),
+          quoteFingerprint: preflight.quoteFingerprint,
+          key: publisherSubmitIdempotencyKey(draftId, preflight.quoteFingerprint),
         };
       }
       const request = {
         draftId,
-        preflightRevision: query.data.revision,
-        quoteFingerprint: query.data.quoteFingerprint,
+        preflightRevision: preflight.revision,
+        quoteFingerprint: preflight.quoteFingerprint,
         acknowledged,
         idempotencyKey: submitIntent.current.key,
       };
@@ -249,13 +268,38 @@ export default function PublishingReviewPage({
       }
     : undefined;
 
+  const passedItems =
+    query.data?.items.filter((item) => !item.blockers.length) ?? [];
+  const failedItems =
+    query.data?.items.filter((item) => item.blockers.length) ?? [];
+  const pendingReview = query.data?.items.length === undefined;
+  const publishTotal = passedItems.reduce(
+    (total, item) => total + BigInt(item.priceTenThousandths),
+    0n,
+  );
+  const excludedTotal = failedItems.reduce(
+    (total, item) => total + BigInt(item.priceTenThousandths),
+    0n,
+  );
+  const globalBlocked = Boolean(query.data?.blockers.length);
+  // 部分发布：只要存在通过组合且全局门禁通过即可提交；未通过组合先从草稿移除。
+  const partialPublish = failedItems.length > 0 && passedItems.length > 0;
+  const canPublish =
+    Boolean(query.data) && !globalBlocked && passedItems.length > 0;
+
   return (
     <PublishingPage
-      title="发布预检"
+      title="发布预检与确认"
       description="确认冻结版本、逐家媒体标题、单价与发布风险。"
       busy={query.loading || query.refreshing || submitting}
     >
-      {!flow && <PublishingSteps current={4} />}
+      {!flow && (
+        <PublishingFlowSteps
+          stages={flowStagesForMode(query.data?.titleMode ?? "per_media")}
+          doneCount={3}
+          activeIndex={3}
+        />
+      )}
       {query.loading ? (
         <PublishingLoading label="正在刷新价格与发布门禁…" />
       ) : null}
@@ -264,6 +308,141 @@ export default function PublishingReviewPage({
       ) : null}
       {query.data ? (
         <div className="publishing-review-layout">
+
+          <section
+            className="publishing-panel publishing-review-fees"
+            aria-label="费用与预算核验"
+          >
+            <header className="publishing-review-fees-head">
+              <h2>费用与预算核验</h2>
+              <p className="publishing-review-counts" role="status">
+                通过 <strong>{passedItems.length}</strong> · 不通过{" "}
+                <strong>{failedItems.length}</strong>
+                {pendingReview ? null : (
+                  <>
+                    {" "}
+                    · 本次可发布 <strong>{passedItems.length}</strong> 家
+                  </>
+                )}
+                {partialPublish ? (
+                  <span className="publishing-review-partial">
+                    部分发布：{failedItems.length} 项未通过组合将被移出本次发布
+                  </span>
+                ) : null}
+              </p>
+            </header>
+            <dl className="publishing-money-summary">
+              <div>
+                <dt>软文 / 自媒体</dt>
+                <dd>
+                  {query.data.kindCounts?.news ??
+                    query.data.items.filter(
+                      (item) => item.media.kind === "news",
+                    ).length}{" "}
+                  /{" "}
+                  {query.data.kindCounts?.selfMedia ??
+                    query.data.items.filter(
+                      (item) => item.media.kind === "self_media",
+                    ).length}
+                </dd>
+              </div>
+              <div>
+                <dt>软文媒体小计</dt>
+                <dd>
+                  {kindSubtotals?.news.count ?? 0} 家 ·{" "}
+                  {formatPublishingMoney(kindSubtotals?.news.amount ?? "0")}
+                </dd>
+              </div>
+              <div>
+                <dt>自媒体小计</dt>
+                <dd>
+                  {kindSubtotals?.selfMedia.count ?? 0} 家 ·{" "}
+                  {formatPublishingMoney(
+                    kindSubtotals?.selfMedia.amount ?? "0",
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>本次可发布组合费用</dt>
+                <dd className="is-total">
+                  {formatPublishingMoney(publishTotal.toString())}
+                </dd>
+              </div>
+              {partialPublish ? (
+                <div className="publishing-money-excluded">
+                  <dt>未纳入本次发布</dt>
+                  <dd>
+                    {failedItems.length} 项 ·{" "}
+                    {formatPublishingMoney(excludedTotal.toString())}
+                  </dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>可用余额</dt>
+                <dd>
+                  {formatPublishingMoney(
+                    query.data.wallet.availableTenThousandths,
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>提交后预占</dt>
+                <dd>
+                  {formatPublishingMoney(
+                    partialPublish
+                      ? publishTotal.toString()
+                      : query.data.totalTenThousandths,
+                  )}
+                </dd>
+              </div>
+              <div className="publishing-money-after">
+                <dt>预占后可用</dt>
+                <dd>
+                  {formatPublishingMoney(
+                    partialPublish
+                      ? (
+                          BigInt(query.data.wallet.availableTenThousandths) -
+                          publishTotal
+                        ).toString()
+                      : query.data.availableAfterTenThousandths,
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <section className="publishing-gate-list">
+              <h3>发布门禁检查</h3>
+              {query.data.gates.map((gate) => (
+                <p
+                  key={gate.label}
+                  className={gate.passed ? "is-passed" : "is-blocked"}
+                >
+                  {gate.passed ? (
+                    <CheckCircle2 size={16} />
+                  ) : (
+                    <AlertTriangle size={16} />
+                  )}
+                  {gate.label}
+                </p>
+              ))}
+            </section>
+            <label className="publishing-acknowledgement">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(event) => setAcknowledged(event.target.checked)}
+              />
+              <span>
+                {live
+                  ? `我已确认向 {passedItems.length} 家媒体真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。`
+                  : `我已确认以 Preview 模拟方式提交 {passedItems.length} 家媒体。本次只生成确定性 Mock 批次，不会联系供应商或产生真实费用。`}
+              </span>
+            </label>
+            {submitError ? (
+              <p className="publishing-form-error" role="alert">
+                {submitError}
+              </p>
+            ) : null}
+          </section>
           <div className="publishing-review-main">
             <section className="publishing-panel publishing-frozen-article">
               <span className="publishing-file-icon">
@@ -363,9 +542,17 @@ export default function PublishingReviewPage({
                   </span>
                   <span>
                     {item.blockers.length ? (
-                      <span className="publishing-status is-danger">
-                        未通过
-                      </span>
+                      <>
+                        <span className="publishing-status is-danger">
+                          未通过
+                        </span>
+                        <Link
+                          className="publishing-row-fix"
+                          href={`/publishing/articles/${query.data?.article.id}/edit?draftId=${draftId}&mode=${query.data?.titleMode}&from=review`}
+                        >
+                          返回修改
+                        </Link>
+                      </>
                     ) : (
                       <span className="publishing-status is-success">
                         <CheckCircle2 size={14} />
@@ -415,129 +602,50 @@ export default function PublishingReviewPage({
             ) : null}
           </div>
 
-          <aside className="publishing-panel publishing-review-confirm">
-            <h2>费用与发布确认</h2>
-            <dl className="publishing-money-summary">
-              <div>
-                <dt>软文 / 自媒体</dt>
-                <dd>
-                  {query.data.kindCounts?.news ??
-                    query.data.items.filter(
-                      (item) => item.media.kind === "news",
-                    ).length}{" "}
-                  /{" "}
-                  {query.data.kindCounts?.selfMedia ??
-                    query.data.items.filter(
-                      (item) => item.media.kind === "self_media",
-                    ).length}
-                </dd>
-              </div>
-              <div>
-                <dt>软文媒体小计</dt>
-                <dd>
-                  {kindSubtotals?.news.count ?? 0} 家 ·{" "}
-                  {formatPublishingMoney(kindSubtotals?.news.amount ?? "0")}
-                </dd>
-              </div>
-              <div>
-                <dt>自媒体小计</dt>
-                <dd>
-                  {kindSubtotals?.selfMedia.count ?? 0} 家 ·{" "}
-                  {formatPublishingMoney(
-                    kindSubtotals?.selfMedia.amount ?? "0",
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>预计总价</dt>
-                <dd className="is-total">
-                  {formatPublishingMoney(query.data.totalTenThousandths)}
-                </dd>
-              </div>
-              <div>
-                <dt>可用余额</dt>
-                <dd>
-                  {formatPublishingMoney(
-                    query.data.wallet.availableTenThousandths,
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>提交后预占</dt>
-                <dd>{formatPublishingMoney(query.data.totalTenThousandths)}</dd>
-              </div>
-              <div className="publishing-money-after">
-                <dt>预占后可用</dt>
-                <dd>
-                  {formatPublishingMoney(
-                    query.data.availableAfterTenThousandths,
-                  )}
-                </dd>
-              </div>
-            </dl>
-            <section className="publishing-gate-list">
-              <h3>发布门禁检查</h3>
-              {query.data.gates.map((gate) => (
-                <p
-                  key={gate.label}
-                  className={gate.passed ? "is-passed" : "is-blocked"}
-                >
-                  {gate.passed ? (
-                    <CheckCircle2 size={16} />
-                  ) : (
-                    <AlertTriangle size={16} />
-                  )}
-                  {gate.label}
-                </p>
-              ))}
-            </section>
-            <label className="publishing-acknowledgement">
-              <input
-                type="checkbox"
-                checked={acknowledged}
-                onChange={(event) => setAcknowledged(event.target.checked)}
-              />
-              <span>
-                {live
-                  ? `我已确认向 ${query.data.items.length} 家媒体真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。`
-                  : `我已确认以 Preview 模拟方式提交 ${query.data.items.length} 家媒体。本次只生成确定性 Mock 批次，不会联系供应商或产生真实费用。`}
-              </span>
-            </label>
-            {submitError ? (
-              <p className="publishing-form-error" role="alert">
-                {submitError}
-              </p>
-            ) : null}
+
+          <footer className="publishing-workflow-footer">
+            {onRevise ? (
+              <button
+                type="button"
+                className="publishing-button publishing-button-secondary"
+                onClick={onRevise}
+              >
+                <ArrowLeft size={16} />
+                返回修改标题
+              </button>
+            ) : (
+              <Link
+                className="publishing-button publishing-button-secondary"
+                href={`/publishing/drafts/${draftId}/titles`}
+              >
+                <ArrowLeft size={16} />
+                返回修改
+              </Link>
+            )}
             <div className="publishing-confirm-actions">
-              {onRevise ? (
-                <button
-                  type="button"
-                  className="publishing-button publishing-button-secondary"
-                  onClick={onRevise}
-                >
-                  <ArrowLeft size={16} />
-                  返回修改标题
-                </button>
-              ) : (
-                <Link
-                  className="publishing-button publishing-button-secondary"
-                  href={`/publishing/drafts/${draftId}/titles`}
-                >
-                  <ArrowLeft size={16} />
-                  返回修改
-                </Link>
-              )}
+              <button
+                type="button"
+                className="publishing-button publishing-button-secondary"
+                disabled={query.refreshing || submitting}
+                onClick={() => {
+                  setAcknowledged(false);
+                  query.reload();
+                }}
+              >
+                {query.refreshing ? "正在预检…" : "一键预检"}
+              </button>
               <button
                 className="publishing-button publishing-button-accent"
                 type="button"
-                disabled={!acknowledged || blocked || submitting}
+                disabled={!acknowledged || !canPublish || submitting}
                 onClick={() => setDialogOpen(true)}
               >
-                {live ? "确认发布" : "模拟发布"} {query.data.items.length}{" "}
-                家媒体
+                {(submitting ? "正在提交…" : live ? "确认发布" : "模拟发布") +
+                  ` ${passedItems.length} 家媒体`}
               </button>
             </div>
-          </aside>
+          </footer>
+
         </div>
       ) : null}
 
@@ -548,10 +656,10 @@ export default function PublishingReviewPage({
           title={live ? "这是一次真实投稿" : "确认 Preview 模拟发布"}
           description={
             live
-              ? "提交后系统将按预检快照预占媒体发布余额。供应商可能立即接单，已创建的外部订单不保证可以撤回。"
+              ? `提交后系统将按预检快照预占媒体发布余额。供应商可能立即接单，已创建的外部订单不保证可以撤回。${partialPublish ? `本次仅提交通过预检的 ${passedItems.length} 家；${failedItems.length} 项未通过组合将被移出发布草稿。` : ""}`
               : "提交后只会按当前预检快照生成确定性 Mock 批次，不会请求 KOL 或其他外部服务。"
           }
-          confirmLabel={`${live ? "提交并预占" : "确认模拟发布"} ${formatPublishingMoney(query.data.totalTenThousandths)}`}
+          confirmLabel={`${live ? "提交并预占" : "确认模拟发布"} ${formatPublishingMoney(publishTotal.toString())}`}
           busy={submitting}
           wide
           onCancel={() => setDialogOpen(false)}
@@ -567,7 +675,12 @@ export default function PublishingReviewPage({
             </p>
             <p>
               <span>投稿媒体</span>
-              <strong>{query.data.items.length} 家</strong>
+              <strong>
+                {passedItems.length} 家
+                {partialPublish
+                  ? `（未通过 ${failedItems.length} 项不提交）`
+                  : ""}
+              </strong>
             </p>
             <p>
               <span>运行模式</span>

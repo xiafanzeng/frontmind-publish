@@ -20,6 +20,7 @@ import {
   PublishingSteps,
 } from "../components/PublishingUi";
 import { unicodeLength } from "../queryState";
+import PublishingFlowSteps, { flowStagesForMode } from "../components/PublishingFlowSteps";
 import { formatPublishingMoney, type PublisherTitleMode } from "../types";
 import {
   usePublishingFlow,
@@ -54,6 +55,8 @@ export default function PublishingTitlesPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [onlyErrors, setOnlyErrors] = useState(false);
+  // 取消勾选的媒体不参与标题校验、费用与本次发布；重新勾选恢复原标题。
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [confirmSingle, setConfirmSingle] = useState(false);
   const submitting = useRef(false);
   const [savedSignature, setSavedSignature] = useState("");
@@ -67,6 +70,7 @@ export default function PublishingTitlesPage({
         query.data.items.map((item) => [item.media.id, item.title]),
       ),
     );
+    setChecked(new Set(query.data.items.map((item) => item.media.id)));
     setSavedSignature(
       JSON.stringify([
         query.data.titleMode,
@@ -85,15 +89,30 @@ export default function PublishingTitlesPage({
           const value =
             mode === "single" ? sharedTitle : (titles[item.media.id] ?? "");
           const length = unicodeLength(value);
-          const message = !value.trim()
-            ? "标题不能为空"
-            : length > item.media.titleLimit
-              ? `超过该媒体 ${item.media.titleLimit} 字限制`
-              : "";
+          const message = !checked.has(item.media.id)
+            ? ""
+            : !value.trim()
+              ? "标题不能为空"
+              : length > item.media.titleLimit
+                ? `超过该媒体 ${item.media.titleLimit} 字限制`
+                : "";
           return [item.media.id, { value, length, message }] as const;
         }) ?? [],
       ),
-    [mode, query.data, sharedTitle, titles],
+    [mode, query.data, sharedTitle, titles, checked],
+  );
+  const toggleMedia = (id: string) =>
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const checkedItems =
+    query.data?.items.filter((item) => checked.has(item.media.id)) ?? [];
+  const checkedTotal = checkedItems.reduce(
+    (total, item) => total + BigInt(item.media.priceTenThousandths),
+    0n,
   );
   const invalidCount = [...validation.values()].filter(
     (item) => item.message,
@@ -161,16 +180,34 @@ export default function PublishingTitlesPage({
 
   const submit = async () => {
     if (!query.data || invalidCount || busy || submitting.current) return;
+    if (!checked.size) {
+      setError("请至少保留一家媒体，或返回选择媒体调整。");
+      return;
+    }
     const isCurrent = operationScope();
     submitting.current = true;
     setBusy(true);
     setError("");
     try {
+      let revision = query.data.revision;
+      const draftMediaIds = query.data.items.map((item) => item.media.id);
+      const sameSet =
+        draftMediaIds.length === checked.size &&
+        draftMediaIds.every((id) => checked.has(id));
+      if (!sameSet) {
+        // 未勾选媒体先从投放草稿移除（真实目录接口），再保存标题。
+        const reduced = await gateway.updateDraftMedia(
+          draftId,
+          [...checked],
+          revision,
+        );
+        revision = reduced.revision;
+      }
       const saved = await gateway.saveDraftTitles(draftId, {
         mode,
         ...(mode === "single" ? { sharedTitle: sharedTitle.trim() } : {}),
         titles,
-        expectedRevision: query.data.revision,
+        expectedRevision: revision,
       });
       if (!isCurrent()) return;
       setSavedSignature(signature);
@@ -221,11 +258,17 @@ export default function PublishingTitlesPage({
   return (
     <PublishingPage
       title="配置发布标题"
-      description="使用同一标题快速发布，或为每家媒体设置独立标题。"
+      description="为每家媒体设置正式发布标题；取消勾选的媒体不参与本次发布。"
       busy={query.loading || busy}
     >
       <div className="am-title-config">
-      {!flow && <PublishingSteps current={3} />}
+      {!flow && (
+        <PublishingFlowSteps
+          stages={flowStagesForMode(query.data?.titleMode ?? "per_media")}
+          doneCount={2}
+          activeIndex={2}
+        />
+      )}
       {query.loading ? <PublishingLoading label="正在读取发布草稿…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
@@ -336,14 +379,29 @@ export default function PublishingTitlesPage({
                       用稿件标题填充全部
                     </button>
                   </header>
+                  <p className="publishing-title-selection" role="status">
+                    已选 <strong>{checked.size} 家媒体</strong> · 有效费用{" "}
+                    <strong>{formatPublishingMoney(checkedTotal.toString())}</strong>
+                    <span className="publishing-title-selection-note">
+                      取消勾选的媒体不计入费用、校验与本次发布
+                    </span>
+                  </p>
                   <div className="publishing-title-list">
                     {visibleItems.map((item, index) => {
                       const state = validation.get(item.media.id)!;
                       return (
                         <article
                           key={item.media.id}
-                          className={`publishing-title-item ${state.message ? "is-invalid" : ""}`}
+                          className={`publishing-title-item ${state.message ? "is-invalid" : ""} ${checked.has(item.media.id) ? "" : "is-excluded"}`}
                         >
+                          <label className="publishing-title-check">
+                            <input
+                              type="checkbox"
+                              checked={checked.has(item.media.id)}
+                              onChange={() => toggleMedia(item.media.id)}
+                              aria-label={`${item.media.name} 参与本次发布`}
+                            />
+                          </label>
                           <span className="publishing-title-number">
                             {String(index + 1).padStart(2, "0")}
                           </span>
@@ -380,13 +438,16 @@ export default function PublishingTitlesPage({
                                   [item.media.id]: event.target.value,
                                 }))
                               }
+                              disabled={!checked.has(item.media.id)}
                               aria-invalid={Boolean(state.message)}
                               aria-label={`${item.media.name} 独立标题`}
                               aria-describedby={`title-state-${item.media.id}`}
                             />
                             <small id={`title-state-${item.media.id}`} className={state.message ? "is-error" : ""}>
-                              {state.message ||
-                                `长度有效 · ${state.length} / ${item.media.titleLimit} 字`}
+                              {!checked.has(item.media.id)
+                                ? "未纳入本次发布 · 重新勾选后恢复标题"
+                                : state.message ||
+                                  `长度有效 · ${state.length} / ${item.media.titleLimit} 字`}
                             </small>
                           </label>
                           <button
@@ -467,7 +528,7 @@ export default function PublishingTitlesPage({
             href={`/publishing/drafts/${draftId}/media`}
           >
             <ArrowLeft size={16} />
-            返回媒体库
+            返回选择媒体
           </Link>
           <button
             className="publishing-button publishing-button-accent"
@@ -480,7 +541,7 @@ export default function PublishingTitlesPage({
             ) : (
               <ArrowRight size={17} />
             )}
-            进入发布预检
+            预检与发布
           </button>
         </footer>
       ) : null}

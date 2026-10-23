@@ -851,7 +851,8 @@
   margin-right: auto;
   margin-left: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 350px;
+  /* 费用与预算核验在上、发布内容预检结果在下（纵向布局）。 */
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 22px;
 }
@@ -2245,3 +2246,14 @@
 .publishing-new-article-import h2{font-size:15px}
 .publishing-new-article-import p{margin:0;color:var(--publishing-muted);font-size:12.5px;line-height:1.7}
 @media(max-width:720px){.publishing-publish-steps{grid-template-columns:1fr 1fr}.publishing-publish-uploads{align-items:flex-start}}
+
+/* 2026-10 · 预检页纵向布局：费用核验卡置顶、逐项返回修改、部分发布统计。 */
+.monitoring-module :where(.publishing-page) .publishing-review-fees-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.monitoring-module :where(.publishing-page) .publishing-review-fees-head h2{font-size:17px}
+.monitoring-module :where(.publishing-page) .publishing-review-counts{font-size:13px;color:var(--publishing-muted)}
+.monitoring-module :where(.publishing-page) .publishing-review-counts strong{color:var(--publishing-purple);font-weight:650}
+.monitoring-module :where(.publishing-page) .publishing-review-partial{display:block;margin-top:5px;font-size:12px;color:#916725}
+.monitoring-module :where(.publishing-page) .publishing-money-excluded dt,.monitoring-module :where(.publishing-page) .publishing-money-excluded dd{color:#916725}
+.monitoring-module :where(.publishing-page) .publishing-row-fix{display:inline-flex;margin-top:7px;font-size:12px;font-weight:600;color:var(--publishing-brand,var(--publishing-purple))}
+.monitoring-module :where(.publishing-page) .publishing-result-metrics article.is-info{color:#3560a8}
+.monitoring-module :where(.publishing-page) .publishing-money-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}

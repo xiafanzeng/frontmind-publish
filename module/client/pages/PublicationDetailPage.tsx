@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   XCircle,
+  Clock3,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -184,6 +185,20 @@ export default function PublishingPublicationDetailPage({
               <CheckCircle2 size={28} />
               <span>
                 成功<strong>{query.data.successCount}</strong>
+              </span>
+            </article>
+            <article className="is-info">
+              <Clock3 size={28} />
+              <span>
+                处理中<strong>
+                  {
+                    query.data.items.filter((item) =>
+                      ["queued", "submitting", "processing"].includes(
+                        item.status,
+                      ),
+                    ).length
+                  }
+                </strong>
               </span>
             </article>
             <article className="is-danger">

@@ -36,3 +36,12 @@
 @media(max-width:720px){.monitoring-module .am-title-config .publishing-title-item{grid-template-columns:24px minmax(0,1fr) 76px}.monitoring-module .am-title-config .publishing-title-item label{grid-column:2/-1}.monitoring-module .am-title-config .publishing-title-item>button{grid-column:3;grid-row:1}.monitoring-module .am-shared-title-row{grid-template-columns:1fr 110px}.monitoring-module .am-shared-title-row p{grid-column:1/-1;grid-row:2}.monitoring-module .am-title-config .publishing-titles-panel{padding:18px}}
 .monitoring-module .am-title-config{container:title-config / inline-size}
 @container title-config (max-width:1000px){.monitoring-module .am-title-config .publishing-titles-layout{grid-template-columns:1fr}.monitoring-module .am-title-config .publishing-title-help{position:static}}
+
+/* 2026-10 · 媒体勾选：取消勾选的组合不参与校验、费用与本次发布。 */
+.monitoring-module .am-title-config .publishing-title-check{display:grid;place-items:center;padding-top:4px}
+.monitoring-module .am-title-config .publishing-title-check input{width:17px;height:17px;accent-color:var(--publishing-brand,#b33467)}
+.monitoring-module .am-title-config .publishing-title-item.is-excluded{opacity:.55}
+.monitoring-module .am-title-config .publishing-title-item.is-excluded .publishing-media-name strong{text-decoration:line-through;text-decoration-thickness:1px}
+.monitoring-module .am-title-config .publishing-title-selection{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--publishing-muted)}
+.monitoring-module .am-title-config .publishing-title-selection strong{color:var(--publishing-purple);font-size:15px}
+.monitoring-module .am-title-config .publishing-title-selection-note{font-size:12px;color:var(--publishing-muted)}
