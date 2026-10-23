@@ -13,7 +13,7 @@ it("keeps unsaved article edits when standalone navigation is cancelled", async 
   render(<Router hook={location.hook} searchHook={location.searchHook}><App preview/></Router>);
   const title = await screen.findByRole("textbox",{name:"稿件标题"});
   fireEvent.change(title,{target:{value:"尚未保存的投放标题"}});
-  fireEvent.click(screen.getByRole("button",{name:"媒体选择"}));
+  fireEvent.click(screen.getByRole("link",{name:"媒体选择"}));
   expect(confirm).toHaveBeenCalledOnce();
   expect(location.history.at(-1)).toBe("/publishing/articles/preview-article/edit");
   expect((title as HTMLInputElement).value).toBe("尚未保存的投放标题");

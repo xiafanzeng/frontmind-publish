@@ -1,6 +1,6 @@
 /**
  * 业务导航统一模型：左侧一级导航（发布工作台 / 稿件 / 媒体选择）与各自二级页面。
- * 供外壳 ModuleShell 的 navigationModules（一级）与 BusinessSubNav（二级）共用，
+ * 供宿主组合的单侧栏、面包屑与搜索共用；不在业务正文内创建外壳。
  * 所有路径必须是真实存在的业务路由。
  */
 export type BusinessNavLeaf = {
@@ -50,7 +50,11 @@ export function businessLeafPath(id: string): string | undefined {
 }
 
 /** 由真实路由推导当前二级页面；刷新、前进、返回与深层链接均以路由为准。 */
-export function activeBusinessLeaf(path: string): string {
+export function activeBusinessLeaf(path: string, search = ""): string {
+  const cleanPath = path.split("?")[0]!.replace(/\/$/, "") || "/";
+  const params = new URLSearchParams(search || path.split("?")[1] || "");
+  path = cleanPath;
+  if (/\/media\/(matrix|sources|industry|report)$/.test(path)) return "source-matrix";
   if (path.startsWith("/publishing/source-")) return "source-matrix";
   if (
     path.startsWith("/publishing/media") ||
@@ -66,6 +70,7 @@ export function activeBusinessLeaf(path: string): string {
     /^\/publishing\/articles\/[^/]+\/edit$/.test(path)
   )
     return "article-edit";
+  if (path === "/publishing/articles" && params.get("mode") === "edit") return "article-edit";
   if (path.startsWith("/publishing/articles")) return "articles-manage";
   if (
     path.startsWith("/publishing/records") ||
@@ -74,6 +79,73 @@ export function activeBusinessLeaf(path: string): string {
   )
     return "records";
   return "workbench";
+}
+
+/** Build only known destinations, carrying task/version context without copying list filters. */
+export function businessLeafHref(id: string, path: string, search = ""): string | undefined {
+  const base = businessLeafPath(id);
+  if (!base) return undefined;
+  const current = new URLSearchParams(search || path.split("?")[1] || "");
+  path = path.split("?")[0]!.replace(/\/$/, "");
+  const params = new URLSearchParams();
+  for (const key of ["workbenchTask", "task", "matrixTask"]) {
+    const value = current.get(key);
+    if (value) params.set(key, value);
+  }
+  const draft = /^\/publishing\/drafts\/([^/]+)/.exec(path)?.[1]
+    ?? /^\/publishing\/review\/([^/]+)/.exec(path)?.[1]
+    ?? (current.get("draftId") ? encodeURIComponent(current.get("draftId")!) : undefined);
+  let destination = base;
+  if (["article-edit", "third-media", "source-matrix"].includes(id)) {
+    const mode = current.get("mode");
+    if (mode && ["single", "multi", "batch", "per_media"].includes(mode)) params.set("mode", mode);
+  }
+  if (id === "article-edit" && /^\/publishing\/articles\/[^/]+\/edit$/.test(path)) {
+    destination = path;
+    for (const key of ["returnTo", "draftId"]) {
+      const value = current.get(key);
+      if (value) params.set(key, value);
+    }
+  }
+  if (id === "third-media" || id === "source-matrix") {
+    const version = current.get("articleVersion");
+    if (version) params.set("articleVersion", version);
+    // Matrix reads `task`; the media catalogue reads `matrixTask`.
+    const matrixTask = current.get("matrixTask") || current.get("task");
+    params.delete("task");
+    params.delete("matrixTask");
+    if (matrixTask) params.set(id === "third-media" ? "matrixTask" : "task", matrixTask);
+    if (draft) destination = id === "third-media"
+      ? `/publishing/drafts/${draft}/media/third`
+      : `/publishing/drafts/${draft}/media/matrix`;
+  }
+  return destination + (params.size ? `?${params}` : "");
+}
+
+export type PublishingCrumb = { label: string; href?: string };
+export function publishingBreadcrumbs(path: string, search = ""): PublishingCrumb[] {
+  search = search || path.split("?")[1] || "";
+  path = path.split("?")[0]!.replace(/\/$/, "");
+  const leaf = activeBusinessLeaf(path, search);
+  const items: PublishingCrumb[] = [
+    { label: "媒体发布", href: businessLeafHref("workbench", path, search) },
+  ];
+  const detail = /\/titles$/.test(path) ? "配置发布标题"
+    : /\/review(?:\/[^/]+)?$/.test(path) ? "预检与发布"
+    : /\/media\/cart$/.test(path) ? "购物车"
+    : /\/source-analysis$|\/media\/sources$/.test(path) ? "引用信源分析"
+    : /\/source-report$|\/media\/report$/.test(path) ? "信源方案报告"
+    : /\/source-industry$|\/media\/industry$/.test(path) ? "行业信源分析"
+    : /\/articles\/new\/import$/.test(path) ? "导入稿件"
+    : /\/record\/[^/]+$|\/publications\/[^/]+$/.test(path) ? "发布详情"
+    : undefined;
+  const label = BUSINESS_NAV_LEAVES.find(item => item.id === leaf)?.label ?? "发布工作台";
+  if (leaf === "source-matrix" || leaf === "third-media") {
+    items.push({ label: "媒体选择", href: businessLeafHref("third-media", path, search) });
+  }
+  items.push({ label, ...(detail ? { href: businessLeafHref(leaf, path, search) } : {}) });
+  if (detail) items.push({ label: detail });
+  return items;
 }
 
 export function businessModuleOf(leafId: string): BusinessNavModule {

@@ -1,6 +1,6 @@
 import { WorkflowPagination } from "../host";
 import { ArrowRight, FileCheck2, FileText, Plus, Upload } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearch } from "wouter";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
@@ -38,7 +38,9 @@ export default function PublishingArticlesPage() {
     [gateway],
   );
   const query = usePublisherQuery(load);
-  const [keyword, setKeyword] = useState("");
+  const routeKeyword = params.get("query") ?? "";
+  const [keyword, setKeyword] = useState(routeKeyword);
+  useEffect(() => { setKeyword(routeKeyword); }, [routeKeyword]);
   const [statusFilter, setStatusFilter] = useState("all");
   const visibleArticles = (query.data ?? []).filter((article) => {
     const matchesText = `${article.title} ${article.id}`.toLocaleLowerCase("zh-CN").includes(keyword.trim().toLocaleLowerCase("zh-CN"));

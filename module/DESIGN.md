@@ -41,3 +41,15 @@
 - 报告：五节阅读布局、版本标识、输入范围、分层、逐来源依据和非金额要求。保持未知金额、未知引用为待确认，不引入演示数据、效果预测或独立统计。
 - 契约：flow-contracts 区分设计参考的三个 CustomEvent.detail 与真实仓库 flow.handoff/record 载荷；类型不派发事件、不替代服务端验证。参考媒体交接最后生效版本为 schemaVersion=3。
 - 本轮仅源码与差异阅读自查，未执行类型检查、测试、构建或浏览器验证；视觉、焦点、窄屏与回归由 ZCode 验收。
+
+## 2026-10-23 侧栏与顶栏
+
+本节只更新导航与外框约定；前文正文页面的字体、颜色和业务约定继续适用。依据用户图 2 与 FrontMind-Publish-v1.html 的最后覆盖规则。
+
+- 归属：`module/client/businessNav.ts` 提供路由、上下文和面包屑；`navigation/PublishingNavigation.tsx` 提供菜单内容，`navigation/PublishingTopbar.tsx` 提供顶栏。组件由宿主选择挂载，不嵌在 PublishingRoutes 业务正文中。当前只有 `standalone/PublishingShell.tsx` 消费，复用公开 DashboardFrame、主题、presentation 与原底部控件；不修改 vendor。Dashboard 宿主装配不在本包中，需另行接入，不能因文件在 module/ 就认定主站生效。
+- 单侧栏：桌面 184px，651–1150px 为 176px；收起态 56px；<=650px 复用共享 frame 的菜单按钮及遮罩，使用无正文占位的抽屉。父级与子级在同一 nav 中；沿用实际稿件、媒体和工作台路由，保留草稿保护、草稿/版本/任务与投放模式；矩阵 task 和媒体 matrixTask 在对应入口互转。保留旧 BusinessSubNav 文件供未提供的其他消费者兼容，独立站不再渲染它。
+- 外框字体：Microsoft YaHei / PingFang SC / system-ui / Arial / sans-serif。父级 13px/500、子级 12px/400、17px 图标/1.8 描边；菜单圆角 7px、选中背景 #f9eff5、文字 #b33467、3px #4c1467 竖线；边框 #e6e8f1。仅 `.publish-*` 及 `.publish-standalone` 作用域生效。
+- 顶栏：常规桌面最小高度 60px；<=850px 允许两行，避免路径与搜索挤压；<=650px 最小 70px。搜索 36px/8px 圆角/12px 字号，手机 34px；本地限定高优先级 selector 防止共享表单的 16px 规则覆盖。当前面包屑不链接自身。
+- 搜索：仅已存在的功能入口、管理页标题/ID 筛选、授权 gateway 当前新闻/自媒体类别的分页名称查询（10 条）；不增加全文检索或批量抓取稿件。外部资源编号用于媒体结果跳转，无编号时退回名称过滤；不会自动勾选。300ms 防抖、取消与过期响应屏蔽，输入法组词期间不提交。Esc/上下键/Enter 与 Ctrl+K/⌘K 可用。
+- 帮助：复用共享 Dialog 的焦点管理，站内说明当前真实流程；移动菜单层低于共享弹窗，不更改其他业务弹窗。抽屉使用 inert、Tab 循环、Esc 和关闭后的焦点恢复。原有账户/项目控件与禁用状态保留，不复制原型账号。
+- 本轮未执行运行验证，交由智谱 ZCode 和网站验收。新增回归文件仅已编写、阅读，未执行；计算样式、键盘、弹窗层级、窄屏与真实数据跳转均需在最终合并版本验收。
