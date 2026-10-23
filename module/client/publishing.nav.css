@@ -1,0 +1,12 @@
+/* 左侧业务导航布局：一级由共享外壳侧栏渲染，二级栏紧贴其右侧。 */
+.business-nav-shell{display:flex;min-width:0;width:100%;align-items:stretch}
+.business-nav-content{flex:1;min-width:0}
+
+.business-subnav{flex:0 0 216px;max-width:216px;border-right:1px solid #e6e8f1;padding:20px 10px 24px;display:flex;flex-direction:column;gap:4px}
+.business-subnav h2{margin:0 0 10px;padding:0 12px;font-size:12px;font-weight:600;letter-spacing:2px;color:#737991}
+.business-subnav-item{position:relative;display:flex;align-items:center;width:100%;padding:11px 12px;border:0;border-radius:9px;background:none;color:#555b79;font-size:13.5px;font-weight:600;text-align:left;cursor:pointer}
+.business-subnav-item:hover{background:#faf4f8;color:#b33467}
+.business-subnav-item.is-active{background:linear-gradient(100deg,#faedf5,#f9f0f8);color:#b33467}
+.business-subnav-item.is-active:before{content:'';position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:4px;background:#4c1467}
+
+@media(max-width:1023px){.business-nav-shell{flex-direction:column}.business-subnav{flex:none;max-width:none;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #e6e8f1;padding:10px 14px}.business-subnav h2{width:100%;margin:0 0 4px;padding:0}.business-subnav-item{width:auto;padding:9px 12px}}
