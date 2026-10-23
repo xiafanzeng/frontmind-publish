@@ -1244,7 +1244,7 @@
 
 
 /* Widen the host shell cap for this module's publishing/articles routes only (DEMO content width). */
-.module-publishing .agent-workbench-shell__layout,
-.module-publishing .agent-workspace-frame,
-.module-articles .agent-workbench-shell__layout,
-.module-articles .agent-workspace-frame{max-width:1660px}
+.agent-workbench-shell.module-publishing .agent-workbench-shell__layout.is-single-pane.is-workspace,
+.agent-workbench-shell.module-articles .agent-workbench-shell__layout.is-single-pane.is-workspace,
+.agent-workbench-shell.module-publishing .agent-workspace-frame,
+.agent-workbench-shell.module-articles .agent-workspace-frame{max-width:1660px}
