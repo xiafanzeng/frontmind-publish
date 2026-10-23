@@ -30,6 +30,10 @@ export default function PublishingShell({gateway,preview,children}: {
   useEffect(()=>{
     const media=window.matchMedia("(max-width: 650px)");
     const change=()=>{setPhone(media.matches);setMobileOpen(false);};
+    // A viewport resize between first render and this listener attachment would
+    // never fire a change event; re-sync once so the shell cannot stay stuck in
+    // the boot-time phone state (permanently inert sidebar) at desktop widths.
+    change();
     media.addEventListener("change",change);
     return()=>media.removeEventListener("change",change);
   },[]);
