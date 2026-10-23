@@ -1,1 +1,44 @@
-/* Business styles come from module/client; the shared ModuleShell owns application layout. */
+/* Only this standalone composition overrides shared frame geometry; business page styles are unchanged. */
+.publish-standalone .user-brand-dashboard.operator-mode {--dashboard-nav-width:184px;}
+.publish-standalone .user-brand-dashboard.operator-mode.operator-collapsed {--dashboard-nav-width:56px;}
+.publish-standalone .user-brand-dashboard.operator-mode .app-shell {display:grid;grid-template-columns:var(--dashboard-nav-width) minmax(0,1fr);}
+.publish-standalone .user-brand-dashboard.operator-mode .publish-sidebar {
+  position:sticky;top:0;left:auto;z-index:30;width:var(--dashboard-nav-width);max-width:none;
+  transform:none;visibility:visible;padding:18px 10px 10px;gap:15px;background:#fff;border-right:1px solid #e6e8f1;
+  font-family:'Microsoft YaHei','PingFang SC',system-ui,Arial,sans-serif;
+}
+.publish-standalone .publish-shell-logo {padding:0 2px;flex-shrink:0;}
+.publish-standalone .publish-shell-logo img {display:block;width:100%;height:auto;max-width:100%;}
+.publish-standalone .publish-sidebar[data-collapsed=true] {padding-left:7px;padding-right:7px;}
+.publish-standalone .publish-sidebar[data-collapsed=true] .publish-shell-logo {padding:0;}
+.publish-standalone .publish-sidebar .operator-sidebar-bottom {border-top:1px solid #e6e8f1;padding-top:10px;margin-top:auto;}
+.publish-standalone .publish-sidebar .operator-project-capsule-label strong {font-size:12px;font-weight:500;}
+.publish-standalone .publish-sidebar .operator-project-capsule-label small {font-size:11px;}
+.publish-standalone .publish-sidebar .operator-account-identity {padding:6px;}
+.publish-standalone .publish-sidebar .operator-account-identity strong {font-size:13px;}
+.publish-standalone .publish-sidebar .operator-sidebar-footer button {min-height:36px;padding:8px 6px;font-size:12px;}
+.publish-standalone .publish-sidebar .operator-sidebar-footer svg {width:17px;height:17px;}
+.publish-standalone .publish-sidebar button:disabled {cursor:not-allowed;}
+.publish-standalone .user-brand-dashboard.operator-mode .publish-shell-main {min-width:0;scroll-padding-top:80px;}
+.publish-standalone .publish-shell-content {flex:1;min-width:0;width:100%;}
+.publish-standalone .publish-preview-notice {padding:6px 24px;border-bottom:1px solid #e6e8f1;color:#737991;background:#fff;font-size:12px;}
+/* The existing shared frame owns the mobile menu trigger and overlay. Match its geometry to our 650px breakpoint. */
+.publish-standalone .user-brand-dashboard.operator-mode .mobile-menu-btn,
+.publish-standalone .user-brand-dashboard.operator-mode .mobile-nav-overlay {display:none;}
+@media(min-width:651px) and (max-width:1150px) {
+  .publish-standalone .user-brand-dashboard.operator-mode:not(.operator-collapsed) {--dashboard-nav-width:176px;}
+}
+@media(max-width:650px) {
+  .publish-standalone .user-brand-dashboard.operator-mode {--dashboard-nav-width:0px;}
+  .publish-standalone .user-brand-dashboard.operator-mode .app-shell {display:block;}
+  .publish-standalone .user-brand-dashboard.operator-mode .publish-sidebar {
+    position:fixed;left:0;top:0;z-index:40;width:min(280px,calc(100vw - 48px));max-width:none;
+    transform:translateX(-100%);visibility:hidden;
+  }
+  .publish-standalone .user-brand-dashboard.operator-mode .nav-open .publish-sidebar {transform:translateX(0);visibility:visible;}
+  .publish-standalone .user-brand-dashboard.operator-mode .mobile-menu-btn {display:flex;top:9px;left:12px;z-index:45;}
+  .publish-standalone .user-brand-dashboard.operator-mode .mobile-nav-overlay {display:block;position:fixed;inset:0;z-index:30;background:#20232b55;}
+  .publish-standalone .publish-shell-main {scroll-padding-top:110px;}
+  .publish-standalone .nav-open .mobile-menu-btn {left:auto!important;right:10px;}
+}
+@media(prefers-reduced-motion:reduce) {.publish-standalone .publish-sidebar {transition:none!important;}}
