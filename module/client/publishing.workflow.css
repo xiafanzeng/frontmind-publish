@@ -2257,3 +2257,8 @@
 .monitoring-module :where(.publishing-page) .publishing-row-fix{display:inline-flex;margin-top:7px;font-size:12px;font-weight:600;color:var(--publishing-brand,var(--publishing-purple))}
 .monitoring-module :where(.publishing-page) .publishing-result-metrics article.is-info{color:#3560a8}
 .monitoring-module :where(.publishing-page) .publishing-money-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+
+/* Handwritten-first batch units: per-unit save row and card spacing. */
+.publishing-batch-unit .publishing-title-field{padding:16px 20px 10px}
+.publishing-batch-unit-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px 16px;border-top:1px solid var(--publishing-line);margin-top:10px;flex-wrap:wrap}
+.publishing-batch-unit-foot .publishing-button{min-height:36px}
