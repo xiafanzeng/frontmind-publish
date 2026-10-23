@@ -16,7 +16,8 @@ import { SourceMatrixPreviewContext } from '../module/client/source-matrix/simul
 type PublisherRouter=ReturnType<typeof createPublishRoutes>['publisherRouter'];
 export default function App({preview=false}:{preview?:boolean}) {
   const [path,navigate]=useLocation();
-  const activeView=path.startsWith('/publishing/articles')?'articles':path.startsWith('/publishing/media')?'media':'publishing';
+  // 发布记录及其批次详情归“稿件”板块；信源矩阵家族与媒体库路由归“媒体库”板块；工作台只是入口页。
+  const activeView=path.startsWith('/publishing/articles')||path.startsWith('/publishing/records')||path.startsWith('/publishing/record/')||path.startsWith('/publishing/publications')?'articles':path.startsWith('/publishing/media')||path.startsWith('/publishing/source-')?'media':'publishing';
   const views=[{id:'publishing',label:'发布工作台'},{id:'articles',label:'稿件'},{id:'media',label:'媒体库'}];
   const [gateway,setGateway]=useState<PublisherGateway|null>(()=>preview?createPreviewGateway():null);
   const [error,setError]=useState('');
