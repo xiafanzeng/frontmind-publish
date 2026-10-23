@@ -134,7 +134,7 @@ export default function PublishingPublicationDetailPage({
     >
       <PublishingBreadcrumbs
         items={[
-          { label: "发布记录", href: "/publishing?tab=records" },
+          { label: "发布记录", href: "/publishing/articles/records" },
           { label: batchId },
         ]}
       />
@@ -315,7 +315,7 @@ export default function PublishingPublicationDetailPage({
           <div className="publishing-detail-bottom">
             <Link
               className="publishing-button publishing-button-secondary"
-              href="/publishing?tab=records"
+              href="/publishing/articles/records"
             >
               <ArrowLeft size={16} />
               返回发布记录

@@ -13,6 +13,7 @@ import {
 } from "../components/PublishingUi";
 import {
   readPublicationRouteState,
+  writePublicationRouteState,
   writePublicationWorkbenchRouteState,
   type PublicationListFilters,
 } from "../queryState";
@@ -20,16 +21,25 @@ import { formatPublishingMoney, publishingDateTime } from "../types";
 
 export default function PublishingPublicationsPage() {
   const gateway = usePublisherGateway();
-  const [, navigate] = useLocation();
+  const [path, navigate] = useLocation();
   const search = useSearch();
   const filters = useMemo(() => readPublicationRouteState(search), [search]);
+  // Embedded in the workbench (/publishing tab or guided flow) the URL keeps
+  // the workbench form; standalone record routes canonicalize under articles.
+  const writeRouteState = useCallback(
+    (next: PublicationListFilters) =>
+      path === "/publishing"
+        ? writePublicationWorkbenchRouteState(next)
+        : writePublicationRouteState("/publishing/articles/records", next),
+    [path],
+  );
   useEffect(() => {
-    const canonical = writePublicationWorkbenchRouteState(filters);
+    const canonical = writeRouteState(filters);
     const current = search
-      ? `/publishing?${search.replace(/^\?/u, "")}`
-      : "/publishing";
+      ? `${path}?${search.replace(/^\?/u, "")}`
+      : path;
     if (canonical !== current) navigate(canonical, { replace: true });
-  }, [filters, navigate, search]);
+  }, [filters, navigate, search, path, writeRouteState]);
   const load = useCallback(
     (signal: AbortSignal) => gateway.listBatches(filters, signal),
     [filters, gateway],
@@ -44,13 +54,13 @@ export default function PublishingPublicationsPage() {
       [key]: value,
       page: key === "page" ? Number(value) : 1,
     };
-    navigate(writePublicationWorkbenchRouteState(next));
+    navigate(writeRouteState(next));
   };
   const pageCount = query.data
     ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize))
     : 1;
   const invalidDateRange = Boolean(filters.from && filters.to && filters.from > filters.to);
-  const resetFilters = () => navigate(writePublicationWorkbenchRouteState({
+  const resetFilters = () => navigate(writeRouteState({
     ...filters,
     query: "",
     kind: "",
