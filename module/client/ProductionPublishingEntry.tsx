@@ -305,6 +305,25 @@ export function createServerBackedPublisherGateway(
       });
     },
 
+    getArticleVersion(articleVersionId, signal) {
+      captureOperation();
+      return translateGatewayErrors(async () => {
+        throwIfAborted(signal);
+        const { version } = await resolveVersion(articleVersionId, signal);
+        throwIfAborted(signal);
+        // Selection needs the immutable version metadata, not working-copy previews.
+        return {
+          id: version.id,
+          version: version.version,
+          hash: version.contentHash,
+          containsImages: version.containsImages,
+          frozen: true,
+          createdAt: toIso(version.createdAt),
+          createdBy: "当前账号",
+        };
+      });
+    },
+
     importDocx(file, signal) {
       captureOperation();
       return translateGatewayErrors(async () => {
