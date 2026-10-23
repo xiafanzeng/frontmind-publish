@@ -605,17 +605,19 @@ export function createServerBackedPublisherGateway(
       });
     },
 
-    createDraft(articleVersionId, mediaIds, idempotencyKey) {
+    createDraft(articleVersionId, mediaIds, idempotencyKey, titleMode) {
       captureOperation();
       return translateGatewayErrors(async () => {
         const context = await resolveVersion(articleVersionId);
         const defaultTitle = articleTitle(context.article);
+        // 单标题以文章标题作为共享标题直达预检；多标题/批量在标题配置阶段逐家设置。
+        const mode = titleMode ?? "single";
         const saved = await client.publisher.drafts.save.mutate({
           articleVersionId,
           ...(idempotencyKey ? { idempotencyKey } : {}),
           expectedRevision: 0,
-          titleMode: "single",
-          sharedTitle: defaultTitle,
+          titleMode: mode,
+          ...(mode === "single" ? { sharedTitle: defaultTitle } : {}),
           items: mediaIds.map((mediaResourceId) => ({
             mediaResourceId,
             submissionTitle: defaultTitle,

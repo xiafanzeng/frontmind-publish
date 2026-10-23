@@ -12,6 +12,7 @@ import type {
   PublicationDraft,
   PublicationPreflight,
   PublisherSubmitInput,
+  PublisherTitleMode,
   PublishingDashboard,
   SaveDraftTitlesInput,
 } from "./types";
@@ -42,6 +43,7 @@ export type PublisherGateway = {
     articleVersionId: string,
     mediaIds: string[],
     idempotencyKey?: string,
+    titleMode?: PublisherTitleMode,
   ): Promise<PublicationDraft>;
   getDraft(draftId: string, signal?: AbortSignal): Promise<PublicationDraft>;
   updateDraftMedia(

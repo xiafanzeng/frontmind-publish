@@ -33,6 +33,7 @@ import {
   useWorkspaceDraftGuard,
 } from "../host";
 
+import PublishingFlowSteps, { flowStagesForMode } from "../components/PublishingFlowSteps";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import {
   PublishingBreadcrumbs,
@@ -97,12 +98,6 @@ const EDITOR_MODES: [EditorMode, string, string][] = [
   ["batch", "批量投放", "逐篇准备多份稿件"],
 ];
 
-const PUBLISH_STEPS = [
-  "1. 编辑稿件",
-  "2. 选择媒体",
-  "3. 配置标题",
-  "4. 预检与发布",
-];
 
 export default function PublishingArticleEditorPage({
   articleId,
@@ -147,6 +142,10 @@ export default function PublishingArticleEditorPage({
   const [editorMode, setEditorMode] = useState<EditorMode>(
     modeParam === "multi" || modeParam === "batch" ? modeParam : "single",
   );
+  useEffect(() => {
+    if (modeParam === "multi" || modeParam === "batch" || modeParam === "single")
+      setEditorMode(modeParam);
+  }, [modeParam]);
   // 批量投放的本地单元：文章1 为当前稿件；新增单元经 DOCX 导入成为真实稿件。
   const [batchIds, setBatchIds] = useState<string[]>([]);
   const [batchAdding, setBatchAdding] = useState(false);
@@ -343,7 +342,7 @@ export default function PublishingArticleEditorPage({
         performApprovedWorkspaceNavigation(() =>
           navigate(
             publishingTaskUrl(
-              `/publishing/media?articleVersion=${encodeURIComponent(frozen.currentVersionId!)}`,
+              `/publishing/media?articleVersion=${encodeURIComponent(frozen.currentVersionId!)}&mode=${editorMode}`,
             ),
           ),
         );
@@ -368,7 +367,7 @@ export default function PublishingArticleEditorPage({
           { kind: "article_version", id: frozenResult.currentVersionId },
         ],
         idempotencyKey: `article-media-${frozenResult.currentVersionId}`,
-        route: `/publishing/media?articleVersion=${encodeURIComponent(frozenResult.currentVersionId)}`,
+        route: `/publishing/media?articleVersion=${encodeURIComponent(frozenResult.currentVersionId)}&mode=${editorMode}`,
       });
     } catch (reason) {
       setSaveError(
@@ -418,7 +417,7 @@ export default function PublishingArticleEditorPage({
     if (article?.currentVersionId) {
       performApprovedWorkspaceNavigation(() =>
         navigate(
-          `/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}`,
+          `/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}&mode=${editorMode}`,
         ),
       );
       return;
@@ -437,29 +436,17 @@ export default function PublishingArticleEditorPage({
   };
 
   /** 编辑页统一结构：步骤提示 + 上传行 + 模式切换（嵌入单元内不重复渲染）。 */
+  const frozenArticle = frozenResult ?? article ?? query.data;
+  const articleFrozen = Boolean(
+    frozenArticle && frozenArticle.currentVersionId,
+  );
   const editorChrome = (
     <>
-      <ol className="publishing-publish-steps" aria-label="发布步骤">
-        {PUBLISH_STEPS.map((step, index) => (
-          <li
-            key={step}
-            className={
-              article?.currentVersionId
-                ? index === 0
-                  ? "is-done"
-                  : index === 1
-                    ? "is-active"
-                    : undefined
-                : index === 0
-                  ? "is-active"
-                  : undefined
-            }
-          >
-            <b>{index + 1}</b>
-            {step.replace(/^\d+\.\s*/u, "")}
-          </li>
-        ))}
-      </ol>
+      <PublishingFlowSteps
+        stages={flowStagesForMode(editorMode)}
+        doneCount={articleFrozen ? 1 : 0}
+        activeIndex={articleFrozen ? 1 : 0}
+      />
       <div className="publishing-publish-uploads" aria-label="素材上传">
         <Link
           className="publishing-button publishing-button-secondary"

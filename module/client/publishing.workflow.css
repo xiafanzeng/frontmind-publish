@@ -2202,10 +2202,13 @@
 
 
 /* Unified publish flow chrome: steps, uploads, placeholder media picker, batch units. */
-.publishing-publish-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px;list-style:none;padding:0}
-.publishing-publish-steps li{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1px solid var(--publishing-line);border-radius:11px;background:#fff;color:var(--publishing-muted);font-size:12.5px}
-.publishing-publish-steps li b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f1f1f7;color:var(--publishing-muted);font-weight:600;font-size:12px;flex-shrink:0}
-.publishing-publish-steps li.is-active{border-color:#dcabc5;background:#fcf2f8;color:var(--publishing-purple)}
+/* 统一发布流程条（与媒体库 .steps 同一组件同一视觉）：auto-fit 使单标题 3 步不留空轨道。 */
+.monitoring-module :where(.publishing-page) .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.monitoring-module :where(.publishing-page) .step{display:flex;align-items:center;gap:10px;padding:13px 16px;border:1px solid #e6e8f1;border-radius:12px;background:#fff;color:var(--publishing-muted);font-size:13px}
+.monitoring-module :where(.publishing-page) .step b{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#f1f1f7;font-weight:500;flex-shrink:0}
+.monitoring-module :where(.publishing-page) .step.active{border-color:#dcabc5;background:#fcf2f8;color:var(--publishing-purple)}
+.monitoring-module :where(.publishing-page) .step.active b,.monitoring-module :where(.publishing-page) .step.done b{background:#b33467;color:#fff}
+.monitoring-module :where(.publishing-page) .step.done{color:var(--publishing-purple)}
 .publishing-publish-steps li.is-active b,.publishing-publish-steps li.is-done b{background:var(--publishing-purple);color:#fff}
 .publishing-publish-steps li.is-done{color:var(--publishing-purple)}
 .publishing-publish-uploads{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}

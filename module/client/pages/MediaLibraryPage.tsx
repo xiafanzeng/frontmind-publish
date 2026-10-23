@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { MarketRow, RowHead, MediaDialog, MediaShell, MediaCartFooter, MediaTaskbar, MediaDetails, useMarketRules, exportRows, rulesRequest } from "../source-matrix/MediaMarket";
+import PublishingFlowSteps, { flowStagesForMode, titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
 import "../publishing.market.css";
 import {ReferenceIcon,ReferenceInlineIcon} from "../source-matrix/ReferenceIcons";
 import type { MediaRules } from "../../server/providers/kol/media-rules";
@@ -292,13 +293,31 @@ export default function PublishingMediaLibraryPage({
   const articlesQuery = usePublisherQuery(loadArticles, "article-choices");
   const draftQuery = usePublisherQuery(loadDraft, `draft:${draftId ?? "none"}`);
 
+  // 编辑器带来的投放模式参数参与 URL 规范化，刷新/返回后流程条仍显示正确阶段数。
+  const routeModeParam = new URLSearchParams(search.replace(/^\?/u, "")).get(
+    "mode",
+  );
+  const carriedMode =
+    routeModeParam === "single" ||
+    routeModeParam === "multi" ||
+    routeModeParam === "batch"
+      ? `&mode=${routeModeParam}`
+      : "";
   useEffect(() => {
-    const canonical = writeMediaRouteState(pathname, filters, articleVersionId);
+    const canonical =
+      writeMediaRouteState(pathname, filters, articleVersionId) + carriedMode;
     const current = search
       ? `${pathname}?${search.replace(/^\?/u, "")}`
       : pathname;
     if (canonical !== current) navigate(canonical, { replace: true });
-  }, [articleVersionId, filters, navigate, pathname, search]);
+  }, [
+    articleVersionId,
+    carriedMode,
+    filters,
+    navigate,
+    pathname,
+    search,
+  ]);
 
   useEffect(() => {
     if (
@@ -516,9 +535,13 @@ export default function PublishingMediaLibraryPage({
         const requestKey = taskId
           ? await publishingDraftRequestKey(taskId, articleVersionId!, mediaIds)
           : undefined;
-        const saved = requestKey
-          ? await gateway.createDraft(articleVersionId!, mediaIds, requestKey)
-          : await gateway.createDraft(articleVersionId!, mediaIds);
+        const intendedTitleMode = titleModeForFlowMode(flowMode);
+        const saved = await gateway.createDraft(
+          articleVersionId!,
+          mediaIds,
+          requestKey,
+          intendedTitleMode,
+        );
         if (generation !== selectionGeneration.current) return;
         setDraft(saved);
         setSelected(
@@ -726,9 +749,12 @@ export default function PublishingMediaLibraryPage({
         ? await publishingDraftRequestKey(taskId, chosenVersion, mediaIds)
         : undefined;
       if (generation !== selectionGeneration.current) return;
-      const saved = requestKey
-        ? await gateway.createDraft(chosenVersion, mediaIds, requestKey)
-        : await gateway.createDraft(chosenVersion, mediaIds);
+      const saved = await gateway.createDraft(
+        chosenVersion,
+        mediaIds,
+        requestKey,
+        titleModeForFlowMode(flowMode),
+      );
       if (generation !== selectionGeneration.current) return;
       setDraft(saved);
       setArticleChooserOpen(false);
@@ -755,7 +781,7 @@ export default function PublishingMediaLibraryPage({
             },
           ],
         });
-      } else navigate(`/publishing/drafts/${saved.id}/titles`);
+      } else navigate(projectWorkspaceUrl(saved.titleMode==="single"?`/publishing/drafts/${saved.id}/review`:`/publishing/drafts/${saved.id}/titles`));
     } catch (error) {
       if (generation !== selectionGeneration.current) return;
       setSelectionError(
@@ -793,7 +819,7 @@ export default function PublishingMediaLibraryPage({
       if (flow && draft) {
         setBoundDraft(draft);
         setConfirmedDraft(draft);
-      } else if (draft) navigate(`/publishing/drafts/${draft.id}/titles`);
+      } else if (draft) navigate(projectWorkspaceUrl(draft.titleMode==="single"?`/publishing/drafts/${draft.id}/review`:`/publishing/drafts/${draft.id}/titles`));
       else chooseArticle(Boolean(flow));
     } catch (cause) {
       if (generation === selectionGeneration.current)
@@ -809,7 +835,11 @@ export default function PublishingMediaLibraryPage({
     if (!flow || !boundDraft || selectionInFlight.current) return;
     if (publishingTarget) {
       const url = new URL(
-        projectWorkspaceUrl(`/publishing/drafts/${boundDraft.id}/titles`),
+        projectWorkspaceUrl(
+          boundDraft.titleMode === "single"
+            ? `/publishing/drafts/${boundDraft.id}/review`
+            : `/publishing/drafts/${boundDraft.id}/titles`,
+        ),
         window.location.origin,
       );
       url.searchParams.set("workbenchTask", publishingTarget.conversationId);
@@ -829,7 +859,7 @@ export default function PublishingMediaLibraryPage({
           { kind: "publication_draft", id: boundDraft.id },
         ],
         idempotencyKey: `media-publishing-${boundDraft.id}`,
-        route: `/publishing/drafts/${boundDraft.id}/titles`,
+        route: boundDraft.titleMode==="single"?`/publishing/drafts/${boundDraft.id}/review`:`/publishing/drafts/${boundDraft.id}/titles`,
       });
     } catch (reason) {
       if (generation !== selectionGeneration.current) return;
@@ -878,18 +908,24 @@ export default function PublishingMediaLibraryPage({
   const ruleData=useMarketRules([...new Set([...sourceRows.map(x=>x.id),...(detailMedia?[detailMedia.id]:[])])],mediaQuery.data?.catalog.activeRevision??'');
   const rows=ruleData.ready?sourceRows:[];
   const base=draftId?`/publishing/drafts/${encodeURIComponent(draftId)}/media`:'/publishing/media';
-  const next=()=>boundDraft&&flow?void handoff():void continueSelection();
+  const task=boundDraft??draft;
+  // 统一流程条：以草稿 titleMode 为准；建稿前沿用编辑器带来的模式参数；独立浏览默认 4 步初始展示。
+  const flowModeParam=new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
+  const flowMode:FlowStageMode=task?.titleMode==="single"?"single":task?.titleMode==="per_media"?"per_media":flowModeParam==="single"?"single":flowModeParam==="multi"?"multi":flowModeParam==="batch"?"batch":"default";
+  const hasArticleContext=Boolean(task||articleVersionId||draftId);
+  const flowSteps=<PublishingFlowSteps stages={flowStagesForMode(flowMode)} doneCount={hasArticleContext?1:0} activeIndex={hasArticleContext?1:0}/>;
+  const next=()=>{if(!hasArticleContext)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
   const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
   useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,remarkFilter,ruleFilter]);
   const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setDialogMessage(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
   const reset=()=>{navigateFilters({...DEFAULT_MEDIA_FILTERS,kind:undefined});setRemarkFilter('');setRuleFilter('');setQuoteStatus('');setScope('all');setClientSort('match');};
   const pending=selectedValues.filter(m=>!/^\d+$/.test(m.priceTenThousandths)||BigInt(m.priceTenThousandths)<=0n).length;
-  const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next}/>;
+  const nextLabel=flowMode==="single"?"预检发布":"配置标题";
+  const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext} nextHint={hasArticleContext?undefined:"您还未选择稿件"} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')}/>;
   useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
-  const task=boundDraft??draft;
   const chips=(value:string,items:Array<[string,string,number?]>,onChange:(value:string)=>void)=><div className="y-chip-options">{items.map(([v,t,n])=><button key={v} className={value===v?'active':''} onClick={()=>onChange(v)}>{t}{n!==undefined&&<small>{n}</small>}</button>)}</div>;
   const total=mediaQuery.data?.total??0;
-  return <MediaShell steps={!!task} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&task?<span className="x-task-pill" title={task.articleTitle}>任务：{task.articleTitle} · 稿件 v{task.articleVersion}</span>:undefined} taskbar={<MediaTaskbar note={task?`稿件：单篇发布 · 1 篇 · 已确认 v${task.articleVersion}`:undefined} saveStatus={selectionBusy?'正在保存…':task?'已读取投放草稿':''} title={task?(view==='home'?'当前任务：':'')+task.articleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={task&&<><button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button><Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(task.articleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'已确认稿件'}</option>}</select></MediaTaskbar>}>
+  return <MediaShell steps={flowSteps} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&task?<span className="x-task-pill" title={task.articleTitle}>任务：{task.articleTitle} · 稿件 v{task.articleVersion}</span>:undefined} taskbar={<MediaTaskbar note={task?`稿件：单篇发布 · 1 篇 · 已确认 v${task.articleVersion}`:undefined} saveStatus={selectionBusy?'正在保存…':task?'已读取投放草稿':''} title={task?(view==='home'?'当前任务：':'')+task.articleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={task&&<><button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button><Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(task.articleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'已确认稿件'}</option>}</select></MediaTaskbar>}>
   {view==='home'?<>
   <div className="x-duo-grid">
     <section className="panel x-duo-card">
