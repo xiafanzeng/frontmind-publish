@@ -619,7 +619,7 @@
 .fm-media .x-review-table th:last-child{background:#faf9fc}
 @media(max-width:900px){.fm-media .x-review-table{margin-left:-14px;margin-right:-14px}
 .fm-media .x-review-table table{min-width:900px}}
-.fm-media .y-catalogue{--row-cols:minmax(195px,1.1fr) minmax(125px,.65fr) minmax(190px,.98fr) minmax(195px,1fr) minmax(290px,1.65fr)}
+.fm-media .y-catalogue{--row-cols:minmax(150px,1.05fr) minmax(104px,.6fr) minmax(140px,.9fr) minmax(150px,.95fr) minmax(210px,1.5fr)}
 .fm-media .y-data-strip{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:18px;padding:13px 17px;background:#fbf5f9;border:1px solid #ebdce6;border-radius:12px;color:#77506a;font-size:12px;line-height:1.8}
 .fm-media .y-data-strip strong{font-weight:650;color:var(--plum)}
 .fm-media .y-data-strip .link{flex-shrink:0;font-size:12px}
@@ -658,8 +658,8 @@
 .fm-media .y-selection .actions{gap:17px}
 .fm-media .y-selection .link{font-size:12px}
 .fm-media .y-horizontal-scroll{overflow-x:auto;padding-bottom:3px;scrollbar-width:thin}
-.fm-media .y-row-head{display:grid;grid-template-columns:var(--row-cols);gap:20px;min-width:1115px;padding:10px 20px 10px 23px;font-size:11px;color:#858ba2;letter-spacing:.3px}
-.fm-media .y-media-row{position:relative;display:grid;grid-template-columns:var(--row-cols);gap:20px;min-width:1115px;width:100%;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:20px 20px 20px 23px;margin:0 0 9px;min-height:178px;transition:border-color .15s,background .15s,box-shadow .15s}
+.fm-media .y-row-head{display:grid;grid-template-columns:var(--row-cols);gap:16px;padding:10px 20px 10px 23px;font-size:11px;color:#858ba2;letter-spacing:.3px}
+.fm-media .y-media-row{position:relative;display:grid;grid-template-columns:var(--row-cols);gap:16px;width:100%;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:20px 20px 20px 23px;margin:0 0 9px;min-height:178px;transition:border-color .15s,background .15s,box-shadow .15s}
 .fm-media .y-media-row:hover{border-color:#d8c8d7;box-shadow:0 4px 13px #4c146707}
 .fm-media .y-media-row.selected{background:#fff9fc;border-color:#d9a3be;box-shadow:inset 3px 0 0 var(--brand)}
 .fm-media .y-media-row>*{min-width:0}
@@ -690,7 +690,7 @@
 .fm-media .y-prop{display:flex;align-items:baseline;gap:8px;line-height:1.55;min-width:0;font-size:12px}
 .fm-media .y-prop dt{color:#969bb0;flex:0 0 58px;white-space:nowrap;margin:0}
 .fm-media .y-prop dt:before{content:'·';color:#b6b9c9;margin-right:5px}
-.fm-media .y-prop dd{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#3b3d55}
+.fm-media .y-prop dd{margin:0;min-width:0;overflow-wrap:anywhere;color:#3b3d55;line-height:1.6}
 .fm-media .y-prop dd.y-missing{color:#acb0c0}
 .fm-media .y-prop dd[title]{cursor:help}
 .fm-media .y-props dl,.fm-media .y-media-row dl{margin:0}
@@ -1022,3 +1022,34 @@
 .fm-media .x-cart-metrics strong{display:block;font-size:20px;color:var(--plum)}
 @media(max-width:920px){.fm-media .x-duo-grid{grid-template-columns:1fr}.fm-media .x-metric-chips{grid-template-columns:1fr}.fm-media .x-cart-metrics{text-align:left}}
 @media(max-width:650px){.fm-media .x-duo-card{padding:18px}.fm-media .x-cart-summary{padding:16px;gap:12px}.fm-media .x-step-chip{grid-template-columns:26px minmax(0,1fr)}.fm-media .x-step-chip small{grid-column:2}}
+
+/* 2026-10 · 媒体列表自适应：列宽弹性分配，不再依赖横向滚动；窄屏隐藏表头并两列折行。 */
+@media(max-width:1360px){.fm-media .y-catalogue{--row-cols:minmax(136px,1fr) minmax(96px,.58fr) minmax(128px,.85fr) minmax(136px,.9fr) minmax(180px,1.35fr)}.fm-media .y-row-head,.fm-media .y-media-row{gap:12px}.fm-media .y-media-row{padding:16px}}
+@media(max-width:1150px){.fm-media .y-row-head{display:none}.fm-media .y-catalogue{--row-cols:minmax(120px,1fr) minmax(92px,.55fr) minmax(120px,.8fr) minmax(120px,.85fr) minmax(160px,1.2fr)}.fm-media .y-remarks-row{grid-column:1/-1;margin-left:0}}
+@media(max-width:900px){.fm-media .y-catalogue{--row-cols:repeat(2,minmax(0,1fr))}.fm-media .y-media-row{grid-auto-rows:auto;align-items:start}.fm-media .y-media-row>*{grid-column:auto}.fm-media .y-remarks-row,.fm-media .y-row-foot{grid-column:1/-1}.fm-media .y-price,.fm-media .y-props{grid-column:auto}.fm-media .y-horizontal-scroll{overflow-x:hidden}}
+
+/* 2026-10 · 背景层级统一：媒体库内容区融入浅灰蓝页面底色，卡片保持白色（对应图四）。 */
+.fm-media{background:#f5f6fa;min-height:100%}
+.fm-media .b-task,.fm-media .y-filter-panel,.fm-media .panel{background:#fff}
+
+/* 2026-10 · 底部购物车抽屉：汇总栏整体可点击展开，面板自底向上弹出。 */
+.fm-media .y-cart-dock{position:relative}
+.fm-media .y-cart-bar-wrap{display:flex;align-items:center;gap:14px;min-width:0}
+.fm-media .y-cart-bar{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;border:0;background:none;padding:0;text-align:left;cursor:pointer;border-radius:10px}
+.fm-media .y-cart-bar[aria-disabled=true]{cursor:default}
+.fm-media .y-cart-bar-summary{display:grid;gap:3px;min-width:0}
+.fm-media .y-cart-bar-summary .small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fm-media .y-cart-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--brand,#b33467);font-size:12px;font-weight:600;white-space:nowrap}
+.fm-media .y-cart-toggle i{font-style:normal;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f9eef4;transition:transform .18s}
+.fm-media .y-cart-toggle.is-open i{transform:rotate(180deg)}
+.fm-media .y-cart-drawer{position:absolute;left:0;right:0;bottom:calc(100% + 10px);display:flex;flex-direction:column;max-height:42vh;background:#fff;border:1px solid #e7d8e3;border-radius:16px;box-shadow:0 -10px 34px #3723451a;overflow:hidden;z-index:6}
+.fm-media .y-cart-drawer-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line,#e6e8f1);background:#fff}
+.fm-media .y-cart-drawer-head strong{font-size:14px;color:var(--plum,#4c1467)}
+.fm-media .y-cart-drawer-head .actions{margin-left:auto;display:flex;gap:14px;align-items:center}
+.fm-media .y-cart-drawer ul{list-style:none;margin:0;padding:4px 20px 12px;overflow-y:auto}
+.fm-media .y-cart-drawer li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0eef5;font-size:13px}
+.fm-media .y-cart-drawer li:last-child{border-bottom:0}
+.fm-media .y-cart-drawer li strong{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600}
+.fm-media .y-cart-drawer li small{color:var(--muted,#737991);flex:none}
+.fm-media .y-cart-drawer li .b-price{flex:none}
+.fm-media .y-cart-drawer li .link{flex:none}

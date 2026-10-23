@@ -47,8 +47,33 @@ export function MediaTabs(_props:{active:string;base?:string;query?:string}) { r
 export function MediaTaskbar({title,note,count=0,total,children,actions,saveStatus,cartHref='/publishing/media/cart',cart=true}:{title?:string;note?:string;count?:number;total?:string;children?:ReactNode;actions?:ReactNode;saveStatus?:string;cartHref?:string;cart?:boolean}) {
  return <section className="panel b-task"><div className="grow"><strong>{title || '独立浏览媒体库'}</strong><span className="small muted">{title?(note??'已确认稿件'):'可研究、收藏和保存方案；配置标题前需绑定已确认稿件'}</span></div>{children??<select aria-label="当前投放任务"><option value="research">独立浏览 / 研究</option>{title&&<option value="current">{title}</option>}</select>}<div className="actions">{actions}<span className="b-save">{saveStatus??''}</span></div>{cart&&<div className="b-taskbar-total"><Link href={projectWorkspaceUrl(cartHref)} className="button secondary">购物车 {count} · {total === undefined?'待确认':formatPublishingMoney(total)}</Link></div>}</section>;
 }
-export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string}) {
- return <div className="b-bottom" id="x-cart-footer"><div><strong>购物车 {count} 家 <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><p className="small muted">{pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</p></div><div className="actions">{nextDisabled&&nextHint&&<span className="small muted" role="status">{nextHint}</span>}{nextDisabled&&articlesHref&&<Link className="button secondary" href={articlesHref}>进入稿件选择</Link>}<Link className="button secondary" href={projectWorkspaceUrl(cartHref)}>查看购物车</Link><button className="button primary" disabled={nextDisabled} onClick={onNext}>{nextLabel} →</button></div></div>;
+/**
+ * 底部购物车抽屉：整条汇总栏即展开入口（电商式交互），展开后直接管理当前已选媒体；
+ * 数据来自调用方传入的真实选择集合，不维护第二份购物车状态。
+ * 独立“查看购物车”按钮已移除，完整购物车页面路由保留，可经抽屉内链接进入。
+ */
+export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,onRemove}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];onRemove?:(media:MediaResource)=>void}) {
+ const [open,setOpen]=useState(false);
+ const priceOf=(media:MediaResource)=>!/^[0-9]+$/.test(media.priceTenThousandths)||BigInt(media.priceTenThousandths)<=0n
+   ?<span className="y-cart-pending">待确认</span>
+   :formatPublishingMoney(media.priceTenThousandths);
+ return <div className="b-bottom y-cart-dock" id="x-cart-footer">
+  {open&&count>0?<section id="y-cart-drawer-panel" className="y-cart-drawer" aria-label="购物车已选媒体">
+    <header className="y-cart-drawer-head">
+      <strong>已选媒体 {count} 家</strong>
+      <span className="small muted">{count>0&&pending===count?'全部报价待确认':<>{total===undefined?'总价待确认':formatPublishingMoney(total)}{pending>0?<> · {pending} 项待询价</>:''}</>}</span>
+      <div className="actions"><Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link><button className="link small" type="button" onClick={()=>setOpen(false)}>收起 ▾</button></div>
+    </header>
+    <ul>{(items??[]).map(media=><li key={media.id}><strong>{media.name}</strong><small>{media.kind==='self_media'?'自媒体':'软文媒体'}</small><span className="b-price">{priceOf(media)}</span><button className="link danger small" type="button" onClick={()=>onRemove?.(media)}>移除</button></li>)}</ul>
+  </section>:null}
+  <div className="y-cart-bar-wrap">
+    <button type="button" className="y-cart-bar" aria-expanded={open} aria-disabled={count===0||undefined} aria-controls="y-cart-drawer-panel" onClick={()=>{if(count>0)setOpen(v=>!v)}}>
+      <span className="y-cart-bar-summary"><strong>购物车 {count} 家 <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</span></span>
+      <span className={'y-cart-toggle'+(open?' is-open':'')} aria-hidden="true">{open?'收起':'展开'}<i>▴</i></span>
+    </button>
+    <div className="actions">{nextDisabled&&nextHint&&<span className="small muted" role="status">{nextHint}</span>}{nextDisabled&&articlesHref&&<Link className="button secondary" href={articlesHref}>进入稿件选择</Link>}<button className="button primary" disabled={nextDisabled} onClick={onNext}>{nextLabel} →</button></div>
+  </div>
+ </div>;
 }
 export function RowHead(){return <div className="y-row-head" aria-hidden="true">{['媒体 / 账号','价格信息','平台与覆盖','稿件要求','发布条件与备注'].map(x=><span key={x}>{x}</span>)}</div>;}
 export function Property({name,value,extra=false,empty='未提供',claim=false}:{name:string;value?:ReactNode;extra?:boolean;empty?:string;claim?:boolean}){const missing=value==null||value==='';return <dl className={'y-prop '+(extra?'y-extra':'')}><dt>{name}</dt><dd title={!missing&&typeof value==='string'?(claim?'原备注摘录 · 待核验：':'')+value:undefined} className={missing?'y-missing':''}>{missing?empty:value}</dd></dl>;}
