@@ -17,6 +17,7 @@ export function createPreviewGateway():PublisherGateway {
     async getDashboard(){return {wallet,catalog,articleCount:articles.size,actionableItemCount:0,resumableDraftCount:drafts.size,resumableDrafts:[...drafts.values()].map(d=>({id:d.id,articleTitle:d.articleTitle,articleVersion:d.articleVersion,status:'draft',updatedAt:d.updatedAt})),processingBatchCount:0,processingBatches:[],recentBatches:[],resumableArticles:clone([...articles.values()])};},
     async listArticles(){return clone([...articles.values()]);},
     async getArticle(id){return clone(getArticle(id));},
+    async getArticleVersion(versionId){const version=[...articles.values()].flatMap(a=>a.versions).find(v=>v.id===versionId);if(!version)throw new PublisherGatewayError('预览稿件版本不存在','not_found');return clone(version);},
     async importDocx(file){const value={...clone(article),id:crypto.randomUUID(),title:`本地预览：${file.name}`,updatedAt:now()};articles.set(value.id,value);return {importId:`preview:${value.id}`,articleId:value.id};},
     async uploadArticleImage(){return unavailable();},
     async saveArticle(input){const value=getArticle(input.articleId);if(value.revision!==input.expectedRevision)throw new PublisherGatewayError('预览稿件版本冲突','conflict');Object.assign(value,{title:input.title,bodyText:input.bodyText,bodyHtml:input.bodyHtml,editorJson:input.editorJson,images:input.images,revision:value.revision+1,updatedAt:now(),wordCount:input.bodyText.length});return clone(value);},
