@@ -292,6 +292,12 @@ export default function PublishingMediaLibraryPage({
   );
   const articlesQuery = usePublisherQuery(loadArticles, "article-choices");
   const draftQuery = usePublisherQuery(loadDraft, `draft:${draftId ?? "none"}`);
+  // 草稿读取失败（如历史脏数据）时按“未绑定草稿”继续选择，而不是永久禁用整页勾选；
+  // 重新勾选会按当前稿件上下文创建新草稿。
+  const draftUnavailable = Boolean(
+    draftId && !draft && (draftQuery.error || !draftQuery.loading),
+  );
+  const effectiveDraftId = draftUnavailable ? undefined : draftId;
 
   // 编辑器带来的投放模式参数参与 URL 规范化，刷新/返回后流程条仍显示正确阶段数。
   const routeModeParam = new URLSearchParams(search.replace(/^\?/u, "")).get(
@@ -344,7 +350,9 @@ export default function PublishingMediaLibraryPage({
   useEffect(() => {
     if (!draftQuery.data) {
       setDraft(undefined);
-      setSelected(draftId ? new Map() : new Map<string, MediaResource>());
+      // 仅在确有草稿路由待载入时清空；独立浏览/带稿件进入的选择不因筛选、
+      // 搜索或分页引起的 shortlistKey 变化而被重置。
+      if (draftId) setSelected(new Map());
       return;
     }
     setDraft(draftQuery.data);
@@ -355,7 +363,7 @@ export default function PublishingMediaLibraryPage({
     setSelected(
       new Map(draftQuery.data.items.map((item) => [item.media.id, item.media])),
     );
-  }, [draftId, draftQuery.data, shortlistKey, setDraft, setSelected]);
+  }, [draftId, draftQuery.data, flow, setBoundDraft, setConfirmedDraft, setDraft, setSelected]);
 
   const persistedSelection = flow?.selections?.mediaSelection;
   useEffect(() => {
@@ -477,8 +485,10 @@ export default function PublishingMediaLibraryPage({
     mediaIds: string[],
     optimistic: Map<string, MediaResource>,
   ) => {
-    if (draftId && !draft) return;
-    if ((!articleVersionId || flow) && !draft) {
+    if (effectiveDraftId && !draft) return;
+    // 从稿件进入（携带 articleVersion 且尚无草稿）时必须立即写入服务端草稿，
+    // 不能因会话 flow 存在而退化为浏览器本地选择；无稿件上下文才用 flow/本地清单。
+    if (!articleVersionId && !draft) {
       if (flow) {
         if (selectionInFlight.current) return;
         selectionInFlight.current = true;
@@ -970,7 +980,8 @@ export default function PublishingMediaLibraryPage({
    <div id="y-results" className="y-resultbar"><div className="y-result-tabs">{[['all','全部',total],['favorites','我的收藏',favorites.length],['cart','购物车',selected.size]].map(([v,t,n])=><button key={v} className={scope===v?'active':''} onClick={()=>{if(v==='favorites')setDialogMessage('收藏接口尚未配置，无法读取收藏清单。');setScope(v as typeof scope);updateFilter('page',1);}}>{t}<small>{n}</small></button>)}</div><span className="y-result-count" id="y-result-count">为您找到 <strong>{total}</strong> 条媒体资源</span></div>
    <div className="y-typebar">{[['','全部媒体',total],['news','门户媒体',facetsQuery.data?.kinds.news??0],['self_media','第三方自媒体',facetsQuery.data?.kinds.self_media??0]].map(([v,t,n])=><button key={v} className={(filters.kind??'')===v?'active':''} onClick={()=>navigateFilters({...filters,kind:(v||undefined) as PublisherMediaKind|undefined,page:1})}>{t}<small>（{n}）</small></button>)}</div>
    <div className="y-selection"><label><input type="checkbox" id="x-page-select" aria-label="本页全选" checked={rows.length>0&&rows.every(m=>selected.has(m.id))} disabled={!rows.length||selectionBusy} onChange={e=>{const map=new Map(selected);for(const m of rows){if(e.target.checked){if(map.size<20&&!mediaSelectionBlocker(m,articleHasImages))map.set(m.id,m);}else map.delete(m.id);}setBoundDraft(undefined);void persistMediaIds([...map.keys()],map);}}/>本页全选<span style={{color:'#d3c6cf',margin:'0 4px'}}>|</span><strong id="b-selection-count">已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>favorite('')}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={()=>setDialogMessage('clear')}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
-   <div className="y-horizontal-scroll"><RowHead/><div id="b-third-table" className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onFavorite={()=>favorite(media.id)} onQuote={()=>{setQuoteError('');setQuoteMedia(media);}} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&<div className="x-empty"><strong>{mediaQuery.loading||ruleData.loading?'正在读取媒体目录':mediaQuery.error||ruleData.error?'媒体资料暂不可用':'没有匹配的媒体'}</strong><p>{mediaQuery.error?.message||ruleData.error||'调整平台、关键词或其他条件后再试。已选媒体保持不变。'}</p><button className="button secondary x-small-button" onClick={()=>{reset();mediaQuery.reload();}}>显示全部媒体</button></div>}</div></div>
+   {draftUnavailable&&draftQuery.error?<div className="notice warn" style={{marginBottom:14}} role="alert">投放草稿读取失败：{draftQuery.error instanceof Error?draftQuery.error.message:String(draftQuery.error)}。已按未绑定草稿继续，重新勾选将创建新草稿。</div>:null}
+   <div className="y-horizontal-scroll"><RowHead/><div id="b-third-table" className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft&&draftQuery.loading)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onFavorite={()=>favorite(media.id)} onQuote={()=>{setQuoteError('');setQuoteMedia(media);}} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&<div className="x-empty"><strong>{mediaQuery.loading||ruleData.loading?'正在读取媒体目录':mediaQuery.error||ruleData.error?'媒体资料暂不可用':'没有匹配的媒体'}</strong><p>{mediaQuery.error?.message||ruleData.error||'调整平台、关键词或其他条件后再试。已选媒体保持不变。'}</p><button className="button secondary x-small-button" onClick={()=>{reset();mediaQuery.reload();}}>显示全部媒体</button></div>}</div></div>
    <div id="b-third-pages" className="y-pages"><span>共 {total} 家 · 第 {filters.page} / {pageCount} 页　<select aria-label="每页媒体数" value={filters.pageSize} onChange={e=>updateFilter('pageSize',Number(e.target.value))}>{[10,20,50].map(n=><option key={n} value={n}>{n} 家 / 页</option>)}</select></span><div className="y-page-buttons"><button aria-label="上一页" disabled={filters.page<=1} onClick={()=>updateFilter('page',filters.page-1)}>‹</button>{Array.from({length:pageCount},(_,i)=>i+1).filter(n=>pageCount<=8||n===1||n===pageCount||Math.abs(n-filters.page)<2).map(n=><button className={n===filters.page?'active':''} aria-label={'第 '+n+' 页'} aria-current={n===filters.page?'page':undefined} key={n} onClick={()=>updateFilter('page',n)}>{n}</button>)}<button aria-label="下一页" disabled={filters.page>=pageCount} onClick={()=>updateFilter('page',filters.page+1)}>›</button></div></div>
    <p className="y-list-footnote">媒体资源来自供应商目录。同名不同平台分别保留；报价与发布要求以发布前核验结果为准。</p>{footer}
   </div>}
