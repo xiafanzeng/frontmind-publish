@@ -8,7 +8,11 @@ export interface KolPagination {
   total: number;
 }
 
-export type KolMediaKind = "news" | "self_media";
+/**
+ * "unknown" marks a provider category FrontMind cannot sell (KOL is_zimeiti=3,
+ * 品牌种草/测评). Catalog staging skips those rows; they never reach a quote.
+ */
+export type KolMediaKind = "news" | "self_media" | "unknown";
 
 /**
  * Normalized catalog fields that may be persisted by the server. Supplier-tier

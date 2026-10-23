@@ -100,7 +100,9 @@ export function providerAssetUrl(
 export function normalizeKolMediaKind(value: unknown): KolMediaKind {
   if (value === 1 || value === "1") return "self_media";
   if (value === 2 || value === "2") return "news";
-  throw new TypeError("KOL resource is_zimeiti must be exactly 1 or 2");
+  // KOL's third category (品牌种草/测评) is parsed but never sold.
+  if (value === 3 || value === "3") return "unknown";
+  throw new TypeError("KOL resource is_zimeiti must be 1, 2 or 3");
 }
 
 function sanitizedResourceRaw(

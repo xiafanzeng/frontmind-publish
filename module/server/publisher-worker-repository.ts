@@ -24,7 +24,8 @@ type KolResourceInput = {
   platform?: string;
   taxonomy?: string;
   mediaType?: string;
-  kind: "news" | "self_media";
+  // "unknown" rows are counted and skipped by normalizeCatalogResource.
+  kind: "news" | "self_media" | "unknown";
   area?: string;
   caseUrl?: string;
   titleLimit?: number;

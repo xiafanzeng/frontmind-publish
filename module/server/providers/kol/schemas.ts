@@ -56,11 +56,18 @@ export const kolResourceSchema = z
     icon: nullableText,
     remark: nullableText,
     description: nullableText,
+    // KOL shipped a third catalog category (is_zimeiti=3, 品牌种草/测评
+    // services) in October 2026. Parsing must accept it so a full catalog
+    // sync can complete; normalizeKolMediaKind maps it to "unknown" and
+    // catalog staging drops those rows instead of selling an unsupported
+    // media kind.
     is_zimeiti: z.union([
       z.literal(1),
       z.literal(2),
+      z.literal(3),
       z.literal("1"),
       z.literal("2"),
+      z.literal("3"),
     ]),
     is_recommend: nullableScalar,
     auth: nullableScalar,
