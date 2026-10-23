@@ -319,16 +319,32 @@ export default function PublishingTitlesPage({
                       aria-invalid={Boolean(invalidCount)}
                     />
                     <small>
-                      {unicodeLength(sharedTitle)} 字 · 将为{" "}
-                      {query.data.items.length} 家媒体分别冻结
+                      {unicodeLength(sharedTitle)} 字 · 将为 {checked.size}{" "}
+                      家媒体分别冻结
                     </small>
                   </label>
+                  <p className="publishing-title-selection" role="status">
+                    已选 <strong>{checked.size} 家媒体</strong> · 有效费用{" "}
+                    <strong>{formatPublishingMoney(checkedTotal.toString())}</strong>
+                    <span className="publishing-title-selection-note">
+                      取消勾选的媒体不计入费用、校验与本次发布
+                    </span>
+                  </p>
                   <div className="am-shared-title-rows" aria-label="逐媒体标题校验">
                     {query.data.items.map(item => {
                       const state = validation.get(item.media.id)!;
-                      return <div className="am-shared-title-row" key={item.media.id}>
+                      const included = checked.has(item.media.id);
+                      return <div className={"am-shared-title-row" + (included ? "" : " is-excluded")} key={item.media.id}>
+                        <label className="publishing-title-check">
+                          <input
+                            type="checkbox"
+                            checked={included}
+                            onChange={() => toggleMedia(item.media.id)}
+                            aria-label={`${item.media.name} 参与本次发布`}
+                          />
+                        </label>
                         <div><strong>{item.media.name}</strong><small>上限 ≤ {item.media.titleLimit} 字</small></div>
-                        <p>{state.value || "尚未填写"}</p><span className={state.message ? "is-invalid" : "is-valid"}>{state.message || "长度有效"}<small>{state.length} / {item.media.titleLimit}</small></span>
+                        <p>{state.value || "尚未填写"}</p><span className={state.message ? "is-invalid" : "is-valid"}>{!included ? "未纳入本次发布 · 重新勾选后恢复" : state.message || "长度有效"}<small>{included ? `${state.length} / ${item.media.titleLimit}` : ""}</small></span>
                       </div>;
                     })}
                   </div>

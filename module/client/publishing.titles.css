@@ -45,3 +45,7 @@
 .monitoring-module .am-title-config .publishing-title-selection{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--publishing-muted)}
 .monitoring-module .am-title-config .publishing-title-selection strong{color:var(--publishing-purple);font-size:15px}
 .monitoring-module .am-title-config .publishing-title-selection-note{font-size:12px;color:var(--publishing-muted)}
+
+.monitoring-module .am-title-config .am-shared-title-row{grid-template-columns:26px minmax(140px,.8fr) minmax(120px,1fr) minmax(150px,1.1fr)}
+.monitoring-module .am-title-config .am-shared-title-row.is-excluded{opacity:.55}
+.monitoring-module .am-title-config .am-shared-title-row.is-excluded strong{text-decoration:line-through}
