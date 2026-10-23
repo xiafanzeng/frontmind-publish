@@ -72,7 +72,7 @@ export default function PublishingArticlesPage() {
       <PublishingPage title="编辑稿件" description="选择一篇真实稿件进入独立编辑页；单标题、多标题和批量准备模式均在编辑页内切换。">
         <nav className="publishing-article-subnav" aria-label="稿件子页面">
           <Link href="/publishing/articles">管理稿件</Link>
-          <Link href="/publishing/records">发布记录</Link>
+          <Link href="/publishing/articles/records">发布记录</Link>
           <Link href="/publishing/articles/edit" aria-current="page" className="is-active">编辑稿件</Link>
         </nav>
         {query.loading ? <PublishingLoading label="正在读取可编辑稿件…" /> : null}
@@ -83,7 +83,7 @@ export default function PublishingArticlesPage() {
             <div><strong>{article.title || "未命名稿件"}</strong><p>{article.wordCount.toLocaleString("zh-CN")} 字 · {article.imageCount} 张图片 · {article.currentVersionId ? `v${article.currentVersion} 已冻结` : "草稿"}</p></div>
             <Link className="publishing-button publishing-button-primary" href={`/publishing/articles/${encodeURIComponent(article.id)}/edit`}>编辑这篇稿件 <ArrowRight size={15}/></Link>
           </article>)}
-        </section> : <PublishingEmpty title="还没有可编辑稿件" description="导入真实 DOCX 后即可进入独立编辑页。" action={<Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import"><Upload size={16}/> 导入稿件</Link>} />)}
+        </section> : <PublishingEmpty title="还没有可编辑稿件" description="导入真实 DOCX 后即可进入独立编辑页。" action={<Link className="publishing-button publishing-button-primary" href="/publishing/articles/new"><Upload size={16}/> 导入稿件</Link>} />)}
       </PublishingPage>
     );
   }
@@ -96,7 +96,7 @@ export default function PublishingArticlesPage() {
       actions={
         <Link
           className="publishing-button publishing-button-primary"
-          href="/publishing/articles/new/import"
+          href="/publishing/articles/new"
         >
           <Upload size={17} />
           导入稿件
@@ -105,7 +105,7 @@ export default function PublishingArticlesPage() {
     >
       <nav className="publishing-article-subnav" aria-label="稿件子页面">
         <Link href="/publishing/articles" aria-current="page" className="is-active">管理稿件</Link>
-        <Link href="/publishing/records">发布记录</Link>
+        <Link href="/publishing/articles/records">发布记录</Link>
         <Link href="/publishing/articles/edit">编辑稿件</Link>
       </nav>
       {query.loading ? <PublishingLoading label="正在读取稿件…" /> : null}
@@ -192,7 +192,7 @@ export default function PublishingArticlesPage() {
               action={query.data.length ? undefined : (
                 <Link
                   className="publishing-button publishing-button-primary"
-                  href="/publishing/articles/new/import"
+                  href="/publishing/articles/new"
                 >
                   <Plus size={16} />
                   导入第一篇稿件

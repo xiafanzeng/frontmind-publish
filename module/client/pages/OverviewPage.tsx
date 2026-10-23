@@ -39,10 +39,10 @@ export default function PublishingOverviewPage() {
               <h1>从稿件，到可追溯的发布记录</h1>
               <p>继续准备真实稿件，查看每一笔发布任务及其执行结果。</p>
               <div className="publishing-inline-actions">
-                <Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">
+                <Link className="publishing-button publishing-button-primary" href="/publishing/articles/new">
                   <FileText size={16} /> 编辑新稿件
                 </Link>
-                <Link className="publishing-button publishing-button-secondary" href="/publishing?tab=records">
+                <Link className="publishing-button publishing-button-secondary" href="/publishing/articles/records">
                   查看发布记录 <ArrowRight size={16} />
                 </Link>
               </div>
@@ -103,7 +103,7 @@ export default function PublishingOverviewPage() {
                   <h2>最近订单</h2>
                   <p>最近发布批次及其状态</p>
                 </div>
-                <Link href="/publishing?tab=records">查看全部</Link>
+                <Link href="/publishing/articles/records">查看全部</Link>
               </header>
               {query.data.recentBatches.length ? (
                 <div className="publishing-list">
@@ -127,7 +127,7 @@ export default function PublishingOverviewPage() {
                 <PublishingEmpty
                   title="暂无发布订单"
                   description="完成投放并生成发布批次后，订单会显示在这里。"
-                  action={<Link className="publishing-button publishing-button-secondary" href="/publishing?tab=records">查看发布记录</Link>}
+                  action={<Link className="publishing-button publishing-button-secondary" href="/publishing/articles/records">查看发布记录</Link>}
                 />
               )}
             </section>

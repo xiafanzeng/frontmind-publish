@@ -59,6 +59,12 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             <Route path="/publishing/articles/new/import">
               <ImportPage />
             </Route>
+            <Route path="/publishing/articles/new">
+              <ArticleEditorPage articleId="new" />
+            </Route>
+            <Route path="/publishing/articles/records">
+              <PublicationsPage />
+            </Route>
             <Route path="/publishing/articles/edit">
               <Redirect to="/publishing/articles?mode=edit" />
             </Route>

@@ -9,6 +9,9 @@ import {
   LoaderCircle,
   Save,
   ShieldCheck,
+  Trash2,
+  Upload,
+  Video,
 } from "lucide-react";
 import {
   lazy,
@@ -18,7 +21,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   usePublishingFlow,
   usePublishingSummary,
@@ -48,6 +51,7 @@ import type {
   PublisherEditorContent,
 } from "../types";
 import { publishingDateTime } from "../types";
+import PublishingImportPage from "./ImportPage";
 
 const TipTapArticleEditor = lazy(
   () => import("../components/TipTapArticleEditor"),
@@ -85,6 +89,32 @@ export function ArticleEditorSurface({
   );
 }
 
+export type EditorMode = "single" | "multi" | "batch";
+
+const EDITOR_MODES: [EditorMode, string, string][] = [
+  ["single", "单标题", "一篇文章，一个正式标题"],
+  ["multi", "多标题", "同一正文，按所选媒体分别配标题"],
+  ["batch", "批量投放", "逐篇准备多份稿件"],
+];
+
+/**
+ * 媒体库正式接入前的占位示例媒体：仅用于本页交互演示，
+ * 不来自任何真实接口，也不发起任何请求。
+ */
+const PLACEHOLDER_MEDIA = [
+  { id: "placeholder-1", name: "示例公众号 · 科技观察", price: "占位报价 128" },
+  { id: "placeholder-2", name: "示例门户 · 资讯频道", price: "占位报价 260" },
+  { id: "placeholder-3", name: "示例自媒体 · 生活号", price: "占位报价 88" },
+  { id: "placeholder-4", name: "示例行业站 · 垂直媒体", price: "占位报价 150" },
+];
+
+const PUBLISH_STEPS = [
+  "1. 填写标题、内容",
+  "2. 点击[选择媒体]",
+  "3. 勾选媒体",
+  "4. 提交订单，发布成功",
+];
+
 export default function PublishingArticleEditorPage({
   articleId,
   embedded = false,
@@ -92,13 +122,20 @@ export default function PublishingArticleEditorPage({
   articleId: string;
   embedded?: boolean;
 }) {
+  const isNew = articleId === "new";
   const gateway = usePublisherGateway();
   const flow = usePublishingFlow();
-  const operationScope = usePublishingOperationScope(articleId);
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const modeParam = new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
+  const operationScope = usePublishingOperationScope(articleId);
   const load = useCallback(
-    (signal: AbortSignal) => gateway.getArticle(articleId, signal),
-    [articleId, gateway],
+    (signal: AbortSignal) =>
+      isNew
+        ? // 新稿状态不请求详情；创建走 DOCX 导入接口。
+          new Promise<ArticleDetail>(() => {})
+        : gateway.getArticle(articleId, signal),
+    [articleId, gateway, isNew],
   );
   const query = usePublisherQuery(load);
   const [article, setArticle] = useState<ArticleDetail>();
@@ -117,16 +154,25 @@ export default function PublishingArticleEditorPage({
   const [freezing, setFreezing] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
-  // Presentation-only organization modes. They do not add fields to the gateway contract.
-  const [editorMode, setEditorMode] = useState<"single" | "multi" | "batch">("single");
-  const [alternateTitles, setAlternateTitles] = useState(["", ""]);
-  const loadArticleStack = useCallback(
-    (signal: AbortSignal) => gateway.listArticles(signal),
-    [gateway],
+  // 组织模式仅用于本页交互组织，不新增网关字段。
+  const [editorMode, setEditorMode] = useState<EditorMode>(
+    modeParam === "multi" || modeParam === "batch" ? modeParam : "single",
   );
-  const articleStack = usePublisherQuery(loadArticleStack, "article-editor-stack");
+  // 批量投放的本地单元：文章1 为当前稿件；新增单元经 DOCX 导入成为真实稿件。
+  const [batchIds, setBatchIds] = useState<string[]>([]);
+  const [batchAdding, setBatchAdding] = useState(false);
+  // 媒体选择占位（媒体库接入前不调用任何 API）。
+  const [mediaPickOpen, setMediaPickOpen] = useState(false);
+  const [mediaSelection, setMediaSelection] = useState<string[]>([]);
+  const [mediaTitles, setMediaTitles] = useState<Record<string, string>>({});
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!isNew && editorMode === "batch" && batchIds.length === 0) {
+      setBatchIds([articleId]);
+    }
+  }, [articleId, batchIds.length, editorMode, isNew]);
 
   useEffect(
     () => () => {
@@ -382,30 +428,308 @@ export default function PublishingArticleEditorPage({
     [article, gateway, operationScope],
   );
 
-  if (editorMode === "batch" && !embedded) {
+  const enterCreatedArticle = (createdId: string) => {
+    performApprovedWorkspaceNavigation(() =>
+      navigate(
+        `/publishing/articles/${encodeURIComponent(createdId)}/edit${
+          editorMode === "single" ? "" : `?mode=${editorMode}`
+        }`,
+      ),
+    );
+  };
+
+  /** 编辑页统一结构：步骤提示 + 上传行 + 模式切换（嵌入单元内不重复渲染）。 */
+  const editorChrome = (
+    <>
+      <ol className="publishing-publish-steps" aria-label="发布步骤">
+        {PUBLISH_STEPS.map((step, index) => (
+          <li
+            key={step}
+            className={
+              index === 0
+                ? "is-active"
+                : index <= 2 && mediaSelection.length
+                  ? "is-done"
+                  : undefined
+            }
+          >
+            <b>{index + 1}</b>
+            {step.replace(/^\d+\.\s*/u, "")}
+          </li>
+        ))}
+      </ol>
+      <div className="publishing-publish-uploads" aria-label="素材上传">
+        <Link
+          className="publishing-button publishing-button-secondary"
+          href={isNew ? "/publishing/articles/new" : "/publishing/articles/new"}
+        >
+          <Upload size={16} /> 上传文档
+        </Link>
+        <button
+          type="button"
+          className="publishing-button publishing-button-secondary"
+          disabled
+          title="媒体库接入后开放视频上传"
+        >
+          <Video size={16} /> 上传视频
+        </button>
+        <button
+          type="button"
+          className="publishing-button publishing-button-primary"
+          onClick={() => setMediaPickOpen(true)}
+        >
+          选择媒体
+        </button>
+        {mediaSelection.length ? (
+          <span className="publishing-media-chips">
+            {mediaSelection.map((id) => (
+              <span className="publishing-media-chip" key={id}>
+                {PLACEHOLDER_MEDIA.find((media) => media.id === id)?.name ?? id}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="publishing-editor-inline-note">
+            媒体库接入前为占位交互，不调用真实接口
+          </span>
+        )}
+      </div>
+      <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
+        {EDITOR_MODES.map(([mode, label, hint]) => (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={editorMode === mode}
+            className={editorMode === mode ? "is-active" : ""}
+            onClick={() => setEditorMode(mode)}
+          >
+            <strong>{label}</strong><span>{hint}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  const mediaPicker = mediaPickOpen ? (
+    <div
+      className="publishing-article-preview-backdrop"
+      role="presentation"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setMediaPickOpen(false);
+      }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setMediaPickOpen(false);
+      }}
+    >
+      <section
+        className="publishing-media-picker"
+        role="dialog"
+        aria-modal="true"
+        aria-label="选择媒体（占位）"
+      >
+        <header>
+          <div>
+            <strong>选择媒体</strong>
+            <span>占位示例列表 · 媒体库正式接入后替换为真实媒体与报价</span>
+          </div>
+          <button
+            type="button"
+            className="publishing-dialog-close"
+            aria-label="关闭媒体选择"
+            onClick={() => setMediaPickOpen(false)}
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="publishing-media-picker-body">
+          {PLACEHOLDER_MEDIA.map((media) => (
+            <label key={media.id} className="publishing-media-option">
+              <input
+                type="checkbox"
+                checked={mediaSelection.includes(media.id)}
+                onChange={(event) =>
+                  setMediaSelection((current) =>
+                    event.target.checked
+                      ? [...current, media.id]
+                      : current.filter((id) => id !== media.id),
+                  )
+                }
+              />
+              <span>
+                <strong>{media.name}</strong>
+                <small>{media.price} · 占位数据</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        <footer>
+          <span className="publishing-editor-inline-note">
+            提交订单在媒体库正式接入后开放
+          </span>
+          <button
+            type="button"
+            className="publishing-button publishing-button-primary"
+            onClick={() => setMediaPickOpen(false)}
+          >
+            确认勾选（{mediaSelection.length}）
+          </button>
+        </footer>
+      </section>
+    </div>
+  ) : null;
+
+  const multiTitleRows =
+    editorMode === "multi" && mediaSelection.length ? (
+      <section className="publishing-media-title-panel" aria-label="按媒体配置标题">
+        <div>
+          <strong>按所选媒体填写标题</strong>
+          <p>
+            多标题逻辑：同一正文发送给已选媒体，并为每个媒体分别填写标题。
+            以下标题为本地草拟，媒体库正式接入后随订单提交。
+          </p>
+        </div>
+        {mediaSelection.map((mediaId) => (
+          <label key={mediaId}>
+            <span>{PLACEHOLDER_MEDIA.find((media) => media.id === mediaId)?.name ?? mediaId}</span>
+            <input
+              value={mediaTitles[mediaId] ?? ""}
+              maxLength={100}
+              placeholder="为该媒体填写标题"
+              onChange={(event) =>
+                setMediaTitles((current) => ({
+                  ...current,
+                  [mediaId]: event.target.value,
+                }))
+              }
+            />
+          </label>
+        ))}
+      </section>
+    ) : null;
+
+  // 新稿：统一发布页 + DOCX 导入创建第一份真实稿件，导入后进入同一编辑页。
+  if (isNew) {
     return (
-      <PublishingPage title="批量投放 · 稿件准备" description="按 DEMO 的 article-stack 组织多篇真实稿件。每张卡关联现有稿件记录，编辑与保存仍使用真实稿件 API；本轮不创建虚构批量任务。" busy={articleStack.loading}>
+      <PublishingPage
+        title="发布文章"
+        description="编辑新稿件与继续编辑已有稿件使用同一界面；上传文档后开始填写标题与内容。"
+      >
         <nav className="publishing-article-subnav" aria-label="稿件子页面">
           <Link href="/publishing/articles">管理稿件</Link>
-          <Link href="/publishing/records">发布记录</Link>
+          <Link href="/publishing/articles/records">发布记录</Link>
+          <Link href="/publishing/articles/edit">编辑稿件</Link>
+        </nav>
+        {editorChrome}
+        <section className="publishing-panel publishing-new-article-import" aria-label="上传文档创建稿件">
+          <div>
+            <h2>上传文档，创建第一份稿件</h2>
+            <p>
+              单标题/多标题/批量投放均在下方界面完成；当前网关通过 DOCX 导入创建真实稿件，
+              导入完成后自动进入编辑（保留当前选择的模式）。
+            </p>
+          </div>
+          <PublishingImportPage onImported={enterCreatedArticle} />
+        </section>
+        {mediaPicker}
+      </PublishingPage>
+    );
+  }
+
+  if (editorMode === "batch" && !embedded) {
+    const removeUnit = (index: number) => {
+      setBatchIds((current) => current.filter((_, i) => i !== index));
+    };
+    return (
+      <PublishingPage
+        title="发布文章 · 批量投放"
+        description="逐篇准备多份真实稿件：文章1 为当前稿件，继续添加经 DOCX 导入创建。"
+      >
+        <nav className="publishing-article-subnav" aria-label="稿件子页面">
+          <Link href="/publishing/articles">管理稿件</Link>
+          <Link href="/publishing/articles/records">发布记录</Link>
           <Link href="/publishing/articles/edit" className="is-active" aria-current="page">编辑稿件</Link>
         </nav>
-        <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
-          {([["single", "单标题", "一篇文章，一个正式标题"], ["multi", "多标题", "同一正文，多个备选标题"], ["batch", "批量投放", "逐篇准备真实稿件"]] as const).map(([mode,label,hint]) => <button key={mode} type="button" role="tab" aria-selected={editorMode===mode} className={editorMode===mode ? "is-active" : ""} onClick={() => setEditorMode(mode)}><strong>{label}</strong><span>{hint}</span></button>)}
-        </div>
-        <div className="publishing-article-stack-heading"><div><h2>批量稿件堆栈</h2><p>每张卡都是通过稿件列表 / 导入 API 建立的真实稿件，不会虚构批量任务字段。</p></div><Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">＋ 添加稿件（导入 DOCX）</Link></div>
-        {articleStack.loading ? <PublishingLoading label="正在读取真实稿件…" /> : null}
-        {articleStack.error ? <PublishingError error={articleStack.error} onRetry={articleStack.reload} /> : null}
-        {articleStack.data?.length ? <section className="publishing-article-stack" aria-label="批量稿件卡片">{articleStack.data.map((item,index) => <article className="publishing-article-stack-card publishing-article-stack-editor" key={item.id}><div className="publishing-article-stack-heading"><span className="publishing-article-stack-number">文章 {index+1}</span><span className="publishing-editor-inline-note">真实稿件 ID：{item.id}</span></div><PublishingArticleEditorPage articleId={item.id} embedded /></article>)}</section> : <div className="publishing-empty-state"><strong>还没有可加入批量准备的稿件</strong><p>导入 DOCX 后，稿件会作为真实记录出现在此处。</p><Link className="publishing-button publishing-button-primary" href="/publishing/articles/new/import">导入第一篇稿件</Link></div>}
-        <p className="publishing-editor-inline-note">当前 Gateway 没有删除稿件或创建空白稿件的接口，因此此处不提供伪删除按钮；新稿件通过现有 DOCX 导入流程逐篇落库。</p>
+        {editorChrome}
+        {batchIds.length ? (
+          <section className="publishing-article-stack" aria-label="批量稿件单元">
+            {batchIds.map((unitId, index) => (
+              <article className="publishing-article-stack-card" key={unitId}>
+                <div className="publishing-batch-unit-head">
+                  <span className="publishing-article-stack-number">文章 {index + 1}</span>
+                  <div className="publishing-batch-unit-actions">
+                    <Link
+                      className="publishing-button publishing-button-secondary"
+                      href="/publishing/articles/new"
+                    >
+                      <Upload size={15} /> 上传解析
+                    </Link>
+                    <button
+                      type="button"
+                      className="publishing-button publishing-button-secondary"
+                      disabled
+                      title="媒体库接入后开放视频上传"
+                    >
+                      <Video size={15} /> 上传视频
+                    </button>
+                    {batchIds.length >= 2 ? (
+                      <button
+                        type="button"
+                        className="publishing-batch-unit-remove"
+                        aria-label={`删除文章 ${index + 1}（仅从本批量列表移除，不删除稿件记录）`}
+                        onClick={() => removeUnit(index)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <PublishingArticleEditorPage articleId={unitId} embedded />
+              </article>
+            ))}
+          </section>
+        ) : (
+          <div className="publishing-empty-state">
+            <strong>批量投放尚未开始</strong>
+            <p>文章 1 会使用当前稿件；也可以先上传一份新文档。</p>
+          </div>
+        )}
+        {batchAdding ? (
+          <section className="publishing-panel publishing-batch-add-panel" aria-label="继续添加一篇文章">
+            <div>
+              <h2>继续添加一篇文章</h2>
+              <p>上传 DOCX 创建新的真实稿件，加入本批量列表。</p>
+            </div>
+            <PublishingImportPage
+              onImported={(createdId) => {
+                setBatchIds((current) =>
+                  current.includes(createdId) ? current : [...current, createdId],
+                );
+                setBatchAdding(false);
+              }}
+            />
+          </section>
+        ) : (
+          <button
+            type="button"
+            className="publishing-batch-add"
+            onClick={() => setBatchAdding(true)}
+          >
+            ＋ 继续添加一篇文章
+          </button>
+        )}
+        <p className="publishing-editor-inline-note">
+          删除按钮仅把稿件移出本批量列表，不删除稿件记录（当前网关无删除接口）。
+        </p>
+        {mediaPicker}
       </PublishingPage>
     );
   }
 
   return (
     <PublishingPage
-      title={embedded ? (article?.title || "文章编辑") : "稿件编辑"}
-      description={embedded ? "批量准备中的独立真实稿件卡；保存与冻结均作用于此稿件。" : "编辑正文并冻结可追溯版本"}
+      title={embedded ? (article?.title || "文章编辑") : "发布文章"}
+      description={embedded ? "批量准备中的独立真实稿件卡；保存与冻结均作用于此稿件。" : editorMode === "multi" ? "多标题：填写内容后选择媒体，再按媒体分别配置标题" : "编辑正文并冻结可追溯版本"}
       busy={query.loading || saving}
       actions={
         article ? (
@@ -453,7 +777,7 @@ export default function PublishingArticleEditorPage({
     >
       {!embedded ? <nav className="publishing-article-subnav" aria-label="稿件子页面">
         <Link href="/publishing/articles">管理稿件</Link>
-        <Link href="/publishing/records">发布记录</Link>
+        <Link href="/publishing/articles/records">发布记录</Link>
         <Link href="/publishing/articles/edit" className="is-active" aria-current="page">编辑稿件</Link>
       </nav> : null}
       {flow && frozenResult && !dirty && (
@@ -481,58 +805,8 @@ export default function PublishingArticleEditorPage({
           { label: article?.title || "编辑" },
         ]}
       /> : null}
-      {!embedded ? <section className="publishing-editor-mode-panel" aria-label="编辑组织模式">
-        <div className="publishing-editor-mode-heading">
-          <div>
-            <span className="publishing-overview-kicker">CONTENT WORKSPACE</span>
-            <h2>内容编辑方式</h2>
-            <p>切换编辑工作视图；模式选择仅用于当前页面组织内容，不改变保存、冻结或媒体交接的数据契约。</p>
-          </div>
-          <span className="publishing-local-mode-note">本页临时视图</span>
-        </div>
-        <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
-          {([
-            ["single", "单标题", "一篇文章，一个正式标题"],
-            ["multi", "多标题", "同一正文，准备不同标题"],
-            ["batch", "批量投放", "逐篇准备真实稿件"],
-          ] as const).map(([mode, label, hint]) => (
-            <button
-              key={mode}
-              type="button"
-              role="tab"
-              aria-selected={editorMode === mode}
-              className={editorMode === mode ? "is-active" : ""}
-              onClick={() => setEditorMode(mode)}
-            >
-              <strong>{label}</strong><span>{hint}</span>
-            </button>
-          ))}
-        </div>
-        {editorMode === "multi" ? (
-          <div className="publishing-alternate-titles">
-            <div><strong>标题草拟区</strong><p>以下备选标题只保存在当前编辑页面，不会写入稿件 API；请在实际媒体流程中按媒体规则确认最终标题。</p></div>
-            {alternateTitles.map((value, index) => (
-              <div className="publishing-alternate-title-row" key={index}>
-                <label>
-                  <span>备选标题 {index + 1}</span>
-                  <input
-                    value={value}
-                    maxLength={100}
-                    placeholder={title || "输入备选标题"}
-                    onChange={(event) => setAlternateTitles((current) => current.map((item, i) => i === index ? event.target.value : item))}
-                  />
-                </label>
-                <div className="publishing-inline-actions">
-                  <button type="button" className="publishing-button publishing-button-primary" disabled={!value.trim() || saving || freezing} onClick={() => { setTitle(value.trim()); setSaveError(""); }}>应用为正式标题</button>
-                  <button type="button" className="publishing-button publishing-button-secondary" disabled={!value.trim()} onClick={() => { void navigator.clipboard?.writeText(value).catch(() => setSaveError("复制失败，请手动复制标题")); }}>复制</button>
-                  <button type="button" className="publishing-button publishing-button-secondary" disabled={alternateTitles.length <= 1} onClick={() => setAlternateTitles((current) => current.filter((_, i) => i !== index))}>删除</button>
-                </div>
-              </div>
-            ))}
-            <button type="button" className="publishing-button publishing-button-secondary" onClick={() => setAlternateTitles((current) => [...current, ""])} disabled={alternateTitles.length >= 5}>＋ 添加备选标题</button>
-          </div>
-        ) : null}
-      </section> : null}
+      {!embedded ? editorChrome : null}
+      {!embedded ? multiTitleRows : null}
       {query.loading ? <PublishingLoading label="正在读取稿件编辑器…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
@@ -628,15 +902,29 @@ export default function PublishingArticleEditorPage({
               id="publishing-current-article"
               data-reading-anchor="article-editor"
             >
-              <label className="publishing-title-field">
-                <span>稿件标题</span>
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  aria-label="稿件标题"
-                  maxLength={100}
-                />
-              </label>
+              {editorMode === "multi" && !embedded ? (
+                <p className="publishing-editor-inline-note publishing-multi-title-note">
+                  多标题模式：本模式不填写统一标题，正文保存后由
+                  <button
+                    type="button"
+                    className="publishing-link-button"
+                    onClick={() => setMediaPickOpen(true)}
+                  >
+                    选择媒体
+                  </button>
+                  并按媒体分别配置标题；正式标题仍以单标题模式或导入内容为准。
+                </p>
+              ) : (
+                <label className="publishing-title-field">
+                  <span>稿件标题</span>
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    aria-label="稿件标题"
+                    maxLength={100}
+                  />
+                </label>
+              )}
               <ArticleEditorSurface
                 value={content}
                 images={images}
@@ -760,6 +1048,7 @@ export default function PublishingArticleEditorPage({
           </div>
         </>
       ) : null}
+      {mediaPicker}
     </PublishingPage>
   );
 }
