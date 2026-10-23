@@ -365,7 +365,7 @@ export default function PublishingArticleEditorPage({
         performApprovedWorkspaceNavigation(() =>
           navigate(
             publishingTaskUrl(
-              `/publishing/media?articleVersion=${encodeURIComponent(frozen.currentVersionId!)}`,
+              `/publishing/media?articleVersion=${encodeURIComponent(frozen.currentVersionId!)}&mode=${editorMode}`,
             ),
           ),
         );
@@ -390,7 +390,7 @@ export default function PublishingArticleEditorPage({
           { kind: "article_version", id: frozenResult.currentVersionId },
         ],
         idempotencyKey: `article-media-${frozenResult.currentVersionId}`,
-        route: `/publishing/media?articleVersion=${encodeURIComponent(frozenResult.currentVersionId)}`,
+        route: `/publishing/media?articleVersion=${encodeURIComponent(frozenResult.currentVersionId)}&mode=${editorMode}`,
       });
     } catch (reason) {
       setSaveError(
@@ -440,7 +440,7 @@ export default function PublishingArticleEditorPage({
     if (article?.currentVersionId) {
       performApprovedWorkspaceNavigation(() =>
         navigate(
-          `/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}`,
+          publishingTaskUrl(`/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}&mode=${editorMode}`),
         ),
       );
       return;

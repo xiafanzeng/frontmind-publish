@@ -4,6 +4,7 @@ import type {
   ArticleImportResult,
   ArticleSaveInput,
   ArticleSummary,
+  ArticleVersion,
   MediaFilters,
   MediaFacets,
   MediaList,
@@ -22,6 +23,7 @@ export type PublisherGateway = {
   getDashboard(signal?: AbortSignal): Promise<PublishingDashboard>;
   listArticles(signal?: AbortSignal): Promise<ArticleSummary[]>;
   getArticle(articleId: string, signal?: AbortSignal): Promise<ArticleDetail>;
+  getArticleVersion(articleVersionId: string, signal?: AbortSignal): Promise<ArticleVersion>;
   importDocx(file: File, signal?: AbortSignal): Promise<ArticleImportResult>;
   uploadArticleImage(
     articleId: string,

@@ -64,16 +64,23 @@ export default function PublishingMediaLibraryPage({
       ?.id;
   const [location, navigate] = useLocation();
   const search = useSearch();
-  // Keep the server-side matrix task in links; no browser persistence or
-  // replacement data store is needed to return from the real draft cart.
+  // Carry each identifier under its own name across home/list/cart and filters.
+  // In particular, a frozen version must not disappear at the home -> list link.
   const matrixTask = new URLSearchParams(search).get('matrixTask') ?? '';
-  const writeMediaRouteState = (path:string,next:MediaFilters,version?:string) => {
-    const serialized=writeMediaRouteFilters(path,next,version);
-    if(!matrixTask)return serialized;
-    const [pathname,query]=serialized.split('?'),params=new URLSearchParams(query);
-    params.set('matrixTask',matrixTask);return pathname+'?'+params.toString();
+  const carryMediaContext = (path: string) => {
+    const [pathname, query] = path.split('?');
+    const params = new URLSearchParams(query);
+    const current = new URLSearchParams(search);
+    for (const key of ['mode', 'workbenchTask', 'matrixTask', 'operatorOwnerId', 'enterpriseProjectId']) {
+      const value = current.get(key);
+      if (value) params.set(key, value);
+    }
+    return pathname + (params.size ? '?' + params.toString() : '');
   };
-  const pageHref=(path:string)=>matrixTask?path+(path.includes('?')?'&':'?')+'matrixTask='+encodeURIComponent(matrixTask):path;
+  const writeMediaRouteState = (path:string,next:MediaFilters,version?:string) => {
+    return carryMediaContext(writeMediaRouteFilters(path,next,version));
+  };
+  const pageHref=(path:string)=>writeMediaRouteState(path,filters,articleVersionId);
   const sourceHref=(path:string)=>{const params=new URLSearchParams();if(draftId)params.set('draftId',draftId);if(matrixTask)params.set('task',matrixTask);return path+(params.size?'?'+params.toString():'');};
   const workspaceKey = usePublishingWorkspaceKey();
   const accountShortlistKey = mediaShortlistKey(workspaceKey, search);
@@ -135,9 +142,12 @@ export default function PublishingMediaLibraryPage({
     budget: "",
     format: "",
   });
+  const flowTaskId = flow?.taskId;
+  const routeTaskId = new URLSearchParams(search).get('workbenchTask');
+  const routeMode = new URLSearchParams(search).get('mode');
   const selectionScope = useMemo(
-    () => ({ gateway, shortlistKey, draftId, articleVersionId }),
-    [gateway, shortlistKey, draftId, articleVersionId],
+    () => ({ gateway, shortlistKey, draftId, articleVersionId, flowTaskId, routeTaskId, routeMode, matrixTask }),
+    [gateway, shortlistKey, draftId, articleVersionId, flowTaskId, routeTaskId, routeMode, matrixTask],
   );
   const [selection, setSelection] = useState(() => ({
     scope: selectionScope,
@@ -161,9 +171,13 @@ export default function PublishingMediaLibraryPage({
   }>();
   const draft =
     draftState?.scope === selectionScope ? draftState.value : undefined;
+  const latestDraft = useRef<typeof draftState>(undefined);
   const setDraft = useCallback(
-    (value?: PublicationDraft) =>
-      setDraftState({ scope: selectionScope, value }),
+    (value?: PublicationDraft) => {
+      const next = { scope: selectionScope, value };
+      latestDraft.current = next;
+      setDraftState(next);
+    },
     [selectionScope],
   );
   const [selectionError, setSelectionError] = useState("");
@@ -291,34 +305,45 @@ export default function PublishingMediaLibraryPage({
     `media-facets:${filters.kind}`,
   );
   const articlesQuery = usePublisherQuery(loadArticles, "article-choices");
-  const draftQuery = usePublisherQuery(loadDraft, `draft:${draftId ?? "none"}`);
-  // 草稿读取失败（如历史脏数据）时按“未绑定草稿”继续选择，而不是永久禁用整页勾选；
-  // 重新勾选会按当前稿件上下文创建新草稿。
-  const draftUnavailable = Boolean(
-    draftId && !draft && (draftQuery.error || !draftQuery.loading),
+  const draftQuery = usePublisherQuery(loadDraft, `media-draft:${draftId ?? "none"}:${shortlistKey ?? workspaceKey}:${flowTaskId}:${routeTaskId}:${routeMode}:${matrixTask}`);
+  const needsFrozenVersion = Boolean(articleVersionId && !draftId && !draft);
+  const loadFrozenVersion = useCallback(
+    (signal: AbortSignal) => needsFrozenVersion
+      ? typeof gateway.getArticleVersion === 'function'
+        ? gateway.getArticleVersion(articleVersionId!, signal)
+        : Promise.reject(new Error('当前入口尚未接入冻结版本读取，请重新载入或联系管理员。'))
+      : Promise.resolve(undefined),
+    [gateway, needsFrozenVersion, articleVersionId],
   );
-  const effectiveDraftId = draftUnavailable ? undefined : draftId;
-
-  // 编辑器带来的投放模式参数参与 URL 规范化，刷新/返回后流程条仍显示正确阶段数。
-  const routeModeParam = new URLSearchParams(search.replace(/^\?/u, "")).get(
-    "mode",
+  const versionQuery = usePublisherQuery(
+    loadFrozenVersion,
+    `media-version:${articleVersionId ?? 'none'}:${needsFrozenVersion}`,
   );
-  const carriedMode =
-    routeModeParam === "single" ||
-    routeModeParam === "multi" ||
-    routeModeParam === "batch"
-      ? `&mode=${routeModeParam}`
-      : "";
+  const frozenVersion = versionQuery.data?.id === articleVersionId && versionQuery.data?.frozen
+    ? versionQuery.data : undefined;
+  // Working-copy imageCount can change without changing the frozen version ID.
+  // Unknown/missing version metadata is a recoverable read state, not text-only.
+  const articleHasImages = draft?.articleContainsImages ?? frozenVersion?.containsImages ?? false;
+  const draftReadIssue = !draftId ? ''
+    : draftQuery.error ? `投放草稿读取失败：${draftQuery.error.message}`
+    : draftQuery.loading || draftQuery.refreshing ? '正在读取投放草稿…'
+    : !draft ? (draftQuery.loading ? '正在读取投放草稿…' : '未能读取指定投放草稿，请重试。')
+    : draft.id !== draftId ? '读取的投放草稿与当前任务不一致，请重试。'
+    : articleVersionId && draft.articleVersionId !== articleVersionId ? '投放草稿与指定冻结版本不一致，请返回稿件页面核对。' : '';
+  const versionReadIssue = !needsFrozenVersion ? ''
+    : versionQuery.error ? `冻结稿件读取失败：${versionQuery.error.message}`
+    : !frozenVersion ? (versionQuery.loading ? '正在读取冻结稿件…'
+      : '指定冻结版本不存在或尚未确认，请返回稿件页面核对。') : '';
+  const contextReadIssue = draftReadIssue || versionReadIssue;
   useEffect(() => {
     const canonical =
-      writeMediaRouteState(pathname, filters, articleVersionId) + carriedMode;
+      writeMediaRouteState(pathname, filters, articleVersionId);
     const current = search
       ? `${pathname}?${search.replace(/^\?/u, "")}`
       : pathname;
     if (canonical !== current) navigate(canonical, { replace: true });
   }, [
     articleVersionId,
-    carriedMode,
     filters,
     navigate,
     pathname,
@@ -347,27 +372,26 @@ export default function PublishingMediaLibraryPage({
     pathname,
   ]);
 
+  const hasFlow = Boolean(flow);
   useEffect(() => {
-    if (!draftQuery.data) {
-      setDraft(undefined);
-      // 仅在确有草稿路由待载入时清空；独立浏览/带稿件进入的选择不因筛选、
-      // 搜索或分页引起的 shortlistKey 变化而被重置。
-      if (draftId) setSelected(new Map());
-      return;
-    }
-    setDraft(draftQuery.data);
-    if (flow) {
-      setBoundDraft(draftQuery.data);
-      setConfirmedDraft(draftQuery.data);
+    const incoming = draftQuery.data;
+    if (!draftId || !incoming || incoming.id !== draftId || selectionInFlight.current) return;
+    const current = latestDraft.current;
+    if (current?.scope === selectionScope && current.value?.id === incoming.id &&
+        current.value.revision >= incoming.revision) return;
+    setDraft(incoming);
+    if (hasFlow) {
+      setBoundDraft(incoming);
+      setConfirmedDraft(incoming);
     }
     setSelected(
-      new Map(draftQuery.data.items.map((item) => [item.media.id, item.media])),
+      new Map(incoming.items.map((item) => [item.media.id, item.media])),
     );
-  }, [draftId, draftQuery.data, flow, setBoundDraft, setConfirmedDraft, setDraft, setSelected]);
+  }, [draftId, draftQuery.data, hasFlow, selectionScope, selectionBusy, setDraft, setSelected]);
 
   const persistedSelection = flow?.selections?.mediaSelection;
   useEffect(() => {
-    if (!flow || draftId || !Array.isArray(persistedSelection)) return;
+    if (!flow || draftId || articleVersionId || !Array.isArray(persistedSelection)) return;
     const rows = persistedSelection.filter((row): row is MediaResource =>
       Boolean(
         row &&
@@ -377,7 +401,7 @@ export default function PublishingMediaLibraryPage({
       ),
     );
     setSelected(new Map(rows.slice(0, 20).map((row) => [row.id, row])));
-  }, [draftId, persistedSelection, setSelected]);
+  }, [draftId, articleVersionId, persistedSelection, setSelected]);
 
 
 
@@ -485,7 +509,10 @@ export default function PublishingMediaLibraryPage({
     mediaIds: string[],
     optimistic: Map<string, MediaResource>,
   ) => {
-    if (effectiveDraftId && !draft) return;
+    if (contextReadIssue) {
+      setSelectionError(contextReadIssue);
+      return;
+    }
     // 从稿件进入（携带 articleVersion 且尚无草稿）时必须立即写入服务端草稿，
     // 不能因会话 flow 存在而退化为浏览器本地选择；无稿件上下文才用 flow/本地清单。
     if (!articleVersionId && !draft) {
@@ -525,6 +552,7 @@ export default function PublishingMediaLibraryPage({
     if (selectionInFlight.current) return;
     selectionInFlight.current = true;
     const generation = selectionGeneration.current;
+    const previousSelection = new Map(selected);
     setSelectionBusy(true);
     setSelectionError("");
     setSelected(optimistic);
@@ -545,6 +573,7 @@ export default function PublishingMediaLibraryPage({
         const requestKey = taskId
           ? await publishingDraftRequestKey(taskId, articleVersionId!, mediaIds)
           : undefined;
+        if (generation !== selectionGeneration.current) return;
         const intendedTitleMode = titleModeForFlowMode(flowMode);
         const saved = await gateway.createDraft(
           articleVersionId!,
@@ -569,7 +598,7 @@ export default function PublishingMediaLibraryPage({
         setSelected(
           new Map(draft.items.map((item) => [item.media.id, item.media])),
         );
-      else setSelected(optimistic);
+      else setSelected(previousSelection);
       setSelectionError(
         reason instanceof Error ? reason.message : "所选媒体未能保存",
       );
@@ -583,11 +612,16 @@ export default function PublishingMediaLibraryPage({
 
   const toggle = (media: MediaResource) => {
     if (selectionInFlight.current || selectionBusy) return;
+    if (contextReadIssue) { setSelectionError(contextReadIssue); return; }
     setBoundDraft(undefined);
     const next = new Map(selected);
     if (next.has(media.id)) {
       next.delete(media.id);
       void persistMediaIds([...next.keys()], next);
+      return;
+    }
+    if (!ruleData.ready || mediaQuery.loading || mediaQuery.error) {
+      setSelectionError(ruleData.error || mediaQuery.error?.message || '正在读取媒体资料，请稍后再选。');
       return;
     }
     const blocker = mediaSelectionBlocker(media, articleHasImages);
@@ -636,9 +670,6 @@ export default function PublishingMediaLibraryPage({
       ? article.id === draft.articleId
       : article.currentVersionId === articleVersionId,
   );
-  const articleHasImages = draft
-    ? draft.articleContainsImages
-    : Boolean(selectedArticle?.imageCount);
   usePublishingSummary({
     title: "当前投放选择",
     items: flow
@@ -806,6 +837,7 @@ export default function PublishingMediaLibraryPage({
   };
   const continueSelection = async () => {
     if (selectionInFlight.current || !selected.size) return;
+    if (contextReadIssue) { setSelectionError(contextReadIssue); return; }
     const generation = selectionGeneration.current;
     selectionInFlight.current = true;
     setSelectionBusy(true);
@@ -917,6 +949,32 @@ export default function PublishingMediaLibraryPage({
   const sourceRows=view==='cart'?selectedValues:mediaQuery.data?.items??[];
   const ruleData=useMarketRules([...new Set([...sourceRows.map(x=>x.id),...(detailMedia?[detailMedia.id]:[])])],mediaQuery.data?.catalog.activeRevision??'');
   const rows=ruleData.ready?sourceRows:[];
+  const additionReadIssue = !ruleData.ready ? ruleData.error || '正在读取媒体要求…'
+    : mediaQuery.error?.message || (mediaQuery.loading ? '正在读取媒体目录…' : '');
+  const selectionDisabledReason = (media: MediaResource) => {
+    if (selectionBusy) return '正在保存媒体选择…';
+    if (contextReadIssue) return contextReadIssue;
+    if (selected.has(media.id)) return undefined;
+    return additionReadIssue || mediaSelectionBlocker(media, articleHasImages) ||
+      (selected.size >= 20 ? '一次最多选择 20 家媒体，请先取消其他媒体。' : undefined);
+  };
+  // Disabled resources do not prevent an otherwise fully selected page from
+  // being unchecked. Already selected resources must remain removable.
+  const actionableRows = rows.filter(media => selected.has(media.id) || (selected.size < 20 && !additionReadIssue && !mediaSelectionBlocker(media, articleHasImages)));
+  const allActionableSelected = actionableRows.length > 0 && actionableRows.every(media => selected.has(media.id));
+  const bulkDisabled = selectionBusy || Boolean(contextReadIssue) || !actionableRows.length ||
+    (selected.size >= 20 && !actionableRows.some(media => selected.has(media.id)));
+  const togglePage = (checked: boolean) => {
+    if (bulkDisabled || selectionInFlight.current) return;
+    const next = new Map(selected);
+    for (const media of actionableRows) {
+      if (!checked) next.delete(media.id);
+      else if (!additionReadIssue && next.size < 20 && !mediaSelectionBlocker(media, articleHasImages)) next.set(media.id, media);
+    }
+    if (next.size === selected.size && [...next.keys()].every(id => selected.has(id))) return;
+    setBoundDraft(undefined);
+    void persistMediaIds([...next.keys()], next);
+  };
   const base=draftId?`/publishing/drafts/${encodeURIComponent(draftId)}/media`:'/publishing/media';
   const task=boundDraft??draft;
   // 统一流程条：以草稿 titleMode 为准；建稿前沿用编辑器带来的模式参数；独立浏览默认 4 步初始展示。
@@ -924,18 +982,24 @@ export default function PublishingMediaLibraryPage({
   const flowMode:FlowStageMode=task?.titleMode==="single"?"single":task?.titleMode==="per_media"?"per_media":flowModeParam==="single"?"single":flowModeParam==="multi"?"multi":flowModeParam==="batch"?"batch":"default";
   const hasArticleContext=Boolean(task||articleVersionId||draftId);
   const flowSteps=<PublishingFlowSteps stages={flowStagesForMode(flowMode)} doneCount={hasArticleContext?1:0} activeIndex={hasArticleContext?1:0}/>;
-  const next=()=>{if(!hasArticleContext)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
+  const next=()=>{if(!hasArticleContext||contextReadIssue||selectionBusy||!selected.size)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
   const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
   useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,remarkFilter,ruleFilter]);
   const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setDialogMessage(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
   const reset=()=>{navigateFilters({...DEFAULT_MEDIA_FILTERS,kind:undefined});setRemarkFilter('');setRuleFilter('');setQuoteStatus('');setScope('all');setClientSort('match');};
   const pending=selectedValues.filter(m=>!/^\d+$/.test(m.priceTenThousandths)||BigInt(m.priceTenThousandths)<=0n).length;
   const nextLabel=flowMode==="single"?"预检发布":"配置标题";
-  const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext} nextHint={hasArticleContext?undefined:"您还未选择稿件"} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} onRemove={media=>toggle(media)}/>;
+  const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext||!!contextReadIssue||selectionBusy||!selected.size} nextHint={!hasArticleContext?"您还未选择稿件":contextReadIssue||(selectionBusy?'正在保存媒体选择…':!selected.size?'请先选择媒体':undefined)} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} onRemove={media=>toggle(media)}/>;
   useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
   const chips=(value:string,items:Array<[string,string,number?]>,onChange:(value:string)=>void)=><div className="y-chip-options">{items.map(([v,t,n])=><button key={v} className={value===v?'active':''} onClick={()=>onChange(v)}>{t}{n!==undefined&&<small>{n}</small>}</button>)}</div>;
   const total=mediaQuery.data?.total??0;
   return <MediaShell steps={flowSteps} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&task?<span className="x-task-pill" title={task.articleTitle}>任务：{task.articleTitle} · 稿件 v{task.articleVersion}</span>:undefined} taskbar={<MediaTaskbar note={task?`稿件：单篇发布 · 1 篇 · 已确认 v${task.articleVersion}`:undefined} saveStatus={selectionBusy?'正在保存…':task?'已读取投放草稿':''} title={task?(view==='home'?'当前任务：':'')+task.articleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={task&&<><button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button><Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(task.articleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'已确认稿件'}</option>}</select></MediaTaskbar>}>
+  {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
+    {contextReadIssue}
+    {draftId ? <button className="link" disabled={draftQuery.loading||draftQuery.refreshing} onClick={()=>draftQuery.reload()}>重试读取草稿</button>
+      : <button className="link" disabled={versionQuery.loading} onClick={()=>versionQuery.reload()}>重试读取稿件</button>}
+    <Link className="link" href={projectWorkspaceUrl('/publishing/articles')}>返回稿件</Link>
+  </div>}
   {view==='home'?<>
   <div className="x-duo-grid">
     <section className="panel x-duo-card">
@@ -979,9 +1043,10 @@ export default function PublishingMediaLibraryPage({
    <details className="y-more"><summary>更多条件：行业、报价与稿件适配</summary><div className="x-filter-grid"><label>行业<select value={filters.taxonomy??''} onChange={e=>updateFilter('taxonomy',e.target.value)}><option value="">全部行业</option>{facetsQuery.data?.taxonomies.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select></label><label>报价状态<select value={quoteStatus} onChange={e=>{setQuoteStatus(e.target.value);if(e.target.value==='available')setDialogMessage('当前接口未提供人工报价记录，无法将目录报价标为人工录入。');updateFilter('page',1);}}><option value="">全部状态</option><option value="inquiry">待询价</option><option value="available">已人工录入报价</option></select></label><label>最低价（元 / 篇）<input className="field" type="number" min="0" value={filters.priceMin??''} placeholder="未设置" onChange={e=>updateFilter('priceMin',e.target.value)}/></label><label>最高价（元 / 篇）<input className="field" type="number" min="0" value={filters.priceMax??''} placeholder="未设置" onChange={e=>updateFilter('priceMax',e.target.value)}/></label></div><p className="y-subtle-note">筛选依据为供应商目录。报价未知的媒体不参与数值价格筛选；“出稿快”等仅为备注原文，不换算成小时数。</p></details></section>
    <div id="y-results" className="y-resultbar"><div className="y-result-tabs">{[['all','全部',total],['favorites','我的收藏',favorites.length],['cart','购物车',selected.size]].map(([v,t,n])=><button key={v} className={scope===v?'active':''} onClick={()=>{if(v==='favorites')setDialogMessage('收藏接口尚未配置，无法读取收藏清单。');setScope(v as typeof scope);updateFilter('page',1);}}>{t}<small>{n}</small></button>)}</div><span className="y-result-count" id="y-result-count">为您找到 <strong>{total}</strong> 条媒体资源</span></div>
    <div className="y-typebar">{[['','全部媒体',mediaQuery.data?.catalog.mediaCount??total],['news','门户媒体',mediaQuery.data?.catalog.newsCount??facetsQuery.data?.kinds.news??0],['self_media','第三方自媒体',mediaQuery.data?.catalog.selfMediaCount??facetsQuery.data?.kinds.self_media??0]].map(([v,t,n])=><button key={v} className={(filters.kind??'')===v?'active':''} onClick={()=>navigateFilters({...filters,kind:(v||undefined) as PublisherMediaKind|undefined,page:1})}>{t}<small>（{n}）</small></button>)}</div>
-   <div className="y-selection"><label><input type="checkbox" id="x-page-select" aria-label="本页全选" checked={rows.length>0&&rows.every(m=>selected.has(m.id))} disabled={!rows.length||selectionBusy} onChange={e=>{const map=new Map(selected);for(const m of rows){if(e.target.checked){if(map.size<20&&!mediaSelectionBlocker(m,articleHasImages))map.set(m.id,m);}else map.delete(m.id);}setBoundDraft(undefined);void persistMediaIds([...map.keys()],map);}}/>本页全选<span style={{color:'#d3c6cf',margin:'0 4px'}}>|</span><strong id="b-selection-count">已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>favorite('')}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={()=>setDialogMessage('clear')}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
-   {draftUnavailable&&draftQuery.error?<div className="notice warn" style={{marginBottom:14}} role="alert">投放草稿读取失败：{draftQuery.error instanceof Error?draftQuery.error.message:String(draftQuery.error)}。已按未绑定草稿继续，重新勾选将创建新草稿。</div>:null}
-   <div className="y-horizontal-scroll"><RowHead/><div id="b-third-table" className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} onToggle={()=>toggle(media)} disabled={selectionBusy||Boolean(draftId&&!draft&&draftQuery.loading)||(!selected.has(media.id)&&(!!mediaSelectionBlocker(media,articleHasImages)||selected.size>=20))} onFavorite={()=>favorite(media.id)} onQuote={()=>{setQuoteError('');setQuoteMedia(media);}} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&<div className="x-empty"><strong>{mediaQuery.loading||ruleData.loading?'正在读取媒体目录':mediaQuery.error||ruleData.error?'媒体资料暂不可用':'没有匹配的媒体'}</strong><p>{mediaQuery.error?.message||ruleData.error||'调整平台、关键词或其他条件后再试。已选媒体保持不变。'}</p><button className="button secondary x-small-button" onClick={()=>{reset();mediaQuery.reload();}}>显示全部媒体</button></div>}</div></div>
+   <div className="y-selection"><label><input type="checkbox" id="x-page-select" aria-label="本页全选" checked={allActionableSelected} disabled={bulkDisabled} onChange={event=>togglePage(event.target.checked)}/>本页全选<span style={{color:'#d3c6cf',margin:'0 4px'}}>|</span><strong id="b-selection-count">已选 {selected.size} 家</strong></label><div className="actions"><button className="link" onClick={()=>favorite('')}>批量收藏</button><button className="link" onClick={()=>exportRows(selectedValues)}>导出已选</button><button className="link" onClick={()=>setDialogMessage('clear')}>清空已选</button><button className="link" onClick={()=>setCompact(!compact)}>{compact?'展开信息':'精简信息'}</button></div></div>
+
+   {mediaQuery.error&&rows.length>0&&<div className="notice warn" role="alert">媒体目录读取失败：{mediaQuery.error.message}。当前显示上次读取内容，请重试后继续添加。<button className="link" onClick={()=>{mediaQuery.reload();ruleData.reload();}}>重试读取媒体资料</button></div>}
+   <div className="y-horizontal-scroll"><RowHead/><div id="b-third-table" className="y-media-list">{rows.map(media=><MarketRow key={media.id} media={media} rules={ruleData.rules[media.id]} checked={selected.has(media.id)} onToggle={()=>toggle(media)} disabled={!!selectionDisabledReason(media)} selectionDisabledReason={selectionDisabledReason(media)} onFavorite={()=>favorite(media.id)} onQuote={()=>{setQuoteError('');setQuoteMedia(media);}} onDetails={()=>setDetailMedia(media)}/>)}{!rows.length&&<div className="x-empty"><strong>{mediaQuery.loading||ruleData.loading?'正在读取媒体目录':mediaQuery.error||ruleData.error?'媒体资料暂不可用':'没有匹配的媒体'}</strong><p>{mediaQuery.error?.message||ruleData.error||'调整平台、关键词或其他条件后再试。已选媒体保持不变。'}</p><button className="button secondary x-small-button" disabled={mediaQuery.loading||ruleData.loading} onClick={()=>{if(mediaQuery.error||ruleData.error){mediaQuery.reload();ruleData.reload();}else reset();}}>{mediaQuery.error||ruleData.error?'重试读取媒体资料':'显示全部媒体'}</button></div>}</div></div>
    <div id="b-third-pages" className="y-pages"><span>共 {total} 家 · 第 {filters.page} / {pageCount} 页　<select aria-label="每页媒体数" value={filters.pageSize} onChange={e=>updateFilter('pageSize',Number(e.target.value))}>{[10,20,50].map(n=><option key={n} value={n}>{n} 家 / 页</option>)}</select></span><div className="y-page-buttons"><button aria-label="上一页" disabled={filters.page<=1} onClick={()=>updateFilter('page',filters.page-1)}>‹</button>{Array.from({length:pageCount},(_,i)=>i+1).filter(n=>pageCount<=8||n===1||n===pageCount||Math.abs(n-filters.page)<2).map(n=><button className={n===filters.page?'active':''} aria-label={'第 '+n+' 页'} aria-current={n===filters.page?'page':undefined} key={n} onClick={()=>updateFilter('page',n)}>{n}</button>)}<button aria-label="下一页" disabled={filters.page>=pageCount} onClick={()=>updateFilter('page',filters.page+1)}>›</button></div></div>
    <p className="y-list-footnote">媒体资源来自供应商目录。同名不同平台分别保留；报价与发布要求以发布前核验结果为准。</p>{footer}
   </div>}

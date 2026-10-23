@@ -1,5 +1,5 @@
 /** Design-owned media library shell and rows. Data remains supplied by the live gateways. */
-import { Children, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { projectWorkspaceUrl, usePublishingWorkspaceKey } from '../host';
 import { createPortal } from 'react-dom';
@@ -19,19 +19,46 @@ export async function rulesRequest<T>(path: string, signal?: AbortSignal, input?
  return body as T;
 }
 export const credentialHelp = '请管理员准备：PUBLISHER_FEATURE_ENABLED=true、PUBLISHER_PROVIDER_ENABLED=true、PUBLISHER_MODE=live（或 test）、HTTPS 的 PUBLISHER_KOL_BASE_URL，以及 PUBLISHER_KOL_ACCESS_TOKEN；也可使用完整登录字段 PUBLISHER_KOL_API_KEY、MOBILE、PASSWORD、IDENTITY、CAPTCHA、CAPTCHA_TOKEN（后五项同样带 PUBLISHER_KOL_ 前缀）。凭据仅在服务端配置。';
-export function useMarketRules(ids: string[], revision = ''): {key:string;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean} {
+export function useMarketRules(ids: string[], revision = ''): {key:string;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean;reload:()=>void} {
  const workspace = usePublishingWorkspaceKey(), idsKey = ids.join(','), key = `${workspace}:${revision}:${idsKey}`;
- const [state,setState] = useState<{key:string;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean}>({key:'',rules:{},ready:false,error:'',loading:true});
- useEffect(()=>{const abort=new AbortController();setState({key,rules:{},ready:false,error:'',loading:true});
+ const [reloadToken,setReloadToken] = useState(0);
+ const reload = useCallback(()=>setReloadToken(value=>value+1),[]);
+ const [state,setState] = useState<{key:string;reloadToken:number;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean}>({key:'',reloadToken:0,rules:{},ready:false,error:'',loading:true});
+ useEffect(()=>{
+  const abort=new AbortController();let active=true;
+  const current=()=>active&&!abort.signal.aborted;
+  setState({key,reloadToken,rules:{},ready:false,error:'',loading:true});
+  const timeout=setTimeout(()=>{
+   if(!current())return;
+   abort.abort();
+   setState({key,reloadToken,rules:{},ready:false,error:'媒体要求读取超时，请重试。',loading:false});
+  },20_000);
   void rulesRequest<{configured:boolean;message?:string}>('/status',abort.signal).then(async status=>{
-   if(abort.signal.aborted)return;
-   if (!status.configured) {setState({key,rules:{},ready:false,error:status.message ?? credentialHelp,loading:false});return;}
-   const items:Array<{id:string;rules:MediaRules}>=[];const all=idsKey?idsKey.split(','):[];for(let i=0;i<all.length;i+=100){const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(all.slice(i,i+100).join(',')),abort.signal);items.push(...data.items);}const data={items};
-   if(!abort.signal.aborted)setState({key,rules:Object.fromEntries(data.items.map(x=>[x.id,x.rules])),ready:true,error:'',loading:false});
-  }).catch(e=>{if(!abort.signal.aborted)setState({key,rules:{},ready:false,error:e instanceof Error?e.message:'读取失败',loading:false});});
-  return()=>abort.abort();
- },[key,workspace,revision,idsKey]);
- return state.key===key?state:{key,rules:{},ready:false,error:'',loading:true};
+   if(!current())return;
+   if(!status.configured){
+    clearTimeout(timeout);
+    setState({key,reloadToken,rules:{},ready:false,error:status.message??credentialHelp,loading:false});return;
+   }
+   const items:Array<{id:string;rules:MediaRules}>=[],all=idsKey?idsKey.split(','):[];
+   for(let i=0;i<all.length;i+=100){
+    const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(all.slice(i,i+100).join(',')),abort.signal);
+    if(!current())return;
+    items.push(...data.items);
+   }
+   if(current()){
+    clearTimeout(timeout);
+    setState({key,reloadToken,rules:Object.fromEntries(items.map(x=>[x.id,x.rules])),ready:true,error:'',loading:false});
+   }
+  }).catch(e=>{
+   if(!current())return;
+   clearTimeout(timeout);
+   setState({key,reloadToken,rules:{},ready:false,error:e instanceof Error?e.message:'读取失败',loading:false});
+  });
+  return()=>{active=false;clearTimeout(timeout);abort.abort();};
+ },[key,idsKey,reloadToken]);
+ // Mask the previous scope (and previous attempt) before the new effect runs.
+ const visible=state.key===key&&state.reloadToken===reloadToken?state:{key,rules:{},ready:false,error:'',loading:true};
+ return {...visible,reload};
 }
 export function MediaDialog({open,title,description,confirmLabel,onCancel,onConfirm,children,busy,confirmDisabled,footer,inline:_inline,wide:_wide}:{open:boolean;title:string;description?:string;confirmLabel:string;onCancel:()=>void;onConfirm:()=>void;children?:ReactNode;busy?:boolean;confirmDisabled?:boolean;inline?:boolean;wide?:boolean;footer?:ReactNode}) {
  const dialog=useRef<HTMLDialogElement>(null);
@@ -93,12 +120,14 @@ export function MarketRemark({text,media,rules}:{text?:string;media?:MediaResour
  return <><button onMouseEnter={()=>setOpen(true)} onMouseLeave={()=>setOpen(false)} ref={anchor} className="x-remarks" type="button" aria-describedby={open?id:undefined} data-remarks={media?.id} aria-label={media?'查看 '+media.name+' 发布备注':'发布备注：'+content} onFocus={()=>setOpen(true)} onBlur={()=>setOpen(false)} onClick={()=>{setOpen(false);setPinned(true);}} onKeyDown={e=>{if(e.key==='Escape'){setOpen(false);e.stopPropagation();}}}>{content}</button>{open&&createPortal(<div id={id} ref={tip} role="tooltip" className="x-tip y-tip" style={{left:position.left,top:position.top,width:Math.min(475,window.innerWidth-24)}}><h4>{media?media.name+' · '+media.platform:'发布备注原文'}</h4><div className="y-full-remark">{content}</div><div className="y-tooltip-rules">标题：{ruleText(rules,'title_chars')}　正文：{ruleText(rules,'body_chars')}　图片：{ruleText(rules,'images')}</div><div className="y-tip-status"><b>供应商目录 · 采集 {rules?.collectedAt??'未提供'}</b><br/>备注为供应商文本，声明尚未独立核验。<br/>悬停查看全文 · 点击固定查看与原始字段</div></div>,anchor.current?.closest('dialog[open]')||anchor.current?.closest('.fm-media')||document.body)}{pinned&&createPortal(<MediaDialog open title={'发布备注 · '+(media?.name??'')} confirmLabel="知道了" onCancel={()=>setPinned(false)} onConfirm={()=>setPinned(false)}><div className="actions"><span className="b-chip neutral">{media?.platform??'未提供'}</span><span className="b-chip neutral">供应商目录</span><span className="b-chip ">待人工复核</span></div><div className="y-raw-note" style={{marginTop:15}}>{content}</div><h3 className="y-section-label">结构化发布要求</h3>{media&&<MediaRuleTable media={media} rules={rules}/>}<h3 className="y-section-label">其他限制（原始提取条目）</h3><div className="reading">{rules?.unresolved.join('；')||'未注明'}</div></MediaDialog>,anchor.current?.closest('.fm-media')||document.body)}</>;
 }
 function remarkFact(text:string|undefined,kind:'speed'|'weekend'|'contact'|'shortTitle') {const patterns={speed:/当天可出|出稿快|发稿快|快速出稿/g,weekend:/周末可发|节假日可发/g,contact:/不带任何联系方式|不带联系方式|默认删除任何联系方式|联系方式默认去掉不通知/g,shortTitle:/自备短标题/g};return [...new Set((text??'').match(patterns[kind])??[])].join('；');}
-export function MarketRow({media:m,rules,checked=false,disabled=false,favorite=false,onToggle,onFavorite,onDetails,onQuote,reason}:{media:MediaResource;rules?:MediaRules;checked?:boolean;disabled?:boolean;favorite?:boolean;onToggle?:()=>void;onFavorite?:()=>void;onDetails?:()=>void;onQuote?:()=>void;reason?:string}) {
+export function MarketRow({media:m,rules,checked=false,disabled=false,favorite=false,onToggle,onFavorite,onDetails,onQuote,reason,selectionDisabledReason}:{media:MediaResource;rules?:MediaRules;checked?:boolean;disabled?:boolean;favorite?:boolean;onToggle?:()=>void;onFavorite?:()=>void;onDetails?:()=>void;onQuote?:()=>void;reason?:string;selectionDisabledReason?:string}) {
+ const selectionReasonId=useId(),disabledReason=disabled?selectionDisabledReason:undefined;
  const remark=rules?.rawRemark??m.remark,knownPrice=/^\d+$/.test(m.priceTenThousandths)&&BigInt(m.priceTenThousandths)>0n,link=m.caseUrl&&/^https?:\/\//i.test(m.caseUrl)?m.caseUrl:undefined,title=ruleText(rules,'title_chars')==='未注明'&&remarkFact(remark,'shortTitle')?'未注明 · 自备短标题':ruleText(rules,'title_chars');
  const external=(label:string)=>link?<a className="y-external" href={link} target="_blank" rel="noopener noreferrer" aria-label={'打开 '+m.name+' 的来源链接'}>{label} ↗</a>:<span className="y-missing">未提供有效链接</span>;
  return <article className={'y-media-row '+(checked?'selected':'')} data-media-id={m.id}>
  <div className="y-media-identity"><div className="y-media-title"><span className="y-monogram" aria-hidden="true">{Array.from(m.name)[0]||'媒'}</span><h3><button className="y-media-name" onClick={onDetails}>{m.name}</button></h3></div>
- <div className="y-identity-controls"><input type="checkbox" aria-label={'选择 '+m.name+' '+m.platform} checked={checked} disabled={disabled} onChange={onToggle}/><span className="y-platform-pill">{m.platform}</span><button className={'y-row-star '+(favorite?'active':'')} aria-label={(favorite?'取消收藏':'收藏')+' '+m.name} aria-pressed={favorite} onClick={onFavorite}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/></svg></button>{link&&<a className="y-external" href={link} target="_blank" rel="noopener noreferrer" aria-label={'查看 '+m.name+' 链接'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></a>}</div>
+ <div className="y-identity-controls"><input type="checkbox" aria-label={'选择 '+m.name+' '+m.platform} aria-describedby={disabledReason?selectionReasonId:undefined} checked={checked} disabled={disabled} onChange={onToggle}/><span className="y-platform-pill">{m.platform}</span><button className={'y-row-star '+(favorite?'active':'')} aria-label={(favorite?'取消收藏':'收藏')+' '+m.name} aria-pressed={favorite} onClick={onFavorite}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/></svg></button>{link&&<a className="y-external" href={link} target="_blank" rel="noopener noreferrer" aria-label={'查看 '+m.name+' 链接'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></a>}</div>
+ {disabledReason&&<p id={selectionReasonId} className="small muted">{disabledReason}</p>}
  <div className="y-row-origin"><span>{m.externalResourceId??m.id}</span><span>{checked?'已加入购物车':'目录记录'}</span></div></div>
  <div><span className="y-price-label">发布报价</span><div className={'y-price-value '+(!knownPrice?'is-pending':'')}>{knownPrice?formatPublishingMoney(m.priceTenThousandths):'待询价'}{knownPrice&&<small className="y-price-unit">/ 篇</small>}</div><div className="y-price-detail"><span>{knownPrice?'目录报价 · 发布前复核':'目录未提供报价'}</span><span className="y-extra">市场价：<span className="y-missing">未提供</span></span><button className="link" onClick={onQuote??onDetails}>{knownPrice?'查看 / 修改报价':'录入已确认报价'} ↗</button></div></div>
  <div className="y-props"><Property name="媒体平台" value={m.platform}/><Property name="覆盖地区" value={m.region}/><Property name="所属行业" value={m.taxonomy}/><div className="y-prop y-extra"><dt>原始链接</dt><dd>{external('查看链接')}</dd></div></div>
