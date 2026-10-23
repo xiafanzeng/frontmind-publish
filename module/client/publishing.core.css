@@ -1241,3 +1241,10 @@
   .monitoring-module .publishing-alternate-title-row { grid-template-columns: 1fr; }
   .monitoring-module .publishing-article-stack-heading { align-items: flex-start; flex-direction: column; }
 }
+
+
+/* Widen the host shell cap for this module's publishing/articles routes only (DEMO content width). */
+.module-publishing .agent-workbench-shell__layout,
+.module-publishing .agent-workspace-frame,
+.module-articles .agent-workbench-shell__layout,
+.module-articles .agent-workspace-frame{max-width:1660px}

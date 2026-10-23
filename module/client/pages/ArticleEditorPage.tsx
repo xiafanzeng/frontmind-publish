@@ -97,22 +97,11 @@ const EDITOR_MODES: [EditorMode, string, string][] = [
   ["batch", "批量投放", "逐篇准备多份稿件"],
 ];
 
-/**
- * 媒体库正式接入前的占位示例媒体：仅用于本页交互演示，
- * 不来自任何真实接口，也不发起任何请求。
- */
-const PLACEHOLDER_MEDIA = [
-  { id: "placeholder-1", name: "示例公众号 · 科技观察", price: "占位报价 128" },
-  { id: "placeholder-2", name: "示例门户 · 资讯频道", price: "占位报价 260" },
-  { id: "placeholder-3", name: "示例自媒体 · 生活号", price: "占位报价 88" },
-  { id: "placeholder-4", name: "示例行业站 · 垂直媒体", price: "占位报价 150" },
-];
-
 const PUBLISH_STEPS = [
-  "1. 填写标题、内容",
-  "2. 点击[选择媒体]",
-  "3. 勾选媒体",
-  "4. 提交订单，发布成功",
+  "1. 编辑稿件",
+  "2. 选择媒体",
+  "3. 配置标题",
+  "4. 预检与发布",
 ];
 
 export default function PublishingArticleEditorPage({
@@ -161,10 +150,6 @@ export default function PublishingArticleEditorPage({
   // 批量投放的本地单元：文章1 为当前稿件；新增单元经 DOCX 导入成为真实稿件。
   const [batchIds, setBatchIds] = useState<string[]>([]);
   const [batchAdding, setBatchAdding] = useState(false);
-  // 媒体选择占位（媒体库接入前不调用任何 API）。
-  const [mediaPickOpen, setMediaPickOpen] = useState(false);
-  const [mediaSelection, setMediaSelection] = useState<string[]>([]);
-  const [mediaTitles, setMediaTitles] = useState<Record<string, string>>({});
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
 
@@ -428,6 +413,19 @@ export default function PublishingArticleEditorPage({
     [article, gateway, operationScope],
   );
 
+  const goToMediaSelection = () => {
+    if (isNew || embedded) return;
+    if (article?.currentVersionId) {
+      performApprovedWorkspaceNavigation(() =>
+        navigate(
+          `/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}`,
+        ),
+      );
+      return;
+    }
+    void freezeAndContinue();
+  };
+
   const enterCreatedArticle = (createdId: string) => {
     performApprovedWorkspaceNavigation(() =>
       navigate(
@@ -446,10 +444,14 @@ export default function PublishingArticleEditorPage({
           <li
             key={step}
             className={
-              index === 0
-                ? "is-active"
-                : index <= 2 && mediaSelection.length
+              article?.currentVersionId
+                ? index === 0
                   ? "is-done"
+                  : index === 1
+                    ? "is-active"
+                    : undefined
+                : index === 0
+                  ? "is-active"
                   : undefined
             }
           >
@@ -461,7 +463,7 @@ export default function PublishingArticleEditorPage({
       <div className="publishing-publish-uploads" aria-label="素材上传">
         <Link
           className="publishing-button publishing-button-secondary"
-          href={isNew ? "/publishing/articles/new" : "/publishing/articles/new"}
+          href="/publishing/articles/new"
         >
           <Upload size={16} /> 上传文档
         </Link>
@@ -469,30 +471,24 @@ export default function PublishingArticleEditorPage({
           type="button"
           className="publishing-button publishing-button-secondary"
           disabled
-          title="媒体库接入后开放视频上传"
+          title="视频上传能力随媒体库完善后开放"
         >
           <Video size={16} /> 上传视频
         </button>
         <button
           type="button"
           className="publishing-button publishing-button-primary"
-          onClick={() => setMediaPickOpen(true)}
+          onClick={goToMediaSelection}
+          disabled={isNew || embedded || saving || freezing || flow?.outcomePending}
+          title={article?.currentVersionId ? "进入第三方媒体选择" : "先冻结当前版本，再进入第三方媒体选择"}
         >
           选择媒体
         </button>
-        {mediaSelection.length ? (
-          <span className="publishing-media-chips">
-            {mediaSelection.map((id) => (
-              <span className="publishing-media-chip" key={id}>
-                {PLACEHOLDER_MEDIA.find((media) => media.id === id)?.name ?? id}
-              </span>
-            ))}
-          </span>
-        ) : (
-          <span className="publishing-editor-inline-note">
-            媒体库接入前为占位交互，不调用真实接口
-          </span>
-        )}
+        <span className="publishing-editor-inline-note">
+          {article?.currentVersionId
+            ? "当前版本已冻结，可直接进入第三方媒体选择并按媒体配置标题"
+            : "尚未冻结版本：点击后自动保存并冻结，再进入第三方媒体选择"}
+        </span>
       </div>
       <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
         {EDITOR_MODES.map(([mode, label, hint]) => (
@@ -510,103 +506,6 @@ export default function PublishingArticleEditorPage({
       </div>
     </>
   );
-
-  const mediaPicker = mediaPickOpen ? (
-    <div
-      className="publishing-article-preview-backdrop"
-      role="presentation"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") setMediaPickOpen(false);
-      }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) setMediaPickOpen(false);
-      }}
-    >
-      <section
-        className="publishing-media-picker"
-        role="dialog"
-        aria-modal="true"
-        aria-label="选择媒体（占位）"
-      >
-        <header>
-          <div>
-            <strong>选择媒体</strong>
-            <span>占位示例列表 · 媒体库正式接入后替换为真实媒体与报价</span>
-          </div>
-          <button
-            type="button"
-            className="publishing-dialog-close"
-            aria-label="关闭媒体选择"
-            onClick={() => setMediaPickOpen(false)}
-          >
-            <X size={18} />
-          </button>
-        </header>
-        <div className="publishing-media-picker-body">
-          {PLACEHOLDER_MEDIA.map((media) => (
-            <label key={media.id} className="publishing-media-option">
-              <input
-                type="checkbox"
-                checked={mediaSelection.includes(media.id)}
-                onChange={(event) =>
-                  setMediaSelection((current) =>
-                    event.target.checked
-                      ? [...current, media.id]
-                      : current.filter((id) => id !== media.id),
-                  )
-                }
-              />
-              <span>
-                <strong>{media.name}</strong>
-                <small>{media.price} · 占位数据</small>
-              </span>
-            </label>
-          ))}
-        </div>
-        <footer>
-          <span className="publishing-editor-inline-note">
-            提交订单在媒体库正式接入后开放
-          </span>
-          <button
-            type="button"
-            className="publishing-button publishing-button-primary"
-            onClick={() => setMediaPickOpen(false)}
-          >
-            确认勾选（{mediaSelection.length}）
-          </button>
-        </footer>
-      </section>
-    </div>
-  ) : null;
-
-  const multiTitleRows =
-    editorMode === "multi" && mediaSelection.length ? (
-      <section className="publishing-media-title-panel" aria-label="按媒体配置标题">
-        <div>
-          <strong>按所选媒体填写标题</strong>
-          <p>
-            多标题逻辑：同一正文发送给已选媒体，并为每个媒体分别填写标题。
-            以下标题为本地草拟，媒体库正式接入后随订单提交。
-          </p>
-        </div>
-        {mediaSelection.map((mediaId) => (
-          <label key={mediaId}>
-            <span>{PLACEHOLDER_MEDIA.find((media) => media.id === mediaId)?.name ?? mediaId}</span>
-            <input
-              value={mediaTitles[mediaId] ?? ""}
-              maxLength={100}
-              placeholder="为该媒体填写标题"
-              onChange={(event) =>
-                setMediaTitles((current) => ({
-                  ...current,
-                  [mediaId]: event.target.value,
-                }))
-              }
-            />
-          </label>
-        ))}
-      </section>
-    ) : null;
 
   // 新稿：统一发布页 + DOCX 导入创建第一份真实稿件，导入后进入同一编辑页。
   if (isNew) {
@@ -631,7 +530,6 @@ export default function PublishingArticleEditorPage({
           </div>
           <PublishingImportPage onImported={enterCreatedArticle} />
         </section>
-        {mediaPicker}
       </PublishingPage>
     );
   }
@@ -721,7 +619,6 @@ export default function PublishingArticleEditorPage({
         <p className="publishing-editor-inline-note">
           删除按钮仅把稿件移出本批量列表，不删除稿件记录（当前网关无删除接口）。
         </p>
-        {mediaPicker}
       </PublishingPage>
     );
   }
@@ -806,7 +703,6 @@ export default function PublishingArticleEditorPage({
         ]}
       /> : null}
       {!embedded ? editorChrome : null}
-      {!embedded ? multiTitleRows : null}
       {query.loading ? <PublishingLoading label="正在读取稿件编辑器…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />
@@ -904,15 +800,16 @@ export default function PublishingArticleEditorPage({
             >
               {editorMode === "multi" && !embedded ? (
                 <p className="publishing-editor-inline-note publishing-multi-title-note">
-                  多标题模式：本模式不填写统一标题，正文保存后由
+                  多标题模式：本模式不填写统一标题；正文保存后点击
                   <button
                     type="button"
                     className="publishing-link-button"
-                    onClick={() => setMediaPickOpen(true)}
+                    onClick={goToMediaSelection}
+                    disabled={isNew || embedded || saving || freezing || flow?.outcomePending}
                   >
                     选择媒体
                   </button>
-                  并按媒体分别配置标题；正式标题仍以单标题模式或导入内容为准。
+                  进入第三方媒体选择，逐个媒体确认并配置标题后提交订单。
                 </p>
               ) : (
                 <label className="publishing-title-field">
@@ -1048,7 +945,6 @@ export default function PublishingArticleEditorPage({
           </div>
         </>
       ) : null}
-      {mediaPicker}
     </PublishingPage>
   );
 }
