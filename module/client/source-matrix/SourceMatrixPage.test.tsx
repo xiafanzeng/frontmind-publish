@@ -107,9 +107,28 @@ it('blocks unknown frozen versions and legitimate image restrictions without cre
  await screen.findByRole('button',{name:'重试读取稿件上下文'});
  expect((await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'重试读取稿件上下文'}));
- await screen.findByText('当前稿件含图片，此媒体的图文能力尚未确认');
+ await screen.findByText('当前稿件含图片，此媒体明确不支持图片');
  expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(true);
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();
+});
+
+it('selects unknown image capability for an image version and removes it from the same saved matrix cart',async()=>{
+ liveDirectory();const owner=flow();const pending={...media,capability:'image_pending' as const};
+ mediaGateway.getArticleVersion.mockResolvedValue({id:'version-1',version:1,hash:'hash-1',frozen:true,containsImages:true});
+ mediaGateway.listMedia.mockResolvedValue({items:[pending],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
+ mediaGateway.createDraft.mockImplementation(async()=>{const saved={...draft('draft-1',1,[pending]),articleContainsImages:true};mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
+ mediaGateway.updateDraftMedia.mockResolvedValue({...draft('draft-1',2,[]),articleContainsImages:true});
+ openMatrix('articleVersion=version-1&mode=multi',owner);
+ const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));
+ fireEvent.click(checkbox);
+ await waitFor(()=>expect(mediaGateway.createDraft).toHaveBeenCalledWith('version-1',[pending.id],expect.stringMatching(/^publisher:draft:/),'per_media'));
+ await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(true));
+ await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(false));
+ expect(pending.capability).toBe('image_pending');
+ fireEvent.click(screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}));
+ await waitFor(()=>expect(mediaGateway.updateDraftMedia).toHaveBeenCalledWith('draft-1',[],1));
+ await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(false));
 });
 
 it('ignores an old draft update after changing the bound draft',async()=>{

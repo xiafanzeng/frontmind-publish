@@ -1,4 +1,5 @@
 import type { MediaFilters, MediaResource, PublisherMediaKind } from "./types";
+import { mediaRulesImageBlocker } from "../server/providers/kol/media-rules";
 
 export function mediaShortlistKey(userId: number | undefined, search: string) {
   if (!userId) return undefined;
@@ -92,8 +93,14 @@ export function mediaSelectionBlocker(
   } catch {
     return "暂无有效报价";
   }
-  if (articleHasImages && media.capability !== "image")
-    return "当前稿件含图片，此媒体的图文能力尚未确认";
+  if (articleHasImages && media.capability === "text")
+    return "当前稿件含图片，此媒体明确不支持图片";
+  if (articleHasImages) {
+    // The selection context guarantees at least one frozen image, not an exact
+    // count. The server checks actual frozen images when saving and preflighting.
+    const blocker = mediaRulesImageBlocker(media.remark, null, undefined, 1);
+    if (blocker) return blocker;
+  }
   return "";
 }
 

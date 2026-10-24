@@ -520,7 +520,7 @@ export default function PublishingReviewPage({
                       ? "仅纯文字"
                       : item.media.capability === "image"
                         ? "支持图片"
-                        : "图片待验证"}
+                        : "图片要求未注明"}
                   </span>
                   <span>
                     {item.blockers.length ? (

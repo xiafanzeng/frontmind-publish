@@ -1090,6 +1090,7 @@ function mapPreflight(
           item.mediaResourceId,
           item.mediaName,
           item.priceTenThousandths,
+          { imageSupport: item.imageSupport },
         );
     const blockers = item.blockers.map(({ code, message }) => {
       if (code === "PRICE_CHANGED" && draftItem) {
@@ -1313,6 +1314,7 @@ function fallbackMedia(
     logoUrl?: string | null;
     logoSource?: MediaResource["logoSource"];
     logoResolutionStatus?: MediaResource["logoResolutionStatus"];
+    imageSupport?: ApiMedia["imageSupport"];
   },
 ): MediaResource {
   return {
@@ -1337,7 +1339,9 @@ function fallbackMedia(
     titleLimit: 200,
     priceTenThousandths: price,
     turnaround: "以媒体审核为准",
-    capability: "text",
+    // Historical display snapshots may have no capability metadata. Missing
+    // information is unknown, not an affirmative declaration of text-only.
+    capability: mediaCapability(metadata?.imageSupport ?? "unknown"),
     active: true,
     catalogRevision: "frozen",
   };

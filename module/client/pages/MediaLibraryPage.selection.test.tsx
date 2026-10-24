@@ -87,11 +87,11 @@ function gatewayFixture(items = [media("a"), media("b")], detail = article(), in
     return saved;
   });
   const createDraft = vi.fn<PublisherGateway["createDraft"]>(async (versionId, ids, _key, titleMode) => {
-    saved = { ...draft(items.filter((item) => ids.includes(item.id))), articleVersionId: versionId, titleMode: titleMode ?? "single" };
+    saved = { ...draft(items.filter((item) => ids.includes(item.id))), articleVersionId: versionId, articleContainsImages: detail.versions.find((version) => version.id === versionId)?.containsImages ?? false, titleMode: titleMode ?? "single" };
     return saved;
   });
   const updateDraftMedia = vi.fn<PublisherGateway["updateDraftMedia"]>(async (_id, ids, revision) => {
-    saved = draft(items.filter((item) => ids.includes(item.id)), revision + 1);
+    saved = { ...draft(items.filter((item) => ids.includes(item.id)), revision + 1), articleVersionId: saved?.articleVersionId ?? "version-1", articleContainsImages: saved?.articleContainsImages ?? false, titleMode: saved?.titleMode ?? "single" };
     return saved;
   });
   const getArticle = vi.fn<PublisherGateway["getArticle"]>(async () => detail);
@@ -150,6 +150,64 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it.each(["news", "self_media"] as const)("saves and restores unknown image requirements for an image article in %s", async (kind) => {
+    const pending = media("pending", { kind, capability: "image_pending", priceTenThousandths: "3850000" });
+    const detail = article();
+    detail.versions[0]!.containsImages = true;
+    const fixture = gatewayFixture([pending, media("text", { kind, capability: "text" })], detail);
+    const view = harness(fixture.gateway, `/publishing/media?articleVersion=version-1&kind=${kind}`);
+    fireEvent.click(screen.getByRole("link", { name: "进入媒体选择 →" }));
+    await waitFor(() => expect(choice("pending").disabled).toBe(false));
+    expect(choice("text").disabled).toBe(true);
+    fireEvent.click(choice("pending"));
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith("version-1", ["pending"], expect.any(String), "single"));
+    await waitFor(() => expect(choice("pending").checked && !choice("pending").disabled).toBe(true));
+    expect(count()).toBe("1");
+    expect(screen.getByTestId("cart-total").textContent).toBe("3850000");
+    expect(pending.capability).toBe("image_pending");
+    view.unmount();
+
+    // A fresh mount reads the saved draft rather than a local checkbox state.
+    harness(fixture.gateway, `/publishing/drafts/draft-1/media/third?articleVersion=version-1&kind=${kind}`);
+    await waitFor(() => expect(choice("pending").checked && !choice("pending").disabled).toBe(true));
+    expect(choice("text").disabled).toBe(true);
+    expect(count()).toBe("1");
+    expect(screen.getByTestId("cart-total").textContent).toBe("3850000");
+    expect((screen.getByRole("button", { name: "预检发布" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(choice("pending"));
+    await waitFor(() => expect(fixture.updateDraftMedia).toHaveBeenCalledWith("draft-1", [], 1));
+    await waitFor(() => expect(count()).toBe("0"));
+    expect(screen.getByTestId("cart-total").textContent).toBe("0");
+    expect(fixture.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("bulk-selects unknown and supported image media while keeping explicit bans and other restrictions", async () => {
+    const detail = article();
+    detail.versions[0]!.containsImages = true;
+    const fixture = gatewayFixture([
+      media("pending", { capability: "image_pending", priceTenThousandths: "3850000" }),
+      media("image"),
+      media("text", { capability: "text" }),
+      media("remark-ban", { capability: "image_pending", remark: "仅限纯文字" }),
+      media("inactive", { capability: "image_pending", active: false }),
+      media("unpriced", { capability: "image_pending", priceTenThousandths: "0" }),
+    ], detail);
+    harness(fixture.gateway, "/publishing/media/third?articleVersion=version-1");
+    await waitFor(() => expect(choice("pending").disabled).toBe(false));
+    fireEvent.click(pageSelection());
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith("version-1", ["pending", "image"], expect.any(String), "single"));
+    await waitFor(() => expect(pageSelection().checked && !pageSelection().disabled).toBe(true));
+    expect(count()).toBe("2");
+    expect(screen.getByTestId("cart-total").textContent).toBe("4850000");
+    for (const id of ["text", "remark-ban", "inactive", "unpriced"]) {
+      expect(choice(id).checked).toBe(false);
+      expect(choice(id).disabled).toBe(true);
+    }
+    fireEvent.click(pageSelection());
+    await waitFor(() => expect(fixture.updateDraftMedia).toHaveBeenCalledWith("draft-1", [], 1));
+    await waitFor(() => expect(count()).toBe("0"));
+  });
+
   it("carries every business reference from the home to matrix without treating matrix task as workbench task", async () => {
     const fixture = gatewayFixture();
     harness(fixture.gateway, "/publishing/media?articleVersion=version-1&mode=multi&workbenchTask=task-1&matrixTask=matrix-1&enterpriseProjectId=project-1&operatorOwnerId=9");
