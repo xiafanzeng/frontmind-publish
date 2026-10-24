@@ -39,12 +39,15 @@ export function PublishingPage({
   actions,
   children,
   busy,
+  layout = "page",
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
   busy?: boolean;
+  /** Review owns its section heading; keep an accessible page name without a duplicate banner. */
+  layout?: "page" | "review";
 }) {
   const flow = usePublishingFlow();
   if (flow)
@@ -54,16 +57,16 @@ export function PublishingPage({
         aria-label={title}
         aria-busy={busy || undefined}
       >
-        <div className="publishing-flow-intro">
+        {layout !== "review" && <div className="publishing-flow-intro">
           {description && <p>{description}</p>}
           {actions && <div className="publishing-page-actions">{actions}</div>}
-        </div>
+        </div>}
         {children}
       </section>
     );
   return (
-    <main className="publishing-page" aria-busy={busy || undefined}>
-      <header className="publishing-page-heading">
+    <main className="publishing-page" aria-label={layout === "review" ? title : undefined} aria-busy={busy || undefined}>
+      {layout !== "review" && <header className="publishing-page-heading">
         <div>
           <h1>{title}</h1>
           {description ? <p>{description}</p> : null}
@@ -71,7 +74,7 @@ export function PublishingPage({
         {actions ? (
           <div className="publishing-page-actions">{actions}</div>
         ) : null}
-      </header>
+      </header>}
       {children}
     </main>
   );
