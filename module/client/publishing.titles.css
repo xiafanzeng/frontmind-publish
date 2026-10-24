@@ -1,51 +1,79 @@
-/* Only the existing A-owned title editor consumes these styles. No save semantics change. */
-.monitoring-module .am-title-config{max-width:1660px;margin:auto}
-.monitoring-module .am-title-config .publishing-title-mode-panel{border:1px solid var(--publishing-line);border-radius:14px;box-shadow:none}
-.monitoring-module .am-title-config .publishing-title-mode-tabs{background:var(--publishing-canvas);gap:6px;padding:5px;border-radius:10px;margin-top:20px}
-.monitoring-module .am-title-config .publishing-title-mode-tabs button{border:0;border-radius:7px;padding:14px;min-height:64px}
-.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active{background:var(--publishing-purple);color:var(--publishing-surface)}
-.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active span{color:inherit;opacity:.85}
-.monitoring-module .am-title-config .publishing-titles-layout{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:24px;align-items:start}
-.monitoring-module .am-title-config .publishing-titles-panel{border:1px solid var(--publishing-line);border-radius:14px;min-width:0;padding:24px}
-.monitoring-module .am-title-config .publishing-title-list{display:grid;gap:0}
-.monitoring-module .am-title-config .publishing-title-item{display:grid;grid-template-columns:24px minmax(150px,.75fr) minmax(200px,1.7fr) 76px;align-items:start;gap:16px;padding:22px 0;border:0;border-top:1px solid var(--publishing-line);border-radius:0;background:transparent}
-.monitoring-module .am-title-config .publishing-title-item label{display:grid;gap:8px;min-width:0}
-.monitoring-module .am-title-config .publishing-title-item label>span{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px}
-.monitoring-module .am-title-config .publishing-title-item em{font-style:normal;color:var(--publishing-muted);font-size:11px}
-.monitoring-module .am-title-config .publishing-title-item input{width:100%;border:1px solid var(--publishing-line);border-radius:8px;background:var(--publishing-surface);color:var(--publishing-ink);padding:12px;min-height:44px}
-.monitoring-module .am-title-config .publishing-title-item input[aria-invalid=true]{border-color:var(--publishing-red)}
-.monitoring-module .am-title-config .publishing-title-item label small{font-size:11px;color:var(--publishing-green);line-height:1.8}
-.monitoring-module .am-title-config .publishing-title-item label small.is-error{color:var(--publishing-red)}
-.monitoring-module .am-title-config .publishing-title-item>button{align-self:center;color:var(--publishing-purple);font-size:12px;background:transparent;border:0;white-space:normal}
-.monitoring-module .am-title-config .publishing-title-tools{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
-.monitoring-module .am-title-config .publishing-title-help{position:sticky;top:20px;border:1px solid var(--publishing-line);border-radius:14px;background:var(--publishing-canvas);padding:24px}
-.monitoring-module .am-title-config .publishing-title-help h2{font-size:18px;margin:8px 0 12px}
-.monitoring-module .am-title-config .publishing-title-help p{font-size:12px;line-height:1.8;color:var(--publishing-muted)}
-.monitoring-module .am-title-config .publishing-title-help dl>div{padding:14px 0;border-bottom:1px solid var(--publishing-line)}
-.monitoring-module .am-title-config .publishing-title-help dl>div:last-child dd{font-size:20px;color:var(--publishing-purple)}
-.monitoring-module .am-title-kicker{display:block;font-size:11px;color:var(--publishing-purple);letter-spacing:1px}
-.monitoring-module .am-title-config .publishing-shared-title textarea{resize:none;min-height:96px;border-radius:8px}
-.monitoring-module .am-shared-title-rows{margin:22px 0;border-top:1px solid var(--publishing-line)}
-.monitoring-module .am-shared-title-row{display:grid;grid-template-columns:minmax(140px,.8fr) minmax(0,1.6fr) minmax(90px,.6fr);gap:18px;align-items:center;padding:18px 0;border-bottom:1px solid var(--publishing-line);font-size:13px}
-.monitoring-module .am-shared-title-row p{margin:0;overflow-wrap:anywhere;line-height:1.8}
-.monitoring-module .am-shared-title-row small{display:block;font-size:11px;color:var(--publishing-muted);margin-top:5px}
-.monitoring-module .am-shared-title-row .is-valid{color:var(--publishing-green)}
-.monitoring-module .am-shared-title-row .is-invalid{color:var(--publishing-red)}
-.monitoring-module .am-title-config :is(input,button,textarea,a):focus-visible{outline:2px solid var(--publishing-purple);outline-offset:3px}
-@media(max-width:1200px){.monitoring-module .am-title-config .publishing-titles-layout{grid-template-columns:1fr}.monitoring-module .am-title-config .publishing-title-help{position:static}}
-@media(max-width:720px){.monitoring-module .am-title-config .publishing-title-item{grid-template-columns:24px minmax(0,1fr) 76px}.monitoring-module .am-title-config .publishing-title-item label{grid-column:2/-1}.monitoring-module .am-title-config .publishing-title-item>button{grid-column:3;grid-row:1}.monitoring-module .am-shared-title-row{grid-template-columns:1fr 110px}.monitoring-module .am-shared-title-row p{grid-column:1/-1;grid-row:2}.monitoring-module .am-title-config .publishing-titles-panel{padding:18px}}
-.monitoring-module .am-title-config{container:title-config / inline-size}
-@container title-config (max-width:1000px){.monitoring-module .am-title-config .publishing-titles-layout{grid-template-columns:1fr}.monitoring-module .am-title-config .publishing-title-help{position:static}}
-
-/* 2026-10 · 媒体勾选：取消勾选的组合不参与校验、费用与本次发布。 */
-.monitoring-module .am-title-config .publishing-title-check{display:grid;place-items:center;padding-top:4px}
-.monitoring-module .am-title-config .publishing-title-check input{width:17px;height:17px;accent-color:var(--publishing-brand,#b33467)}
-.monitoring-module .am-title-config .publishing-title-item.is-excluded{opacity:.55}
-.monitoring-module .am-title-config .publishing-title-item.is-excluded .publishing-media-name strong{text-decoration:line-through;text-decoration-thickness:1px}
-.monitoring-module .am-title-config .publishing-title-selection{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--publishing-muted)}
-.monitoring-module .am-title-config .publishing-title-selection strong{color:var(--publishing-purple);font-size:15px}
-.monitoring-module .am-title-config .publishing-title-selection-note{font-size:12px;color:var(--publishing-muted)}
-
-.monitoring-module .am-title-config .am-shared-title-row{grid-template-columns:26px minmax(140px,.8fr) minmax(120px,1fr) minmax(150px,1.1fr)}
-.monitoring-module .am-title-config .am-shared-title-row.is-excluded{opacity:.55}
-.monitoring-module .am-title-config .am-shared-title-row.is-excluded strong{text-decoration:line-through}
+/* Scoped title cards; shared shell and unrelated publishing pages retain their owners. */
+.monitoring-module .am-title-config { width:100%; min-width:0; max-width:1660px; margin:auto; }
+.monitoring-module .am-title-config .publishing-titles-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:24px; min-width:0; }
+.user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-draft-card,
+.monitoring-module .am-title-config .publishing-title-draft-card { box-sizing:border-box; min-width:0; padding:24px; border:1px solid var(--publishing-line); border-radius:14px; background:var(--publishing-surface); box-shadow:none; }
+.monitoring-module .am-title-config .publishing-draft-summary { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin:0; padding:0 0 20px; }
+.monitoring-module .am-title-config .publishing-draft-summary > div { flex:1 1 240px; min-width:0; }
+.monitoring-module .am-title-config .publishing-draft-summary h2 { margin:0 0 6px; font-size:16px; line-height:1.55; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-draft-summary > div > span { color:var(--publishing-muted); font-size:12px; line-height:1.6; }
+.monitoring-module .am-title-config .publishing-title-card-status { color:var(--publishing-muted); font-size:12px; line-height:1.6; }
+.monitoring-module .am-title-config .publishing-title-mode-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:0 0 20px; padding:5px; border-radius:10px; background:var(--publishing-canvas); }
+.monitoring-module .am-title-config .publishing-title-mode-tabs button { display:flex; flex-direction:column; align-items:flex-start; gap:4px; min-width:0; min-height:64px; padding:14px; border:0; border-radius:7px; background:transparent; text-align:left; }
+.monitoring-module .am-title-config .publishing-title-mode-tabs button span { font-size:12px; line-height:1.5; color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active { background:var(--publishing-purple); color:var(--publishing-surface); }
+.monitoring-module .am-title-config .publishing-title-mode-tabs button.is-active span { color:inherit; }
+.monitoring-module .am-title-config .publishing-title-draft-card .publishing-shared-title { display:grid; gap:8px; margin-bottom:20px; }
+.monitoring-module .am-title-config .publishing-shared-title > label { font-size:13px; font-weight:600; }
+.monitoring-module .am-title-config .publishing-shared-title textarea { box-sizing:border-box; width:100%; min-height:108px; padding:12px; resize:none; border:1px solid var(--publishing-line); border-radius:8px; background:var(--publishing-surface); color:var(--publishing-ink); font:inherit; line-height:1.7; }
+.monitoring-module .am-title-config .publishing-shared-title textarea[aria-invalid=true] { border-color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-shared-title > small { font-size:12px; color:var(--publishing-muted); line-height:1.6; }
+.monitoring-module .am-title-config .publishing-title-tools { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:10px; }
+.monitoring-module .am-title-config .publishing-title-selection { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin:0; font-size:13px; color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-selection strong { color:var(--publishing-purple); font-size:14px; font-variant-numeric:tabular-nums; }
+.monitoring-module .am-title-config .publishing-title-error-filter { display:inline-flex; align-items:center; gap:8px; font-size:12px; }
+.monitoring-module .am-title-config .publishing-title-selection-note { margin:0 0 16px; color:var(--publishing-muted); font-size:12px; line-height:1.7; }
+.monitoring-module .am-title-config .publishing-title-table-scroll { box-sizing:border-box; max-width:100%; min-width:0; overflow-x:auto; border:1px solid var(--publishing-line); border-radius:10px; }
+.monitoring-module .am-title-config .publishing-title-table { width:100%; min-width:900px; table-layout:fixed; border-collapse:collapse; font-size:13px; line-height:1.65; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-check { width:52px; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-media { width:21%; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-original { width:17%; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-publish { width:auto; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-requirement { width:160px; }
+.monitoring-module .am-title-config .publishing-title-table th,
+.monitoring-module .am-title-config .publishing-title-table td { padding:16px 12px; vertical-align:top; border:0; border-bottom:1px solid var(--publishing-line); text-align:left; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-table thead th { padding-block:12px; background:var(--publishing-canvas); color:var(--publishing-muted); font-size:12px; font-weight:600; white-space:nowrap; }
+.monitoring-module .am-title-config .publishing-title-table tbody th { font-weight:400; }
+.monitoring-module .am-title-config .publishing-title-table tr:last-child > * { border-bottom:0; }
+.monitoring-module .am-title-config .publishing-title-table .publishing-media-name { display:flex; align-items:flex-start; gap:10px; min-width:0; }
+.monitoring-module .am-title-config .publishing-title-table .publishing-media-name > :first-child { flex-shrink:0; }
+.monitoring-module .am-title-config .publishing-title-table .publishing-media-name > span:last-child { min-width:0; }
+.monitoring-module .am-title-config .publishing-title-table .publishing-media-name strong { display:block; font-size:13px; line-height:1.65; white-space:normal; word-break:normal; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-table .publishing-media-name small { display:block; margin-top:5px; color:var(--publishing-muted); font-size:11px; white-space:normal; }
+.monitoring-module .am-title-config .publishing-title-original { color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-table input[type=text] { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:11px 12px; border:1px solid var(--publishing-line); border-radius:8px; background:var(--publishing-surface); color:var(--publishing-ink); font:inherit; }
+.monitoring-module .am-title-config .publishing-title-table input[type=text][aria-invalid=true] { border-color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-title-input-label { display:block; margin-bottom:6px; color:var(--publishing-muted); font-size:11px; }
+.monitoring-module .am-title-config .publishing-title-check { display:flex; align-items:center; justify-content:center; width:28px; min-height:44px; padding:0; }
+.monitoring-module .am-title-config .publishing-title-check input[type=checkbox],
+.monitoring-module .am-title-config .publishing-title-error-filter input[type=checkbox] { box-sizing:border-box; flex:none; width:17px; height:17px; min-width:17px; min-height:17px; margin:0; padding:0; accent-color:var(--publishing-purple); }
+.monitoring-module .am-title-config .publishing-title-copy { display:block; margin-top:8px; padding:3px 0; border:0; background:transparent; color:var(--publishing-purple); font-size:12px; text-align:left; }
+.monitoring-module .am-title-config .publishing-title-shared-value { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-requirement strong,
+.monitoring-module .am-title-config .publishing-title-requirement small,
+.monitoring-module .am-title-config .publishing-title-requirement span { display:block; font-size:12px; }
+.monitoring-module .am-title-config .publishing-title-requirement strong { font-weight:500; }
+.monitoring-module .am-title-config .publishing-title-requirement small { margin:5px 0; color:var(--publishing-muted); font-variant-numeric:tabular-nums; }
+.monitoring-module .am-title-config .publishing-title-requirement span { color:var(--publishing-green); }
+.monitoring-module .am-title-config .publishing-title-requirement.is-error span { color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-title-table .is-excluded { background:var(--publishing-canvas); }
+.monitoring-module .am-title-config .publishing-title-table .is-excluded .publishing-title-requirement span { color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-empty { margin:0; padding:20px; color:var(--publishing-muted); font-size:13px; }
+.monitoring-module .am-title-config .publishing-workflow-footer { gap:12px; margin-top:24px; padding-top:20px; border-top:1px solid var(--publishing-line); }
+.monitoring-module .am-title-config .publishing-workflow-footer .publishing-button-accent { min-width:156px; }
+.monitoring-module .am-title-config .publishing-title-submit-icon { display:inline-flex; width:17px; }
+.monitoring-module .am-title-config :is(input,button,textarea,a,.publishing-title-table-scroll):focus-visible { outline:2px solid var(--publishing-purple); outline-offset:3px; }
+.monitoring-module .am-title-config button:disabled { cursor:not-allowed; }
+@media(max-width:720px) {
+  .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-draft-card,
+  .monitoring-module .am-title-config .publishing-title-draft-card { padding:16px; }
+  .monitoring-module .am-title-config .publishing-titles-layout { gap:18px; }
+  .monitoring-module .am-title-config .publishing-draft-summary { align-items:flex-start; gap:10px; }
+  .monitoring-module .am-title-config .publishing-draft-summary > div { flex-basis:180px; }
+  .monitoring-module .am-title-config .publishing-title-card-status { flex-basis:100%; }
+  .monitoring-module .am-title-config .publishing-title-mode-tabs { gap:4px; }
+  .monitoring-module .am-title-config .publishing-title-mode-tabs button { padding:10px; }
+  .monitoring-module .am-title-config .publishing-title-tools { align-items:flex-start; }
+  .monitoring-module .am-title-config .publishing-title-tools > .publishing-button { width:100%; }
+  .monitoring-module .am-title-config .publishing-workflow-footer { flex-wrap:wrap; }
+}

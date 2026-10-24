@@ -30,6 +30,7 @@ import {
 } from "../PublishingFlowContext";
 import {
   performApprovedWorkspaceNavigation,
+  usePublishingWorkspaceKey,
   useWorkspaceDraftGuard,
 } from "../host";
 
@@ -52,6 +53,8 @@ import type {
   PublisherEditorContent,
 } from "../types";
 import { publishingDateTime } from "../types";
+import { withBatchArticleVersions } from "../batchMediaSelection";
+import { withPublishingBatch } from "../batchPublishing";
 
 const TipTapArticleEditor = lazy(
   () => import("../components/TipTapArticleEditor"),
@@ -131,6 +134,8 @@ export default function PublishingArticleEditorPage({
   const flow = usePublishingFlow();
   const [, navigate] = useLocation();
   const search = useSearch();
+  const workspaceKey = usePublishingWorkspaceKey();
+  const batchContinue = useRef<(() => void) | null>(null);
   const modeParam = new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
   const operationScope = usePublishingOperationScope(articleId);
   const load = useCallback(
@@ -436,6 +441,7 @@ export default function PublishingArticleEditorPage({
   );
 
   const goToMediaSelection = () => {
+    if (editorMode === "batch") { batchContinue.current?.(); return; }
     if (isNew || embedded) return;
     if (article?.currentVersionId) {
       performApprovedWorkspaceNavigation(() =>
@@ -511,13 +517,13 @@ export default function PublishingArticleEditorPage({
           type="button"
           className="publishing-button publishing-button-primary"
           onClick={goToMediaSelection}
-          disabled={isNew || embedded || saving || freezing || flow?.outcomePending}
-          title={article?.currentVersionId ? "进入媒体选择首页" : "先冻结当前版本，再进入媒体选择首页"}
+          disabled={(isNew && editorMode !== "batch") || embedded || saving || freezing || flow?.outcomePending}
+          title={editorMode === "batch" ? "确认全部稿件后进入媒体选择首页" : article?.currentVersionId ? "进入媒体选择首页" : "先冻结当前版本，再进入媒体选择首页"}
         >
           选择媒体
         </button>
         <span className="publishing-editor-inline-note">
-          {article?.currentVersionId
+          {editorMode === "batch" ? "确认本批次全部稿件后，一起选择媒体并逐篇配置标题" : article?.currentVersionId
             ? "当前版本已冻结，可进入媒体选择首页，再选择适合的选媒方式"
             : isNew
               ? "新稿件可直接撰写标题与正文；首次保存后即可选择媒体"
@@ -575,7 +581,7 @@ export default function PublishingArticleEditorPage({
         >
           {subnav(false)}
           {editorChrome}
-          <BatchUnitsEditor />
+          <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:new`} continueAction={batchContinue} />
         </PublishingPage>
       );
     }
@@ -676,7 +682,7 @@ export default function PublishingArticleEditorPage({
         {query.error ? (
           <PublishingError error={query.error} onRetry={query.reload} />
         ) : null}
-        <BatchUnitsEditor
+        {article ? <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:${articleId}`} continueAction={batchContinue}
           initialBound={
             article
               ? {
@@ -684,10 +690,12 @@ export default function PublishingArticleEditorPage({
                   revision: article.revision,
                   title,
                   content,
+                  images: article.images,
+                  currentVersionId: article.status === "frozen" ? article.currentVersionId : undefined,
                 }
               : undefined
           }
-        />
+        /> : null}
       </PublishingPage>
     );
   }
@@ -1022,6 +1030,9 @@ type BatchUnit = {
   revision?: number;
   title: string;
   content: PublisherEditorContent;
+  images: ArticleImage[];
+  savedSignature?: string;
+  currentVersionId?: string;
   saving: boolean;
   note: string;
 };
@@ -1029,15 +1040,25 @@ type BatchUnit = {
 /** 批量投放单元列表：文章 1 无删除键；≥2 篇时每单元显红色垃圾桶；每单元含标题/上传解析/上传视频/正文。 */
 function BatchUnitsEditor({
   initialBound,
+  continueAction,
 }: {
+  continueAction?: { current: (() => void) | null };
   initialBound?: {
     articleId: string;
     revision: number;
     title: string;
     content: PublisherEditorContent;
+    images: ArticleImage[];
+    currentVersionId?: string;
   };
 }) {
   const gateway = usePublisherGateway();
+  const flow = usePublishingFlow();
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const operationScope = usePublishingOperationScope(`batch:${initialBound?.articleId ?? "new"}`);
+  const signature = (unit: Pick<BatchUnit, "title" | "content" | "images">) =>
+    JSON.stringify([unit.title, unit.content, unit.images]);
   const [units, setUnits] = useState<BatchUnit[]>(() => [
     initialBound
       ? {
@@ -1046,64 +1067,142 @@ function BatchUnitsEditor({
           revision: initialBound.revision,
           title: initialBound.title,
           content: initialBound.content,
+          images: initialBound.images,
+          currentVersionId: initialBound.currentVersionId,
+          savedSignature: signature(initialBound),
           saving: false,
           note: "当前稿件（已保存）",
         }
-      : { key: 1, title: "", content: EMPTY_CONTENT, saving: false, note: "直接撰写或上传解析" },
+      : { key: 1, title: "", content: EMPTY_CONTENT, images: [], saving: false, note: "直接撰写或上传解析" },
   ]);
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+  const [preparing, setPreparing] = useState(false);
+  const prepareLock = useRef(false);
+  const savingUnits = useRef(new Set<number>());
   const [unitError, setUnitError] = useState("");
   const nextKey = useRef(2);
   const fileTargets = useRef(new Map<number, HTMLInputElement>());
+  const removedArticleIds = useRef(new Set<string>());
+  const explicitArticles = new URLSearchParams(search).getAll("batchArticle");
+  const recoveryArticleIds = [...new Set(explicitArticles.length ? explicitArticles : [
+    ...(initialBound?.articleId ? [initialBound.articleId] : []),
+    ...(flow?.resources?.filter(resource => resource.kind === "article").map(resource => resource.id) ?? []),
+  ])].filter(id => !removedArticleIds.current.has(id));
+  const recoveryKey = JSON.stringify(recoveryArticleIds);
+  const recoveryPending = recoveryArticleIds.some(id => !units.some(unit => unit.articleId === id));
 
-  const patchUnit = (key: number, patch: Partial<BatchUnit>) =>
-    setUnits((current) =>
-      current.map((unit) => (unit.key === key ? { ...unit, ...patch } : unit)),
-    );
+  const patchUnit = (key: number, patch: Partial<BatchUnit>) => {
+    const next = unitsRef.current.map(unit => unit.key === key ? { ...unit, ...patch } : unit);
+    unitsRef.current = next;
+    setUnits(next);
+  };
+  // The bound article arrives asynchronously; hydrate only an untouched card.
+  useEffect(() => {
+    if (!initialBound) return;
+    const first = unitsRef.current[0];
+    if (!first || first.articleId || first.title || first.content.text) return;
+    patchUnit(first.key, { ...initialBound, savedSignature: signature(initialBound), note: "当前稿件（已保存）" });
+  }, [initialBound?.articleId]);
+  useEffect(() => {
+    if (recoveryArticleIds.length < 2 || prepareLock.current) return;
+    let active = true;
+    const isCurrent = operationScope();
+    void Promise.all(recoveryArticleIds.map(id => gateway.getArticle(id))).then(details => {
+      if (!active || !isCurrent() || prepareLock.current) return;
+      const current = unitsRef.current;
+      const recovered = details.map((detail, index): BatchUnit => {
+        const existing = current.find(unit => unit.articleId === detail.id);
+        // Preserve local edits, including an in-flight save, for the same article.
+        if (existing) return existing;
+        const html = sanitizePublisherEditorHtml(detail.bodyHtml ?? publisherPlainTextToHtml(detail.bodyText), detail.images);
+        const unit: BatchUnit = {
+          key: index === 0 && current.length === 1 && current[0] && !current[0].articleId && !current[0].title && !current[0].content.text
+            ? current[0].key : nextKey.current++,
+          articleId: detail.id, revision: detail.revision, title: detail.title, images: detail.images,
+          content: { html, text: detail.bodyText || publisherHtmlToPlainText(html), json: detail.editorJson ?? { type: "doc", content: [] } },
+          currentVersionId: detail.status === "frozen" ? detail.currentVersionId : undefined,
+          saving: false, note: "已恢复本批次稿件",
+        };
+        unit.savedSignature = signature(unit);
+        return unit;
+      });
+      const extras = current.filter(unit => !recoveryArticleIds.includes(unit.articleId ?? "") && (unit.articleId || unit.title || unit.content.text));
+      unitsRef.current = [...recovered, ...extras];
+      setUnits(unitsRef.current);
+    }).catch(reason => {
+      if (active && isCurrent()) setUnitError(reason instanceof Error ? reason.message : "未能恢复全部批量稿件，请重新载入。");
+    });
+    return () => { active = false; };
+  }, [gateway, recoveryKey, operationScope]);
 
   const saveUnit = async (key: number) => {
-    const unit = units.find((item) => item.key === key);
-    if (!unit || unit.saving) return;
+    let unit = unitsRef.current.find((item) => item.key === key);
+    if (!unit || savingUnits.current.has(key)) throw new Error("稿件正在保存，请稍后继续。");
+    if (unit.articleId && unit.revision !== undefined && unit.savedSignature === signature(unit)) return unit;
+    const isCurrent = operationScope();
+    savingUnits.current.add(key);
     patchUnit(key, { saving: true });
     setUnitError("");
     try {
+      if (unit.articleId && unit.revision === undefined) {
+        const current = await gateway.getArticle(unit.articleId);
+        if (!isCurrent()) throw new Error("稿件任务已切换。");
+        patchUnit(key, { revision: current.revision });
+        unit = { ...unit, revision: current.revision };
+      }
       if (unit.articleId && unit.revision !== undefined) {
         const saved = await gateway.saveArticle({
           articleId: unit.articleId,
           expectedRevision: unit.revision,
           title: unit.title.trim() || fallbackTitle(unit.content),
           bodyText: unit.content.text,
-          bodyHtml: sanitizePublisherEditorHtml(unit.content.html, []),
+          bodyHtml: sanitizePublisherEditorHtml(unit.content.html, unit.images),
           editorJson: unit.content.json,
-          images: [],
+          images: unit.images,
         });
+        if (!isCurrent()) throw new Error("稿件任务已切换。");
         patchUnit(key, {
           revision: saved.revision,
+          savedSignature: signature(unit),
+          currentVersionId: undefined,
           saving: false,
           note: `已保存 · ${publishingDateTime(saved.updatedAt)}`,
         });
       } else {
         const file = buildHandwrittenDocxFile(unit.title, unit.content.text);
         const imported = await gateway.importDocx(file);
+        if (!isCurrent()) throw new Error("稿件任务已切换。");
+        // Remember the real article before subsequent reads/saves can fail.
+        patchUnit(key, { articleId: imported.articleId });
         const created = await gateway.getArticle(imported.articleId);
+        if (!isCurrent()) throw new Error("稿件任务已切换。");
+        patchUnit(key, { revision: created.revision });
         const saved = await gateway.saveArticle({
           articleId: imported.articleId,
           expectedRevision: created.revision,
           title: unit.title.trim() || fallbackTitle(unit.content),
           bodyText: unit.content.text,
-          bodyHtml: sanitizePublisherEditorHtml(unit.content.html, []),
+          bodyHtml: sanitizePublisherEditorHtml(unit.content.html, unit.images),
           editorJson: unit.content.json,
-          images: [],
+          images: unit.images,
         });
+        if (!isCurrent()) throw new Error("稿件任务已切换。");
         patchUnit(key, {
           articleId: saved.id,
           revision: saved.revision,
+          savedSignature: signature(unit),
+          currentVersionId: undefined,
           saving: false,
           note: `已保存为真实稿件 · ${saved.id.slice(0, 8)}`,
         });
       }
+      return unitsRef.current.find(item => item.key === key)!;
     } catch (reason) {
-      patchUnit(key, { saving: false });
-      setUnitError(reason instanceof Error ? reason.message : "保存失败，请重试");
+      if (isCurrent()) patchUnit(key, { saving: false });
+      throw reason;
+    } finally {
+      savingUnits.current.delete(key);
     }
   };
 
@@ -1128,6 +1227,9 @@ function BatchUnitsEditor({
       patchUnit(key, {
         articleId: detail.id,
         revision: detail.revision,
+        images: detail.images,
+        currentVersionId: undefined,
+        savedSignature: undefined,
         title: detail.title,
         content: {
           html,
@@ -1143,6 +1245,90 @@ function BatchUnitsEditor({
     }
   };
 
+  const continueBatch = async () => {
+    if (prepareLock.current || savingUnits.current.size) return;
+    if (recoveryPending) { setUnitError("正在恢复全部批量稿件，请等待加载完成后再继续。"); return; }
+    if (unitsRef.current.some(unit => !unit.content.text.trim())) {
+      setUnitError("请为每篇稿件填写正文，或移除本次不投放的空白稿件。");
+      return;
+    }
+    prepareLock.current = true;
+    setPreparing(true);
+    setUnitError("");
+    const isCurrent = operationScope();
+    try {
+      const prepared: Array<{ articleId: string; versionId: string }> = [];
+      for (const entry of [...unitsRef.current]) {
+        const saved = await saveUnit(entry.key);
+        if (!isCurrent()) return;
+        let versionId = saved.currentVersionId;
+        if (!versionId) {
+          // Recover an already completed freeze after a lost response.
+          const latest = await gateway.getArticle(saved.articleId!);
+          if (!isCurrent()) return;
+          // Freezing preserves the working-copy revision. Any newer revision
+          // may contain unreviewed HTML/images/editor JSON even if text matches.
+          if (latest.revision !== saved.revision)
+            throw new Error("稿件已在其他位置修改，请重新载入后确认版本。");
+          const frozen = latest.status === "frozen" && latest.currentVersionId
+            ? latest : await gateway.freezeArticle(latest.id, latest.revision);
+          if (!isCurrent()) return;
+          versionId = frozen.currentVersionId;
+          if (!versionId) throw new Error("稿件尚未返回冻结版本，请重试。");
+          patchUnit(entry.key, { revision: frozen.revision, currentVersionId: versionId, note: `已确认 v${frozen.currentVersion}` });
+        }
+        prepared.push({ articleId: saved.articleId!, versionId });
+      }
+      const versionIds = prepared.map(item => item.versionId);
+      const sourceParams = new URLSearchParams(search);
+      const requestedDraftIds = [...new Set([...sourceParams.getAll("batchDraft"), ...(sourceParams.get("draftId") ? [sourceParams.get("draftId")!] : [])])];
+      const previousDrafts = await Promise.all(requestedDraftIds.map(id => gateway.getDraft(id)));
+      if (!isCurrent()) return;
+      // A removed card must not leave its old draft in the next media group.
+      const previousDraftIds = prepared.flatMap(item => {
+        const previous = previousDrafts.find(draft => draft.articleId === item.articleId);
+        return previous ? [previous.id] : [];
+      });
+      const excludedDraftIds = sourceParams.getAll("excludedDraft").filter(id => previousDraftIds.includes(id));
+      const resources = [...prepared.flatMap(item => [
+        { kind: "article" as const, id: item.articleId },
+        { kind: "article_version" as const, id: item.versionId },
+      ]), ...previousDraftIds.map(id => ({ kind: "publication_draft" as const, id }))];
+      const routeParams = new URLSearchParams();
+      prepared.forEach(item => routeParams.append("batchArticle", item.articleId));
+      if (previousDraftIds.length === 1) routeParams.set("draftId", previousDraftIds[0]!);
+      const route = withPublishingBatch(withBatchArticleVersions(`/publishing/media?${routeParams.toString()}`, versionIds), previousDraftIds, excludedDraftIds);
+      if (flow) {
+        await flow.saveSelections({ batchArticleVersionIds: versionIds, batchArticleIds: prepared.map(item => item.articleId), batchDraftIds: previousDraftIds, excludedDraftIds, editorMode: "batch" });
+        if (!isCurrent()) return;
+        await flow.record({ id: `articles-frozen:${versionIds.join(":")}`, label: `已确认 ${prepared.length} 篇稿件`, resources });
+        if (!isCurrent()) return;
+        await flow.handoff({ targetAgentId: "media", title: `批量选媒 · ${prepared.length} 篇稿件`,
+          resources, idempotencyKey: `articles-media-${versionIds.join(":")}`, route });
+      } else {
+        performApprovedWorkspaceNavigation(() => {
+          const editorParams = new URLSearchParams(search);
+          editorParams.set("mode", "batch");
+          editorParams.delete("batchArticle");
+          prepared.forEach(item => editorParams.append("batchArticle", item.articleId));
+          // Browser Back must restore this complete real batch too.
+          navigate(`/publishing/articles/${encodeURIComponent(prepared[0]!.articleId)}/edit?${editorParams.toString()}`, { replace: true });
+          navigate(publishingTaskUrl(route, editorParams.get("workbenchTask") ?? undefined));
+        });
+      }
+    } catch (reason) {
+      if (isCurrent()) setUnitError(reason instanceof Error ? reason.message : "批量稿件准备未完成，请重试；已保存的稿件会保留。");
+    } finally {
+      prepareLock.current = false;
+      if (isCurrent()) setPreparing(false);
+    }
+  };
+  useEffect(() => {
+    if (!continueAction) return;
+    continueAction.current = () => { void continueBatch(); };
+    return () => { continueAction.current = null; };
+  });
+
   const removable = units.length >= 2;
 
   return (
@@ -1156,7 +1342,7 @@ function BatchUnitsEditor({
                 <button
                   type="button"
                   className="publishing-button publishing-button-secondary"
-                  disabled={unit.saving}
+                  disabled={unit.saving || preparing}
                   onClick={() => fileTargets.current.get(unit.key)?.click()}
                 >
                   <Upload size={15} /> 上传解析
@@ -1174,8 +1360,10 @@ function BatchUnitsEditor({
                     type="button"
                     className="publishing-batch-unit-remove"
                     aria-label={`删除文章 ${index + 1}（仅从本批量列表移除，不删除已保存的稿件记录）`}
+                    disabled={preparing || unit.saving}
                     onClick={() =>
-                      setUnits((current) => current.filter((item) => item.key !== unit.key))
+                      { if (unit.articleId) removedArticleIds.current.add(unit.articleId);
+                        setUnits((current) => current.filter((item) => item.key !== unit.key)); }
                     }
                   >
                     <Trash2 size={16} />
@@ -1187,15 +1375,16 @@ function BatchUnitsEditor({
               <span>稿件标题</span>
               <input
                 value={unit.title}
-                onChange={(event) => patchUnit(unit.key, { title: event.target.value })}
+                disabled={preparing || unit.saving}
+                onChange={(event) => patchUnit(unit.key, { title: event.target.value, currentVersionId: undefined })}
                 aria-label={`文章 ${index + 1} 标题`}
                 maxLength={100}
               />
             </label>
             <ArticleEditorSurface
               value={unit.content}
-              images={[]}
-              onChange={(value) => patchUnit(unit.key, { content: value })}
+              images={unit.images}
+              onChange={(value) => { if (!prepareLock.current && !savingUnits.current.has(unit.key)) patchUnit(unit.key, { content: value, currentVersionId: undefined }); }}
               onUploadImage={rejectImageBeforeSave}
             />
             <div className="publishing-batch-unit-foot">
@@ -1206,8 +1395,8 @@ function BatchUnitsEditor({
               <button
                 type="button"
                 className="publishing-button publishing-button-primary"
-                disabled={unit.saving || (!unit.title.trim() && !unit.content.text.trim())}
-                onClick={() => void saveUnit(unit.key)}
+                disabled={preparing || unit.saving || (!unit.title.trim() && !unit.content.text.trim())}
+                onClick={() => void saveUnit(unit.key).catch(reason => setUnitError(reason instanceof Error ? reason.message : "保存失败，请重试"))}
               >
                 {unit.saving ? <LoaderCircle className="publishing-spin" size={15} /> : <Save size={15} />}
                 {unit.saving ? "保存中…" : unit.articleId ? "保存修改" : "保存这篇"}
@@ -1235,6 +1424,7 @@ function BatchUnitsEditor({
       <button
         type="button"
         className="publishing-batch-add"
+        disabled={preparing || units.some(unit => unit.saving)}
         onClick={() =>
           setUnits((current) => [
             ...current,
@@ -1242,6 +1432,7 @@ function BatchUnitsEditor({
               key: nextKey.current++,
               title: "",
               content: EMPTY_CONTENT,
+              images: [],
               saving: false,
               note: "直接撰写或上传解析",
             },
@@ -1250,6 +1441,13 @@ function BatchUnitsEditor({
       >
         ＋ 继续添加一篇文章
       </button>
+      <div className="publishing-batch-unit-foot">
+        <span className="publishing-editor-inline-note">本次共 {units.length} 篇稿件；确认后一起选择媒体。</span>
+        <button type="button" className="publishing-button publishing-button-primary"
+          disabled={preparing || recoveryPending || units.some(unit => unit.saving)} onClick={() => void continueBatch()}>
+          {preparing ? "正在确认全部稿件…" : recoveryPending ? "正在恢复批量稿件…" : "确认全部稿件并选择媒体"}
+        </button>
+      </div>
       {unitError ? (
         <p className="publishing-form-error" role="alert">{unitError}</p>
       ) : null}

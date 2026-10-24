@@ -106,12 +106,22 @@ export function businessLeafHref(id: string, path: string, search = ""): string 
   }
   if (id === "article-edit" && /^\/publishing\/articles\/[^/]+\/edit$/.test(path)) {
     destination = path;
+    for (const key of ["batchArticle", "batchDraft", "excludedDraft", "batchArticleVersion"]) {
+      for (const value of new Set(current.getAll(key))) {
+        if (value) params.append(key, value);
+      }
+    }
     for (const key of ["returnTo", "draftId"]) {
       const value = current.get(key);
       if (value) params.set(key, value);
     }
   }
   if (id === "media-home" || id === "third-media" || id === "source-matrix") {
+    for (const key of ["batchArticle", "batchArticleVersion", "batchDraft", "excludedDraft"]) {
+      for (const value of new Set(current.getAll(key))) {
+        if (value) params.append(key, value);
+      }
+    }
     const version = current.get("articleVersion");
     if (version) params.set("articleVersion", version);
     // Resolve an alias using the source page's own parameter first. A legacy

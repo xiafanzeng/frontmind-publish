@@ -1,0 +1,18 @@
+.publishing-review-page .publishing-review-draft-group { display:grid; gap:16px; min-width:0; }
+.publishing-review-page .publishing-review-draft-group + .publishing-review-draft-group { margin-top:24px; }
+.publishing-review-page .publishing-review-draft-group .publishing-panel { min-width:0; }
+.monitoring-module .publishing-review-page > .publishing-page .publishing-review-group-status,
+.user-brand-dashboard.operator-mode .monitoring-module .publishing-review-page > .publishing-page.publishing-flow-step .publishing-review-group-status { padding:20px 24px; }
+.publishing-review-page .publishing-review-group-status p { margin:8px 0 14px; line-height:1.6; overflow-wrap:anywhere; }
+.publishing-review-page .publishing-review-receipts { display:grid; gap:10px; padding:0; list-style:none; }
+.publishing-review-page .publishing-review-receipts li { display:grid; grid-template-columns:minmax(120px,1fr) minmax(0,2fr) auto; gap:10px 16px; padding-block:10px; border-top:1px solid var(--publishing-line,#e6e8f1); }
+.publishing-review-page .publishing-review-receipts li > * { min-width:0; overflow-wrap:anywhere; }
+.publishing-review-page .publishing-review-confirm-group { min-width:0; }
+.publishing-review-page .publishing-review-confirm-group + .publishing-review-confirm-group { border-top:1px solid var(--publishing-line,#e6e8f1); padding-top:20px; }
+.publishing-review-page .publishing-review-confirm-group > p { overflow-wrap:anywhere; }
+.publishing-review-page .publishing-review-group-status .publishing-button { max-width:100%; }
+@media(max-width:650px) {
+  .monitoring-module .publishing-review-page > .publishing-page .publishing-review-group-status,
+  .user-brand-dashboard.operator-mode .monitoring-module .publishing-review-page > .publishing-page.publishing-flow-step .publishing-review-group-status { padding:16px; }
+  .publishing-review-page .publishing-review-receipts li { grid-template-columns:minmax(0,1fr); gap:6px; }
+}

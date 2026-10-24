@@ -6,6 +6,7 @@ import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
 import { PublishingLoading } from "./components/PublishingUi";
 import { ArticleContentLayout } from "./components/ArticleContentLayout";
+import { PreparationContentLayout } from "./components/PreparationContentLayout";
 import "./publishing.tokens.css";
 import "./publishing.core.css";
 import "./publishing.workflow.css";
@@ -53,6 +54,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   return (
     <PublishingGatewayProvider gateway={gateway}>
       <ArticleContentLayout>
+      <PreparationContentLayout>
       <Suspense
           fallback={
             <div className="publishing-page publishing-page-loading">
@@ -143,6 +145,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           </Switch>
           </>
         </Suspense>
+      </PreparationContentLayout>
       </ArticleContentLayout>
     </PublishingGatewayProvider>
   );

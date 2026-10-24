@@ -254,12 +254,23 @@ describe("media selection context and persistence", () => {
     expect(fixture.createDraft).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['multi', 'per_media', 'batch'])('keeps the %s mode when creating the first selection draft', async mode => {
+  it.each(['multi', 'per_media'])('keeps the %s mode when creating the first selection draft', async mode => {
     const fixture = gatewayFixture();
     harness(fixture.gateway, `/publishing/media/third?articleVersion=version-1&mode=${mode}`);
     await waitFor(() => expect(choice('a').disabled).toBe(false));
     fireEvent.click(choice('a'));
     await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith('version-1', ['a'], expect.any(String), 'per_media'));
+  });
+
+  // Batch entries hold one common selection for the whole group; per-media drafts are
+  // only created when the batch is confirmed (always per_media — batchMediaSelection.test.ts).
+  it('holds the batch selection instead of creating the first draft immediately', async () => {
+    const fixture = gatewayFixture();
+    harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1&mode=batch');
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(choice('a').checked).toBe(true));
+    expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 
   it("does not save a first click to a different task assigned while ensureTask is pending", async () => {

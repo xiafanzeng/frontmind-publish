@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useLocation } from "wouter";
 import { projectWorkspaceUrl } from "./host";
+import { withPublishingBatch } from "./batchPublishing";
 import type { WorkbenchTaskState, WorkbenchOutputRef, BusinessWorkspaceOutput } from "./flow-contracts";
 import {
   DEFAULT_MEDIA_FILTERS,
@@ -83,6 +84,22 @@ export function publishingTaskResumePath(
 ) {
   const resource = (kind: string) =>
     state?.resources.find((item) => item.kind === kind)?.id;
+  const resources = (kind: string) => [...new Set(
+    state?.resources.filter((item) => item.kind === kind).map((item) => item.id) ?? [],
+  )];
+  const savedIds = (key: string) => {
+    const value = state?.values[key];
+    return Array.isArray(value)
+      ? [...new Set(value.filter((id): id is string => typeof id === "string" && Boolean(id)))]
+      : [];
+  };
+  const draftIds = savedIds("batchDraftIds").length
+    ? savedIds("batchDraftIds") : resources("publication_draft");
+  const versionIds = savedIds("batchArticleVersionIds").length
+    ? savedIds("batchArticleVersionIds") : resources("article_version");
+  const articleIds = savedIds("batchArticleIds").length
+    ? savedIds("batchArticleIds") : resources("article");
+  const batchMode = state?.values.editorMode === "batch" || savedIds("batchArticleVersionIds").length > 0 || versionIds.length > 1 || draftIds.length > 1;
   if (agentId === "media") {
     const params = new URLSearchParams();
     const saved = state?.values.mediaFilters;
@@ -94,19 +111,45 @@ export function publishingTaskResumePath(
           params.set(key, String(value));
       }
     }
-    return writeMediaRouteState(
+    const route = writeMediaRouteState(
       "/publishing/media",
       readMediaRouteState(params.toString()).filters,
-      resource("article_version"),
+      versionIds[0],
+    );
+    const url = new URL(route, "https://publishing.invalid");
+    if (batchMode) {
+      versionIds.forEach((id) => url.searchParams.append("batchArticleVersion", id));
+      url.searchParams.set("mode", "batch");
+    }
+    if (articleIds.length === versionIds.length)
+      articleIds.forEach((id) => url.searchParams.append("batchArticle", id));
+    if (batchMode && draftIds.length) url.pathname = `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/media`;
+    return withPublishingBatch(`${url.pathname}${url.search}`, draftIds, savedIds("excludedDraftIds"));
+  }
+  if (agentId === "articles") {
+    if (!articleIds.length) return "/publishing/articles";
+    const params = new URLSearchParams();
+    if (articleIds.length > 1 || state?.values.editorMode === "batch") {
+      params.set("mode", "batch");
+      articleIds.forEach((id) => params.append("batchArticle", id));
+    }
+    if (draftIds.length === 1) params.set("draftId", draftIds[0]!);
+    return withPublishingBatch(`/publishing/articles/${encodeURIComponent(articleIds[0]!)}/edit${params.size ? `?${params}` : ""}`, draftIds, savedIds("excludedDraftIds"));
+  }
+  const batch = resource("publication_batch");
+  if (draftIds.length > 1 || (draftIds.length > 0 && state?.values.publishingBatchReviewPending)) {
+    // A batch can be partially accepted: returning only its first receipt loses
+    // pending drafts. The grouped review owns all per-draft receipts.
+    const stage = batch || state?.step === "titles" || state?.values.publishingBatchReviewPending
+      ? "review" : "titles";
+    return withPublishingBatch(
+      `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/${stage}`,
+      draftIds,
+      savedIds("excludedDraftIds"),
     );
   }
-  if (agentId === "articles")
-    return resource("article")
-      ? `/publishing/articles/${encodeURIComponent(resource("article")!)}/edit`
-      : "/publishing/articles";
-  const batch = resource("publication_batch");
   if (batch) return `/publishing/publications/${encodeURIComponent(batch)}`;
-  const draft = resource("publication_draft");
+  const draft = draftIds[0];
   if (draft)
     return `/publishing/drafts/${encodeURIComponent(draft)}/${state?.step === "titles" ? "review" : "titles"}`;
   return "/publishing";

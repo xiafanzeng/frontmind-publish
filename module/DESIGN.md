@@ -103,3 +103,17 @@
 - 普通图片适配与供应商能力认证分开：未知可选不改变管理员标记 verified 的 HTTPS 证据与时间戳要求，也不解除既有 LIVE_IMAGE_CANARY、发布开关、白名单、资金或真实发布授权。
 - 继续使用真实 MarketRow 复选框、MediaCartFooter、既有草稿保存和页面路由，不新增选择状态或 UI 外框。提示用“图片要求未注明”表达未知，明确禁图显示真实原因。
 - 本轮未执行运行验证，交由智谱 ZCode 和网站验收。新增测试仅为回归源码，不能视为保存、刷新、预检或线上发布已通过。
+
+## 2026-10-24 批量标题与预检（基线 6cd9883）
+
+本节依据用户三张截图及本轮明确规格，取代上文对 TitlesPage「只调整呈现、不改变单稿保存流程」的旧任务范围；其他页面的视觉契约保持。使用现有 React/wouter、PublishingPage/PublishingError/PublishingLoading、host 草稿守卫和网关，无新依赖及服务端接口。
+
+- 数据归属：服务端依旧一篇冻结稿件对应一个 publication_draft。批量是前端按真实选择顺序聚合多个草稿；URL 的重复 batchArticleVersion / batchDraft 保存完整身份，excludedDraft 只标记本轮零勾选稿件。工作台资源及恢复路径不得只取第一项。真实网关仍负责授权、版本、金额和提交。
+- 正文修正返回：重复 batchArticle 与冻结版本显式配对并校验真实归属；新版本沿用同一 article 的旧 draft 媒体分配、标题模式和标题，不能复制媒体并集。整稿排除保留行快照并映射到新 draft；批量缩减为一篇仍保留该恢复上下文。替换期间源任务资源保持稳定，目标交接只携带最终有效草稿集合。
+- 标题：每稿独立卡片，标题模式、统一标题、逐媒体标题、勾选和校验均按 draftId 分组，行内按 mediaId。取消行保留可恢复的编辑快照，但不进入本轮有效集合。保存沿用 updateDraftMedia / saveDraftTitles；修改守卫包括勾选，部分保存可恢复，不能用隐藏媒体删除用户稿件。
+- 编辑控件：复用既有原生 checkbox/input/textarea 与确认弹窗；checkbox 不继承文本输入框宽度和内距。五列语义 table 对齐勾选、媒体、原稿参考、发布标题、要求，发布标题获取剩余宽度；900px 最小表宽仅在内部容器横向滚动。长标题不改值、不通过缩小字号压缩。右侧交接摘要及其布局列删除。
+- 布局：PreparationContentLayout 仅匹配 titles/review 及旧 review 深链，拥有包含流程说明在内的整体留白。参考现有正文最大1520px，外框加两侧空间；桌面上26px、左右 clamp(24px,2vw,32px)、下38px；<=720px为18px/16px/28px。nested PublishingPage 清零重复间距。标题卡24px内距/14px圆角，手机16px，细边框和品牌使用原 tokens；预检原费用卡与行样式继续复用。
+- 导航：DraftConversationPage 以真实 titles/review 路由为当前步骤，保存成功才推进 URL，返回沿用 requestWorkspaceNavigation。静态持久化 stage 不再覆盖深链和浏览器历史。原 PublishingTopbar 的面包屑因此自然同步，不新增导航。
+- 预检与提交：按稿展示预检，金额以原万分元整数聚合，钱包余额不按稿件相加。逐稿预检及提交仍走现有接口，保留必要阻断、确认、部分发布和确定性幂等键。已受理稿件保留独立批次回执；未知响应以相同请求恢复，不能把批量操作声称为服务端原子事务。
+- 生效边界：业务入口仍为 module/client/PublishingRoutes；standalone/StandalonePublishingFlow 仅补齐独立站多资源任务身份。Dashboard 宿主源码未随包提供，是否挂载此入口及兼容多资源 task values 需后续集成确认。vendor、侧栏、搜索、帮助、部署及凭据不变。
+- 验证：仅源码阅读与交接包核对；回归用例是未执行的源码。未安装依赖、启动应用、运行类型检查/测试/构建、浏览器或业务 API。ZCode 需验证单/多稿、同媒体跨稿隔离、全取消、部分保存、未知提交恢复、刷新/返回和窄屏实际级联。

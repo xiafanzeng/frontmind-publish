@@ -1,5 +1,6 @@
-import { usePublishingFlow } from "../PublishingFlowContext";
-import { usePublishingChoice } from "../components/PublishingConversation";
+import { useLocation, useSearch } from "wouter";
+import { publishingTaskUrl, usePublishingFlow } from "../PublishingFlowContext";
+import { readPublishingBatch, withPublishingBatch } from "../batchPublishing";
 import {
   WorkflowCompleted,
   WorkflowSection,
@@ -7,7 +8,6 @@ import {
 import { requestWorkspaceNavigation } from "../host";
 import TitlesPage from "./TitlesPage";
 import ReviewPage from "./ReviewPage";
-import PublicationDetailPage from "./PublicationDetailPage";
 
 export default function DraftConversationPage({
   draftId,
@@ -17,63 +17,59 @@ export default function DraftConversationPage({
   initialStage: "titles" | "review";
 }) {
   const flow = usePublishingFlow();
-  const [stage, setStage] = usePublishingChoice(
-    `publishingStage:${draftId}`,
-    initialStage,
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const { draftIds, excludedDraftIds } = readPublishingBatch(draftId, search);
+  const stagePath = (stage: "titles" | "review") => publishingTaskUrl(
+    withPublishingBatch(
+      `/publishing/drafts/${encodeURIComponent(draftId)}/${stage}${search ? `?${search}` : ""}`,
+      draftIds,
+      excludedDraftIds,
+    ),
+    flow?.taskId,
   );
-  const [batchId, setBatchId] = usePublishingChoice(
-    `publishingBatch:${draftId}`,
-    "",
-  );
+  // The URL owns the stage; stale presentation choices cannot override Back or deep links.
+  const revise = () => requestWorkspaceNavigation(() => navigate(stagePath("titles")));
+  const saved = (reviewPath?: string) => navigate(reviewPath ?? stagePath("review"));
   if (!flow)
     return initialStage === "titles" ? (
-      <TitlesPage draftId={draftId} />
+      <TitlesPage draftId={draftId} onSaved={saved} />
     ) : (
-      <ReviewPage draftId={draftId} />
+      <ReviewPage draftId={draftId} onRevise={revise} />
     );
-  const revise = () => requestWorkspaceNavigation(() => setStage("titles"));
   return (
-    <div className="publishing-page publishing-flow-step">
+    <div className="publishing-page publishing-flow-step" data-publishing-stage={initialStage}>
       <WorkflowCompleted
         id="publishing-input"
         summary="稿件与媒体已准备好，可继续配置本次投放"
       />
-      {stage === "titles" && !batchId ? (
-        <WorkflowSection id="publishing-titles" title="本次投放使用哪些标题？">
-          <TitlesPage draftId={draftId} onSaved={() => setStage("review")} />
+      {initialStage === "titles" ? (
+        <WorkflowSection id="publishing-titles" title="配置发布标题">
+          <TitlesPage draftId={draftId} onSaved={saved} />
         </WorkflowSection>
       ) : (
+        <>
         <WorkflowCompleted
           id="publishing-titles-saved"
           summary="发布标题已确认"
-          onRevise={!batchId ? revise : undefined}
         />
-      )}
-      {batchId ? (
-        <>
-          <WorkflowCompleted
-            id="publishing-submitted"
-            summary="发布请求已受理，批次结果由发布服务持续更新"
-          />
-          <WorkflowSection id="publishing-result" title="查看本次发布结果">
-            <PublicationDetailPage batchId={batchId} />
-          </WorkflowSection>
-        </>
-      ) : stage === "review" ? (
         <WorkflowSection
           id="publishing-preflight"
-          title="请核对稿件、媒体与费用，再确认发布"
+          title="预检与发布"
         >
           <ReviewPage
             draftId={draftId}
             onRevise={revise}
             onSubmitted={(id) => {
-              setBatchId(id);
-              setStage("result");
+              navigate(publishingTaskUrl(
+                `/publishing/publications/${encodeURIComponent(id)}?submitted=1`,
+                flow.taskId,
+              ));
             }}
           />
         </WorkflowSection>
-      ) : null}
+        </>
+      )}
     </div>
   );
 }
