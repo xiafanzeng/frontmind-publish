@@ -24,12 +24,14 @@ export default function PublishingNavigation({ path, search, collapsed, onNaviga
       const Icon = icons[item.id];
       const nested = item.views.length > 1;
       const open = Boolean(expanded[item.id]);
-      const href = projectWorkspaceUrl(businessLeafHref(item.views[0]!.id, path, search)!);
+      const parent = item.home ?? item.views[0]!;
+      const parentIsCurrent = active === parent.id && Boolean(item.home || !nested);
+      const href = projectWorkspaceUrl(businessLeafHref(parent.id, path, search)!);
       return <div className="publish-nav-group" key={item.id}>
         <div className={`publish-nav-parent ${group === item.id ? "is-group-current" : ""}`}>
           <a href={href} aria-label={item.label} title={collapsed ? item.label : undefined}
-            className={`publish-nav-link ${!nested && active === item.views[0]!.id ? "is-current" : ""}`}
-            aria-current={!nested && active === item.views[0]!.id ? "page" : undefined}
+            className={`publish-nav-link ${parentIsCurrent ? "is-current" : ""}`}
+            aria-current={parentIsCurrent ? "page" : undefined}
             onClick={event => {
               if (nested) setExpanded(value => ({ ...value, [item.id]: true }));
               followPublishingLink(event, href, onNavigate);

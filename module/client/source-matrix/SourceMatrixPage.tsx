@@ -1,4 +1,4 @@
-import { lazy, Suspense, useContext, useEffect,useRef,useState,type FormEvent } from 'react';
+import { lazy, Suspense, useContext, useEffect,useLayoutEffect,useMemo,useRef,useState,type FormEvent } from 'react';
 import { Link,useLocation,useSearch } from 'wouter';
 import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard } from '../host';
 import { matrixApi,downloadUrl } from './api';
@@ -8,8 +8,11 @@ import {ReferenceIcon,ReferenceInlineIcon} from './ReferenceIcons';
 import './source-matrix.css';
 import {MediaShell,MediaCartFooter,MediaTaskbar,RowHead,Property,MarketRow,MediaDetails,useMarketRules,rulesRequest} from './MediaMarket';
 import {usePublisherGateway} from '../PublishingContext';
+import {publishingDraftRequestKey,usePublishingFlow} from '../PublishingFlowContext';
+import {useMediaSelectionTask} from '../useMediaSelectionTask';
+import {titleModeForFlowMode,type FlowStageMode} from '../components/PublishingFlowSteps';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
-import type {MediaResource,PublicationDraft} from '../types';
+import type {ArticleVersion,MediaResource,PublicationDraft} from '../types';
 import { SourceMatrixPreviewContext } from './simulation/mode';
 import { SIMULATION_NOTICE } from './simulation/data';
 import { referenceScopeStyle } from './ReferenceScope';
@@ -23,7 +26,7 @@ export default function SourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  const changeMode=(enabled:boolean)=>{
   const next=new URLSearchParams(search);next.set('simulation',enabled?'1':'0');
   // Neither a real task nor a draft binding crosses the mode boundary.
-  next.delete('task');next.delete('draftId');next.delete('matrixTask');
+  next.delete('task');next.delete('draftId');next.delete('matrixTask');next.delete('articleVersion');next.delete('workbenchTask');
   navigate(projectWorkspaceUrl(path+'?'+next.toString()));
  };
  return <><div className="fm-media sm-sim-mode" style={referenceScopeStyle}>
@@ -32,8 +35,8 @@ export default function SourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  </div>{simulation?<Suspense fallback={<p role="status">正在准备模拟计算…</p>}><SimulationPage key={'simulated:'+workspace} view={view}/></Suspense>:<LiveSourceMatrixPage key={'real:'+workspace} view={view}/>}</>;
 }
 function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
- const [,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
- const taskId=new URLSearchParams(search).get('task')??'';
+ const [path,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
+ const params=new URLSearchParams(search),taskId=params.get('task')??params.get('matrixTask')??'';
  const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]),[industry,setIndustry]=useState(''),[questions,setQuestions]=useState(''),[product,setProduct]=useState(''),[audience,setAudience]=useState(''),[regions,setRegions]=useState(''),[hours,setHours]=useState(''),[requirement,setRequirement]=useState(''),[sourcePlatform,setSourcePlatform]=useState('');
  const [importKind,setImportKind]=useState<'citations'|'industry'|null>(null),[modelOpen,setModelOpen]=useState(false),[origin,setOrigin]=useState('all'),[confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null);
  const [result,setResult]=useState<MatrixResult|null>(null),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[configurationNotice,setConfigurationNotice]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[taskState,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
@@ -69,22 +72,131 @@ function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  }
  async function cancel(){if(!taskId)return;const abort=new AbortController();try{await matrixApi('/classify/'+encodeURIComponent(taskId)+'/cancel',abort.signal,{});request.current?.abort();sequence.current++;setBusy(false);setResult(null);setTaskState('cancelled');setPollEpoch(n=>n+1);}catch(e){setError(e instanceof Error?e:new Error(String(e)));}}
  const candidates=result?.matrix.candidates??[],visible=candidates.filter(c=>(availability==='all'||c.channel_status===availability)&&`${display(c.attributes.source_name??c.attributes.name??c.resource_id)} ${display(c.attributes.domain)} ${c.reason_summary??''}`.toLocaleLowerCase('zh-CN').includes(sourceQuery.toLocaleLowerCase('zh-CN')));
- const gateway=usePublisherGateway(),shortlist=mediaShortlistKey(workspace,search),contextDraftId=new URLSearchParams(search).get('draftId')??'',cartKey=contextDraftId?`${shortlist}:draft:${contextDraftId}`:shortlist;
- const [serverDraft,setServerDraft]=useState<PublicationDraft>(),[cartBusy,setCartBusy]=useState(false),cartEpoch=useRef(0),cartMutation=useRef(false);
- const [mapped,setMapped]=useState<MediaResource[]>([]),[cartState,setCartState]=useState<{key:string|undefined;items:Map<string,MediaResource>}>({key:cartKey,items:new Map()}),[detailMedia,setDetailMedia]=useState<MediaResource>();
- const cart=cartState.key===cartKey?cartState.items:new Map<string,MediaResource>();
- const setCart=(items:Map<string,MediaResource>)=>setCartState({key:cartKey,items});
- const [favoriteIds,setFavoriteIds]=useState<string[]>([]);
- useEffect(()=>{const abort=new AbortController();cartEpoch.current++;cartMutation.current=false;setCartBusy(false);setServerDraft(undefined);setCart(new Map());setFavoriteIds([]);if(contextDraftId)void gateway.getDraft(contextDraftId,abort.signal).then(d=>{if(!abort.signal.aborted){setServerDraft(d);setCart(new Map(d.items.map(x=>[x.media.id,x.media])));}}).catch(e=>{if(!abort.signal.aborted)setNotice(e instanceof Error?e.message:'当前稿件读取失败');});return()=>{abort.abort();cartEpoch.current++;};},[shortlist,contextDraftId,gateway]);
+ const gateway=usePublisherGateway(),flow=usePublishingFlow(),shortlist=mediaShortlistKey(workspace,search);
+ const routeDraftId=params.get('draftId')??'',routeVersionId=params.get('articleVersion')??'',routeTaskId=params.get('workbenchTask')??'';
+ const contextDraftId=routeDraftId||flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id||'';
+ const articleVersionId=routeVersionId||flow?.resources?.find(resource=>resource.kind==='article_version')?.id||'';
+ const mode=params.get('mode')??'',workbenchTask=routeTaskId||flow?.taskId||'';
+ const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
+  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,taskId,flow?.scopeKey,flow?.agentId]);
+ const selectionTask=useMediaSelectionTask(flow,taskContext);
+ const cartKey=JSON.stringify([shortlist,flow?.scopeKey,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
+ const cartScope=useMemo(()=>({gateway,key:cartKey}),[gateway,cartKey]);
+ const [binding,setBinding]=useState<{scope:typeof cartScope;loading:boolean;error:string;draft?:PublicationDraft;version?:ArticleVersion}>();
+ const currentBinding=binding?.scope===cartScope?binding:undefined,serverDraft=currentBinding?.draft;
+ const [bindingAttempt,setBindingAttempt]=useState(0),[cartBusy,setCartBusy]=useState(false),cartEpoch=useRef(0),cartMutation=useRef(false);
+ const [mappedState,setMappedState]=useState<{scope:typeof cartScope;items:MediaResource[];loading?:boolean;error?:string}>(),[detailMedia,setDetailMedia]=useState<MediaResource>();
+ const [mappingAttempt,setMappingAttempt]=useState(0);
+ const mapped=useMemo(()=>mappedState?.scope===cartScope?mappedState.items:[],[mappedState,cartScope]);
+ const [associationAck,setAssociationAck]=useState<{scope:typeof cartScope;draftId:string;versionId:string}>();
+ const researchSelection=flow?.selections?.mediaSelection;
+ const cart=useMemo(()=>{
+  if(serverDraft)return new Map(serverDraft.items.map(item=>[item.media.id,item.media]));
+  // Reuse the current flow's research list for display only. A failed bound
+  // draft/version read must never fall back to a different local shopping cart.
+  if(contextDraftId||articleVersionId||!Array.isArray(researchSelection))return new Map<string,MediaResource>();
+  const rows=researchSelection.filter((row):row is MediaResource=>Boolean(row&&typeof row==='object'&&typeof row.id==='string'&&typeof row.priceTenThousandths==='string'));
+  return new Map(rows.slice(0,20).map(row=>[row.id,row]));
+ },[serverDraft,contextDraftId,articleVersionId,researchSelection]);
+ const latestScope=useRef(cartScope);latestScope.current=cartScope;
+ const mounted=useRef(false),routeOwner=useMemo(()=>({gateway,workspace,path,search,taskScope:selectionTask.scopeKey}),[gateway,workspace,path,search,selectionTask.scopeKey]);
+ const latestOwner=useRef(routeOwner);latestOwner.current=routeOwner;
+ useLayoutEffect(()=>{mounted.current=true;return()=>{mounted.current=false;cartEpoch.current++;};},[]);
+ useLayoutEffect(()=>{cartEpoch.current++;cartMutation.current=false;setCartBusy(false);setConfirmBudget(null);appliedBudget.current='';},[cartScope]);
+ const setServerDraft=(draft:PublicationDraft)=>setBinding({scope:cartScope,loading:false,error:'',draft});
+ const favoriteIds:string[]=[];
+ useEffect(()=>{
+  const abort=new AbortController();setBinding({scope:cartScope,loading:true,error:''});
+  const timer=setTimeout(()=>{abort.abort();setBinding({scope:cartScope,loading:false,error:'稿件上下文读取超时，请重试。'});},20_000);
+  void (async()=>{
+   if(contextDraftId){
+    const draft=await gateway.getDraft(contextDraftId,abort.signal);
+    if(draft.id!==contextDraftId||articleVersionId&&draft.articleVersionId!==articleVersionId)throw new Error('投放草稿与指定稿件版本不一致，请返回稿件页面核对。');
+    return {draft};
+   }
+   if(articleVersionId){
+    const version=await gateway.getArticleVersion(articleVersionId,abort.signal);
+    if(version.id!==articleVersionId||!version.frozen)throw new Error('指定稿件版本尚未确认，请返回稿件页面核对。');
+    return {version};
+   }
+   return {};
+  })().then(value=>{if(!abort.signal.aborted)setBinding({scope:cartScope,loading:false,error:'',...value});}).catch(reason=>{if(!abort.signal.aborted)setBinding({scope:cartScope,loading:false,error:reason instanceof Error?reason.message:'稿件上下文读取失败，请重试。'});}).finally(()=>clearTimeout(timer));
+  return()=>{abort.abort();clearTimeout(timer);};
+ },[cartScope,bindingAttempt,contextDraftId,articleVersionId,gateway]);
+ const bindingIssue=!currentBinding||currentBinding.loading?'正在读取稿件上下文…':currentBinding.error
+  ||(!serverDraft&&!currentBinding.version?'请先在稿件页面确认一份稿件，再选择媒体。':'');
+ const draftRegistered=Boolean(serverDraft&&flow?.records?.some(record=>record.id===`media-draft:${serverDraft.id}`&&record.status==='completed')
+  &&flow.resources?.some(resource=>resource.kind==='publication_draft'&&resource.id===serverDraft.id)
+  &&flow.resources?.some(resource=>resource.kind==='article_version'&&resource.id===serverDraft.articleVersionId));
+ // A failed association must remain recoverable after refresh, using only the
+ // draft verified in this scope rather than a saved object from another task.
+ const registrationPending=Boolean(flow&&serverDraft&&serverDraft.id===contextDraftId&&!bindingIssue&&!draftRegistered
+  &&!(associationAck?.scope===cartScope&&associationAck.draftId===serverDraft.id&&associationAck.versionId===serverDraft.articleVersionId));
+ const articleHasImages=serverDraft?.articleContainsImages??currentBinding?.version?.containsImages??false;
+ const mediaHref=(view:'home'|'third'|'cart')=>{
+  const query=new URLSearchParams(search);query.delete('task');query.delete('draftId');query.delete('simulation');
+  if(taskId)query.set('matrixTask',taskId);if(serverDraft?.articleVersionId||articleVersionId)query.set('articleVersion',serverDraft?.articleVersionId||articleVersionId);if(workbenchTask)query.set('workbenchTask',workbenchTask);
+  const boundId=serverDraft?.id||contextDraftId,base=boundId?`/publishing/drafts/${encodeURIComponent(boundId)}/media`:'/publishing/media';
+  return projectWorkspaceUrl(base+(view==='home'?'':'/'+view)+(query.size?'?'+query.toString():''));
+ };
+ const persistCart=async(mediaIds:string[])=>{
+  if(cartMutation.current||busy)return false;
+  if(bindingIssue){setNotice(bindingIssue);return false;}
+  if(mediaIds.length>20||new Set(mediaIds).size!==mediaIds.length){setNotice('一次最多选择 20 家不同媒体');return false;}
+  const epoch=cartEpoch.current,scope=cartScope,owner=routeOwner;
+  const current=()=>mounted.current&&epoch===cartEpoch.current&&latestScope.current===scope;
+  const stillOnPage=()=>mounted.current&&latestOwner.current===owner;
+  cartMutation.current=true;setCartBusy(true);setNotice('');
+  try{
+   let saved:PublicationDraft,savedTaskId=workbenchTask;
+   if(serverDraft)saved=await gateway.updateDraftMedia(serverDraft.id,mediaIds,serverDraft.revision);
+   else{
+    const ownerTask=await selectionTask.ensureTask();if(ownerTask)savedTaskId=ownerTask;
+    const requestKey=ownerTask?await publishingDraftRequestKey(ownerTask,articleVersionId,mediaIds):undefined;
+    if(!current())return false;
+    const flowMode:FlowStageMode=['single','per_media','multi','batch'].includes(mode)?mode as FlowStageMode:'default';
+    saved=await gateway.createDraft(articleVersionId,mediaIds,requestKey,titleModeForFlowMode(flowMode));
+   }
+   if(!current())return false;
+   setServerDraft(saved);
+   if(!contextDraftId){
+    // The draft already exists even if recording its task reference fails.
+    if(flow)try{await flow.record({id:`media-draft:${saved.id}`,label:'已保存媒体选择',resources:[{kind:'article_version',id:saved.articleVersionId},{kind:'publication_draft',id:saved.id}]});}
+    catch{if(stillOnPage())setNotice('媒体选择已保存到投放草稿，但任务关联未完成；可保留当前草稿继续操作。');}
+    if(!stillOnPage())return false;
+    const query=new URLSearchParams(search);query.set('draftId',saved.id);query.set('articleVersion',saved.articleVersionId);
+    if(taskId)query.set('task',taskId);if(savedTaskId)query.set('workbenchTask',savedTaskId);
+    navigate(projectWorkspaceUrl(path+'?'+query.toString()),{replace:true});
+   }
+   return true;
+  }catch(reason){if(current())setNotice(reason instanceof Error?(reason.message==='Media title is invalid'?'稿件标题超过所选媒体的字数上限，媒体尚未加入。请核对媒体要求后，返回稿件页面调整标题。':reason.message):'购物车尚未保存，请重试');return false;}
+  finally{if(current()){cartMutation.current=false;setCartBusy(false);}}
+ };
+ const retryAssociation=async()=>{
+  if(!flow||!serverDraft||!registrationPending||bindingIssue||cartMutation.current)return;
+  const owner=routeOwner;cartMutation.current=true;setCartBusy(true);
+  try{await flow.record({id:`media-draft:${serverDraft.id}`,label:'已保存媒体选择',resources:[{kind:'article_version',id:serverDraft.articleVersionId},{kind:'publication_draft',id:serverDraft.id}]});if(mounted.current&&latestOwner.current===owner){setAssociationAck({scope:cartScope,draftId:serverDraft.id,versionId:serverDraft.articleVersionId});setNotice('投放草稿已重新关联到当前任务。');}}
+  catch{if(mounted.current&&latestOwner.current===owner)setNotice('投放草稿仍已保存，任务关联暂未完成，请重试。');}
+  finally{if(mounted.current&&latestOwner.current===owner){cartMutation.current=false;setCartBusy(false);}}
+ };
  const resourceKey=candidates.map(c=>c.resource_id).filter(Boolean).join('\n');
- useEffect(()=>{const abort=new AbortController();setMapped([]);if(!resourceKey)return()=>abort.abort();
-  void (async()=>{let ids=resourceKey.split('\n');const internal=ids.filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id));const resolved=new Map<string,string>();for(let n=0;n<internal.length;n+=100){const rows=await rulesRequest<{items:Array<{id:string;externalResourceId:string}>}>('?ids='+encodeURIComponent(internal.slice(n,n+100).join(',')),abort.signal);for(const row of rows.items)resolved.set(row.id,row.externalResourceId);}ids=ids.map(id=>resolved.get(id)??id);const all:MediaResource[]=[];for(let n=0;n<ids.length;n+=50){const page=await gateway.listMedia({query:'',batchQuery:ids.slice(n,n+50).join('\n'),page:1,pageSize:100},abort.signal);all.push(...page.items);}if(!abort.signal.aborted)setMapped(all);})().catch(e=>{if(!abort.signal.aborted)setNotice(e instanceof Error?e.message:'媒体映射读取失败');});return()=>abort.abort();
- },[gateway,resourceKey,workspace]);
+ useEffect(()=>{const abort=new AbortController();setMappedState({scope:cartScope,items:[],loading:!!resourceKey});if(!resourceKey)return()=>abort.abort();
+  const timer=setTimeout(()=>{abort.abort();setMappedState({scope:cartScope,items:[],error:'媒体映射读取超时，请重试。'});},20_000);
+  void (async()=>{let ids=resourceKey.split('\n');const internal=ids.filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id));const resolved=new Map<string,string>();for(let n=0;n<internal.length;n+=100){const rows=await rulesRequest<{items:Array<{id:string;externalResourceId:string}>}>('?ids='+encodeURIComponent(internal.slice(n,n+100).join(',')),abort.signal);for(const row of rows.items)resolved.set(row.id,row.externalResourceId);}ids=ids.map(id=>resolved.get(id)??id);const all:MediaResource[]=[];for(let n=0;n<ids.length;n+=50){const page=await gateway.listMedia({query:'',batchQuery:ids.slice(n,n+50).join('\n'),page:1,pageSize:100},abort.signal);all.push(...page.items);}if(!abort.signal.aborted)setMappedState({scope:cartScope,items:all});})().catch(e=>{if(!abort.signal.aborted)setMappedState({scope:cartScope,items:[],error:e instanceof Error?e.message:'媒体映射读取失败'});}).finally(()=>clearTimeout(timer));return()=>{abort.abort();clearTimeout(timer);};
+ },[gateway,resourceKey,cartScope,mappingAttempt]);
  const mediaFor=(id:string|null)=>mapped.find(m=>m.id===id||m.externalResourceId===id);
  const rules=useMarketRules(mapped.map(m=>m.id),result?.matrix_version??'');
- const toggleCandidate=async(id:string)=>{if(cartMutation.current||busy||contextDraftId&&!serverDraft)return;const c=candidates.find(x=>x.candidate_id===id),m=c?mediaFor(c.resource_id):undefined;if(!m)return;const next=new Map(cart),remove=next.has(m.id);if(remove)next.delete(m.id);else{const blocker=mediaSelectionBlocker(m,serverDraft?.articleContainsImages??false);if(blocker){setNotice(blocker);return;}if(next.size>=20){setNotice('一次最多选择 20 家媒体');return;}next.set(m.id,m);}const epoch=cartEpoch.current;cartMutation.current=true;setCartBusy(true);try{if(contextDraftId&&serverDraft){const saved=await gateway.updateDraftMedia(contextDraftId,[...next.keys()],serverDraft.revision);if(epoch!==cartEpoch.current)return;setServerDraft(saved);setCart(new Map(saved.items.map(x=>[x.media.id,x.media])));}else{setNotice('请先绑定已确认稿件；当前服务未提供独立研究购物车保存接口。');return;}setSelected(v=>remove?v.filter(x=>x!==id):[...new Set([...v,id])]);}catch(e){if(epoch===cartEpoch.current)setNotice(e instanceof Error?e.message:'购物车尚未保存，请重试');}finally{if(epoch===cartEpoch.current){cartMutation.current=false;setCartBusy(false);}}};
+ const candidateIssue=(candidate:typeof candidates[number],media:MediaResource)=>bindingIssue||(busy?'矩阵正在更新，请稍后再选。':cartBusy?'正在保存媒体选择…':'')
+  ||(!cart.has(media.id)?(!rules.ready?rules.error||'正在读取媒体规则…':candidate.channel_status==='ineligible'?'此信源不满足本次投放要求。':mediaSelectionBlocker(media,articleHasImages)|| (cart.size>=20?'一次最多选择 20 家媒体':'')):'');
+ const toggleCandidate=async(id:string)=>{
+  const candidate=candidates.find(item=>item.candidate_id===id),media=candidate?mediaFor(candidate.resource_id):undefined;
+  if(!candidate||!media)return;const issue=candidateIssue(candidate,media);if(issue){setNotice(issue);return;}
+  const next=new Set(cart.keys());if(next.has(media.id))next.delete(media.id);else next.add(media.id);
+  await persistCart([...next]);
+ };
+ useEffect(()=>{setSelected(candidates.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&cart.has(media.id);}).map(candidate=>candidate.candidate_id));},[result,mapped,cart]);
  const favorite=(_id:string)=>setNotice('当前服务未提供媒体收藏保存接口。');
- const row=(c:typeof candidates[number])=>{const m=mediaFor(c.resource_id);return m&&rules.ready?<MarketRow key={c.candidate_id} media={m} rules={rules.rules[m.id]} reason={c.reason_summary} checked={cart.has(m.id)} onToggle={()=>void toggleCandidate(c.candidate_id)} disabled={busy||cartBusy||!!contextDraftId&&!serverDraft||c.channel_status==='ineligible'} favorite={favoriteIds.includes(m.id)} onFavorite={()=>favorite(m.id)} onDetails={()=>setDetailMedia(m)}/>:<article className="y-media-row" data-source-id={c.candidate_id} key={c.candidate_id}><div className="y-media-identity"><div className="y-media-title"><span className="y-monogram">{Array.from(display(c.attributes.source_name??c.attributes.name))[0]}</span><h3>{display(c.attributes.source_name??c.attributes.name??c.resource_id)}</h3></div><span className="y-capture-tag">未映射 · 仅研究</span>{typeof c.attributes.url==='string'&&/^https?:\/\//.test(c.attributes.url)&&<a className="y-external" href={c.attributes.url} target="_blank" rel="noopener noreferrer">查看信源 ↗</a>}</div><div><span className="y-price-label">发布报价</span><span className="y-price-value is-pending">未提供</span><p className="y-subtle-note">未建立可投媒体映射</p></div><div className="y-props"><Property name="所属行业" value={display(c.attributes.industry)}/><Property name="推荐来源" value={display(c.attributes.source)}/><Property name="优先级" value={display(c.attributes.priority)}/></div><div className="y-props"><Property name="标题字数" value="未注明"/><Property name="正文字数" value="未注明"/><Property name="图片要求" value="未注明"/></div><div><span className="y-capture-tag">已输入记录</span><p className="reading" style={{margin:'10px 0',fontSize:12}}>{c.reason_summary}</p><button className="link small" onClick={()=>setNotice(c.reason_details?.join('；')||c.reason_summary||'推荐依据待确认')}>推荐依据 →</button></div></article>;};
+ const row=(c:typeof candidates[number])=>{const m=mediaFor(c.resource_id);return m&&rules.ready?<MarketRow key={c.candidate_id} media={m} rules={rules.rules[m.id]} reason={c.reason_summary} checked={cart.has(m.id)} onToggle={()=>void toggleCandidate(c.candidate_id)} disabled={!!candidateIssue(c,m)} selectionDisabledReason={candidateIssue(c,m)} favorite={favoriteIds.includes(m.id)} onFavorite={()=>favorite(m.id)} onDetails={()=>setDetailMedia(m)}/>:<article className="y-media-row" data-source-id={c.candidate_id} key={c.candidate_id}><div className="y-media-identity"><div className="y-media-title"><span className="y-monogram">{Array.from(display(c.attributes.source_name??c.attributes.name))[0]}</span><h3>{display(c.attributes.source_name??c.attributes.name??c.resource_id)}</h3></div><span className="y-capture-tag">未映射 · 仅研究</span>{typeof c.attributes.url==='string'&&/^https?:\/\//.test(c.attributes.url)&&<a className="y-external" href={c.attributes.url} target="_blank" rel="noopener noreferrer">查看信源 ↗</a>}</div><div><span className="y-price-label">发布报价</span><span className="y-price-value is-pending">未提供</span><p className="y-subtle-note">未建立可投媒体映射</p></div><div className="y-props"><Property name="所属行业" value={display(c.attributes.industry)}/><Property name="推荐来源" value={display(c.attributes.source)}/><Property name="优先级" value={display(c.attributes.priority)}/></div><div className="y-props"><Property name="标题字数" value="未注明"/><Property name="正文字数" value="未注明"/><Property name="图片要求" value="未注明"/></div><div><span className="y-capture-tag">已输入记录</span><p className="reading" style={{margin:'10px 0',fontSize:12}}>{c.reason_summary}</p><button className="link small" onClick={()=>setNotice(c.reason_details?.join('；')||c.reason_summary||'推荐依据待确认')}>推荐依据 →</button></div></article>;};
  const hydratedTask=useRef('');
  useEffect(()=>{if(!result||!taskId||loading||hydratedTask.current===`${workspace}:${taskId}`)return;hydratedTask.current=`${workspace}:${taskId}`;
   const t=result.scope.task;setIndustry(industries.find(i=>i.name===t.industry)?.id??'');
@@ -98,16 +210,37 @@ function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  const [industryPage,setIndustryPage]=useState(1);
  useEffect(()=>setIndustryPage(1),[industry,sourceQuery,availability,result?.plan_version]);
  const industryRows=visible.filter(c=>(origin==='all'||origin==='input')&&(!industry||industryName===display(result?.scope.task.industry)||industryName===display(c.attributes.industry)));
- const moneyTotal=[...cart.values()].reduce((n,m)=>n+BigInt(m.priceTenThousandths),0n).toString();
- const cartHref=(contextDraftId?`/publishing/drafts/${encodeURIComponent(contextDraftId)}/media/cart`:'/publishing/media/cart')+(taskId?'?matrixTask='+encodeURIComponent(taskId):'');
- const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} onNext={()=>navigate(projectWorkspaceUrl(cartHref))} pending={[...cart.values()].filter(m=>!m.priceTenThousandths).length} items={[...cart.values()]} onRemove={media=>{const candidate=candidates.find(x=>mediaFor(x.resource_id)?.id===media.id);if(candidate){void toggleCandidate(candidate.candidate_id);return;}if(contextDraftId&&serverDraft)void gateway.updateDraftMedia(contextDraftId,[...cart.keys()].filter(id=>id!==media.id),serverDraft.revision).then(saved=>{setServerDraft(saved);setCart(new Map(saved.items.map(x=>[x.media.id,x.media])));}).catch(e=>setNotice(e instanceof Error?e.message:'购物车尚未保存，请重试'));}}/>;
- const confirmBudgetMedia=async()=>{if(!confirmBudget)return;if(!confirmBudget.budget_feasible||confirmBudget.is_estimate||confirmBudget.unknown_items.length||confirmBudget.errors.length){setNotice('预算组合仍有待确认费用或未通过校验，购物车尚未更新。');setConfirmBudget(null);return;}if(appliedBudget.current!==JSON.stringify([currency,total,exploration,min,max,selected,serverDraft?.revision])){setNotice('预算或购物车已变化，请重新进行预算筛选。');setConfirmBudget(null);return;}if(!contextDraftId||!serverDraft){setNotice('请先绑定已确认稿件；当前服务未提供独立研究购物车保存接口。');setConfirmBudget(null);return;}const ids=confirmBudget.items.flatMap(item=>{if(!item||typeof item!=='object'||Array.isArray(item))return [];const candidate=candidates.find(c=>c.candidate_id===item.candidate_id||c.resource_id===item.resource_id),media=candidate?mediaFor(candidate.resource_id):undefined;return media&&candidate?.channel_status==='eligible'&&!mediaSelectionBlocker(media,serverDraft.articleContainsImages)?[media.id]:[];});if(ids.length!==confirmBudget.items.length){setNotice('部分预算候选尚未映射到可投媒体，购物车尚未更新。');setConfirmBudget(null);return;}const next=[...new Set([...cart.keys(),...ids])];if(next.length>20){setNotice('一次最多选择 20 家媒体');setConfirmBudget(null);return;}setCartBusy(true);try{const saved=await gateway.updateDraftMedia(contextDraftId,next,serverDraft.revision);setServerDraft(saved);setCart(new Map(saved.items.map(x=>[x.media.id,x.media])));setConfirmBudget(null);}catch(e){setNotice(e instanceof Error?e.message:'购物车尚未保存，请重试');}finally{setCartBusy(false);}};
+ const validPrice=(media:MediaResource)=>/^\d+$/.test(media.priceTenThousandths)&&BigInt(media.priceTenThousandths)>0n;
+ const pendingPrices=[...cart.values()].filter(media=>!validPrice(media)).length;
+ const moneyTotal=currentBinding?.loading||currentBinding?.error||!currentBinding?undefined:[...cart.values()].reduce((sum,media)=>sum+(validPrice(media)?BigInt(media.priceTenThousandths):0n),0n).toString();
+ const cartHref=mediaHref('cart');
+ const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} nextLabel="查看购物车" nextDisabled={!!bindingIssue||cartBusy} nextHint={bindingIssue} onNext={()=>navigate(cartHref)} pending={pendingPrices} items={[...cart.values()]} onRemove={media=>{void persistCart([...cart.keys()].filter(id=>id!==media.id));}}/>;
+ const confirmBudgetMedia=async()=>{
+  if(!confirmBudget||cartMutation.current)return;
+  if(!confirmBudget.budget_feasible||confirmBudget.is_estimate||confirmBudget.unknown_items.length||confirmBudget.errors.length){setNotice('预算组合仍有待确认费用或未通过校验，购物车尚未更新。');setConfirmBudget(null);return;}
+  if(appliedBudget.current!==JSON.stringify([currency,total,exploration,min,max,selected,serverDraft?.revision])){setNotice('预算或购物车已变化，请重新进行预算筛选。');setConfirmBudget(null);return;}
+  if(bindingIssue||!rules.ready){setNotice(bindingIssue||rules.error||'正在读取媒体规则…');return;}
+  const ids=confirmBudget.items.flatMap(item=>{
+   if(!item||typeof item!=='object'||Array.isArray(item))return [];
+   const candidate=candidates.find(c=>c.candidate_id===item.candidate_id||c.resource_id===item.resource_id),media=candidate?mediaFor(candidate.resource_id):undefined;
+   return media&&candidate?.channel_status==='eligible'&&!mediaSelectionBlocker(media,articleHasImages)?[media.id]:[];
+  });
+  if(ids.length!==confirmBudget.items.length){setNotice('部分预算候选尚未映射到可投媒体，购物车尚未更新。');setConfirmBudget(null);return;}
+  if(await persistCart([...new Set([...cart.keys(),...ids])]))setConfirmBudget(null);
+ };
  const generate=(e:FormEvent)=>{setErrorStage('matrix');if(hours||requirement||sourcePlatform){e.preventDefault();setFieldError('当前生成接口只支持品牌、行业、地区、受众和目标问题；发布时效、素材能力与引用平台需由运营配置，暂无法提交这些筛选条件。');return;}void submit('matrix',e);};
  const modelInput={industry_id:industry,product,audience,regions:regions?regions.split('、'):[],questions:questions.split('\n').filter(Boolean)};
  const dataInputs=<SourceDataInputs citationCount={result?.source_analysis.known_detail_count??0} industryCount={result?.source_analysis.external_aggregates.length??0} onImport={setImportKind}/>;
- return <MediaShell title={view==='industry'?'行业信源推荐':view==='analysis'?'引用信源分析':view==='report'?'信源方案报告':'信源矩阵'} note={view==='industry'?'选择行业，查看对应推荐信源；已匹配资源可以直接选入本次购物车。':'引用数据与行业清单共同作为输入，推荐依据可追溯，发布选择保持同步。'} actions={<button className="button secondary" onClick={()=>setImportKind(view==='industry'?'industry':'citations')}><ReferenceIcon name="plus"/>输入信源数据</button>} taskbar={<MediaTaskbar title={serverDraft?.articleTitle} count={cart.size} total={moneyTotal} cartHref={cartHref}/> } dialogs={<><SourceDataDialog kind={importKind} industry={industryName??''} onClose={()=>setImportKind(null)}/><ModelInputDialog open={modelOpen} value={modelInput} onClose={()=>setModelOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy} onClose={()=>setConfirmBudget(null)} onConfirm={()=>void confirmBudgetMedia()}/></>}>
+ const taskbarTitle=serverDraft?.articleTitle||(currentBinding?.version?'已确认稿件 v'+currentBinding.version.version:contextDraftId||articleVersionId?'当前稿件':undefined);
+ const taskbarNote=bindingIssue||(serverDraft?'已确认 v'+serverDraft.articleVersion:currentBinding?.version?'当前冻结版本，首次选媒后保存投放草稿':undefined);
+ return <MediaShell title={view==='industry'?'行业信源推荐':view==='analysis'?'引用信源分析':view==='report'?'信源方案报告':'信源矩阵'} note={view==='industry'?'选择行业，查看对应推荐信源；已匹配资源可以直接选入本次购物车。':'引用数据与行业清单共同作为输入，推荐依据可追溯，发布选择保持同步。'} actions={<button className="button secondary" onClick={()=>setImportKind(view==='industry'?'industry':'citations')}><ReferenceIcon name="plus"/>输入信源数据</button>} taskbar={<MediaTaskbar title={taskbarTitle} note={taskbarNote} count={cart.size} total={pendingPrices?undefined:moneyTotal} cartHref={cartHref}/> } dialogs={<><SourceDataDialog kind={importKind} industry={industryName??''} onClose={()=>setImportKind(null)}/><ModelInputDialog open={modelOpen} value={modelInput} onClose={()=>setModelOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy} onClose={()=>setConfirmBudget(null)} onConfirm={()=>void confirmBudgetMedia()}/></>}>
+  <div className="actions"><Link className="link small" href={mediaHref('home')}>媒体库首页</Link><Link className="link small" href={mediaHref('third')}>第三方媒体列表</Link></div>
   <nav className="x-matrix-nav" aria-label="信源矩阵子板块">{(['matrix','analysis','industry','report'] as const).map((v,i)=><Link className={view===v?'active':''} href={matrixHref(v)} key={v}>{['信源推荐','引用信源分析','行业信源推荐','方案报告'][i]}</Link>)}</nav>
-  {loading&&<p className="notice" role="status">正在读取行业配置…</p>}{error&&<p className="block-error" role="alert">{error.message}</p>}{configurationNotice&&<p className="notice" role="status">{configurationNotice}</p>}{notice&&<p className="notice" role="status">{notice}</p>}{rules.error&&rules.error!==configurationNotice&&<p className="notice warn" role="status">{rules.error}</p>}
+  {bindingIssue&&<div className="notice" role={currentBinding?.error?'alert':'status'}>{bindingIssue}{currentBinding?.error?<button className="link" onClick={()=>setBindingAttempt(attempt=>attempt+1)}>重试读取稿件上下文</button>:!currentBinding?.loading&&!contextDraftId&&!articleVersionId?<Link className="link" href={projectWorkspaceUrl('/publishing/articles')}>进入稿件选择</Link>:null}</div>}
+  {registrationPending&&<div className="notice warn" role="alert">当前媒体选择已保存，但尚未关联到当前任务。<button className="link" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button></div>}
+  {mappedState?.scope===cartScope&&mappedState.error&&<div className="notice warn" role="alert">{mappedState.error}<button className="link" onClick={()=>setMappingAttempt(attempt=>attempt+1)}>重试读取媒体映射</button></div>}
+  {mappedState?.scope===cartScope&&mappedState.loading&&<p className="notice" role="status">正在匹配可投媒体…</p>}
+  {loading&&<p className="notice" role="status">正在读取行业配置…</p>}{error&&<p className="block-error" role="alert">{error.message}</p>}{configurationNotice&&<p className="notice" role="status">{configurationNotice}</p>}{notice&&<p className="notice" role="status">{notice}</p>}{rules.error&&rules.error!==configurationNotice&&<p className="notice warn" role="status">{rules.error}<button className="link" onClick={rules.reload}>重试读取媒体规则</button></p>}
   {view==='matrix'&&<>
    <div className="z-flow" aria-label="信源推荐的三个步骤"><div className="z-flow-step"><span className="z-flow-number">01</span><div><strong>输入投放要求</strong><small>内容需求 + 两类信源数据</small></div></div><span className="z-flow-arrow">→</span><div className={'z-flow-step '+(result?'is-current':'')}><span className="z-flow-number">02</span><div><strong>生成完整信源矩阵</strong><small>先看相关性，不考虑金额</small></div></div><span className="z-flow-arrow">→</span><div className={'z-flow-step '+(result?.budget_plans.length?'is-current':'')}><span className="z-flow-number">03</span><div><strong>最后进行预算筛选</strong><small>保留原矩阵，独立筛选组合</small></div></div></div>
    {dataInputs}

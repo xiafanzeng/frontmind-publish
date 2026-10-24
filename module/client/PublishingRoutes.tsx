@@ -40,7 +40,14 @@ export type PublishingRoutesProps = {
 
 export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const search=useSearch();
-  const matrixDraftHref=(draftId:string)=>{const params=new URLSearchParams(search);params.set("draftId",draftId);return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());};
+  const matrixDraftHref=(draftId:string)=>{
+    const params=new URLSearchParams(search);
+    const matrixTask=params.get("task") || params.get("matrixTask");
+    params.set("draftId",draftId);
+    params.delete("matrixTask");
+    if(matrixTask)params.set("task",matrixTask);
+    return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());
+  };
   return (
     <PublishingGatewayProvider gateway={gateway}>
       <Suspense
@@ -91,7 +98,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <MediaLibraryPage view="home" />
             </Route>
             <Route path="/publishing/drafts/:draftId/media">
-              {(params) => <MediaLibraryPage draftId={params.draftId} />}
+              {(params) => <MediaLibraryPage draftId={params.draftId} view="home" />}
             </Route>
             <Route path="/publishing/drafts/:draftId/titles">
               {(params) => (

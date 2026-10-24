@@ -12,13 +12,19 @@ const validKinds = new Set(["article","article_version","publication_draft","pub
 
 export function publishingFlowScope(path: string, search = "") {
   const params = new URLSearchParams(search.replace(/^\?/, ""));
-  const draft = /^\/publishing\/drafts\/([^/]+)\/(media|titles|review)/.exec(path);
+  const draft = /^\/publishing\/drafts\/([^/]+)\/(media|titles|review)(?:\/|$)/.exec(path);
   const article = /^\/publishing\/articles\/([^/]+)\/edit/.exec(path);
   const batch = /^\/publishing\/publications\/([^/]+)/.exec(path);
-  const agentId: Agent = path.startsWith("/publishing/media") || draft?.[2] === "media" ? "media" : path.startsWith("/publishing/articles") ? "articles" : "publishing";
+  const mediaPage = /^\/publishing\/(?:media(?:\/|$)|source-(?:matrix|industry|analysis|report)(?:\/|$))/.test(path);
+  const agentId: Agent = mediaPage || draft?.[2] === "media" ? "media" : path.startsWith("/publishing/articles") ? "articles" : "publishing";
   const decode = (value: string) => {try {return decodeURIComponent(value);} catch {return value;}};
-  const resource: PublishingResource | undefined = draft ? {kind:"publication_draft",id:decode(draft[1]!)} : article ? {kind:"article",id:decode(article[1]!)} : batch ? {kind:"publication_batch",id:decode(batch[1]!)} : params.get("articleVersion") ? {kind:"article_version",id:params.get("articleVersion")!} : undefined;
-  return {agentId, resource, key: `${agentId}:${resource ? `${resource.kind}:${resource.id}` : "entry"}`};
+  const queryDraft = mediaPage ? params.get("draftId") : null;
+  const resource: PublishingResource | undefined = draft ? {kind:"publication_draft",id:decode(draft[1]!)} : queryDraft ? {kind:"publication_draft",id:queryDraft} : article ? {kind:"article",id:decode(article[1]!)} : batch ? {kind:"publication_batch",id:decode(batch[1]!)} : params.get("articleVersion") ? {kind:"article_version",id:params.get("articleVersion")!} : undefined;
+  const resources = resource ? [resource] : [];
+  const version = params.get("articleVersion");
+  if (version && !resources.some(item => item.kind === "article_version")) resources.push({kind:"article_version",id:version});
+  const key = `${agentId}:${resource ? `${resource.kind}:${resource.id}` : "entry"}`;
+  return {agentId, resource, resources, key, seedKey: JSON.stringify([key,resources])};
 }
 function read(key: string): FlowDocument {
   try {
@@ -35,6 +41,22 @@ function mergeResources(previous: FlowEntry["resources"], incoming: FlowEntry["r
   return [...previous.filter(resource => !kinds.has(resource.kind)), ...incoming];
 }
 
+// A media task owns both the frozen version and the server draft created from
+// it. Register those references as aliases, rather than starting another task
+// when selection persistence changes the URL from version to draft.
+function indexEntry(active: FlowDocument["active"], entry: FlowEntry) {
+  const entryKey = `${entry.agentId}:entry`;
+  const next = Object.fromEntries(Object.entries(active).filter(([key,id]) => id !== entry.id || key === entryKey));
+  if (!entry.resources.length) next[`${entry.agentId}:entry`] = entry.id;
+  for (const resource of entry.resources) next[`${entry.agentId}:${resource.kind}:${resource.id}`] = entry.id;
+  return next;
+}
+
+function matchesScope(entry: FlowEntry | undefined, scope: ReturnType<typeof publishingFlowScope>) {
+  return entry?.agentId === scope.agentId && scope.resources.every(expected =>
+    entry.resources.some(resource => resource.kind === expected.kind && resource.id === expected.id));
+}
+
 /** Only UI choices and resource references are browser-owned. Drafts, revisions,
  * quotes, orders and results continue through the existing publisher gateway. */
 export function StandalonePublishingFlow({workspaceKey,children}: {workspaceKey: string;children: ReactNode}) {
@@ -47,12 +69,13 @@ export function StandalonePublishingFlow({workspaceKey,children}: {workspaceKey:
   const scope = publishingFlowScope(path,search);
   const requested = new URLSearchParams(search.replace(/^\?/, "")).get("workbenchTask");
   const requestedEntry = requested ? document.entries[requested] : undefined;
-  const requestedResourceMatches = !scope.resource || requestedEntry?.resources.some(resource => resource.kind === scope.resource!.kind && resource.id === scope.resource!.id);
-  const selectedId = requestedEntry?.agentId === scope.agentId && requestedResourceMatches ? requested : document.active[scope.key];
-  let entry = selectedId ? document.entries[selectedId] : undefined;
+  const activeEntry = document.entries[document.active[scope.key] ?? ""];
+  let entry = matchesScope(requestedEntry,scope) ? requestedEntry : matchesScope(activeEntry,scope) ? activeEntry : undefined;
   if (!entry) {
-    entry = seeds.current.get(scope.key);
-    if (!entry) {entry = {id:crypto.randomUUID(),agentId:scope.agentId,step:"",values:{},records:[],resources:scope.resource?[scope.resource]:[]};seeds.current.set(scope.key,entry);}
+    const seed = seeds.current.get(scope.seedKey);
+    const savedSeed = seed ? document.entries[seed.id] : undefined;
+    entry = savedSeed ? (matchesScope(savedSeed,scope) ? savedSeed : undefined) : seed;
+    if (!entry) {entry = {id:crypto.randomUUID(),agentId:scope.agentId,step:"",values:{},records:[],resources:scope.resources};seeds.current.set(scope.seedKey,entry);}
   }
   const currentEntry = useRef(entry);currentEntry.current = entry;
   const persist = useCallback((next: FlowDocument) => {
@@ -60,10 +83,10 @@ export function StandalonePublishingFlow({workspaceKey,children}: {workspaceKey:
     catch {throw new Error("引导选择尚未保存，请检查浏览器存储后重试；业务草稿仍保存在服务器。");}
     currentDocument.current = next;setDocument(next);
   },[storageKey]);
-  const update = useCallback((owner: FlowEntry, key: string, transform: (value: FlowEntry) => FlowEntry) => {
+  const update = useCallback((owner: FlowEntry, transform: (value: FlowEntry) => FlowEntry) => {
     const latest = currentDocument.current;
     const saved = transform(latest.entries[owner.id] ?? owner);
-    persist({...latest,active:{...latest.active,[key]:saved.id},entries:{...latest.entries,[saved.id]:saved}});
+    persist({...latest,active:indexEntry(latest.active,saved),entries:{...latest.entries,[saved.id]:saved}});
     return saved;
   },[persist]);
   const value = useMemo<PublishingFlow>(() => {
@@ -71,12 +94,12 @@ export function StandalonePublishingFlow({workspaceKey,children}: {workspaceKey:
     return {
       taskId:owner.id,scopeKey:workspaceKey,agentId:owner.agentId,pending:false,outcomePending:false,
       selections:owner.values,resources:owner.resources as PublishingResource[],records:owner.records,
-      async ensureTask() {update(owner,scope.key,current=>current);return owner.id;},
+      async ensureTask() {update(owner,current=>current);return owner.id;},
       setSummary:()=>{},
-      async saveSelections(values) {update(owner,scope.key,current=>({...current,step:"media-selection",values:{...current.values,...values}}));},
-      async saveValues(values) {update(owner,scope.key,current=>({...current,values:{...current.values,...values}}));},
+      async saveSelections(values) {update(owner,current=>({...current,step:"media-selection",values:{...current.values,...values}}));},
+      async saveValues(values) {update(owner,current=>({...current,values:{...current.values,...values}}));},
       async record(record) {
-        update(owner,scope.key,current=>({...current,step:record.id.split(":")[0] ?? record.id,resources:mergeResources(current.resources,record.resources),records:[...current.records.filter(item=>item.id!==record.id),{id:record.id,label:record.label,detail:record.detail,status:"completed",timestamp:Date.now()}]}));
+        update(owner,current=>({...current,step:record.id.split(":")[0] ?? record.id,resources:mergeResources(current.resources,record.resources),records:[...current.records.filter(item=>item.id!==record.id),{id:record.id,label:record.label,detail:record.detail,status:"completed",timestamp:Date.now()}]}));
       },
       async handoff(input) {
         const id = await publishingHandoffRecordId(input.idempotencyKey);
@@ -87,9 +110,8 @@ export function StandalonePublishingFlow({workspaceKey,children}: {workspaceKey:
         const destination = previousId ? latest.entries[previousId] : undefined;
         const target: FlowEntry = destination ?? {id:crypto.randomUUID(),agentId:input.targetAgentId,step:"",values:{},records:[],resources:input.resources};
         const url = new URL(input.route,window.location.origin);
-        const targetScope = publishingFlowScope(url.pathname,url.search);
         const saved = {...source,records:[...source.records.filter(item=>item.id!==id),{id,label:input.title,status:"completed" as const,timestamp:Date.now(),targetTask:{conversationId:target.id,agentId:target.agentId}}]};
-        persist({...latest,active:{...latest.active,[scope.key]:source.id,[targetScope.key]:target.id},entries:{...latest.entries,[source.id]:saved,[target.id]:target},handoffs:{...latest.handoffs,[handoffKey]:target.id}});
+        persist({...latest,active:indexEntry(indexEntry(latest.active,saved),target),entries:{...latest.entries,[source.id]:saved,[target.id]:target},handoffs:{...latest.handoffs,[handoffKey]:target.id}});
         if (currentEntry.current.id !== owner.id) return;
         url.searchParams.set("workbenchTask",target.id);
         navigate(`${url.pathname}${url.search}${url.hash}`);
