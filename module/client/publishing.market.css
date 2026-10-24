@@ -1032,24 +1032,51 @@
 .fm-media{background:#f5f6fa;min-height:100%}
 .fm-media .b-task,.fm-media .y-filter-panel,.fm-media .panel{background:#fff}
 
-/* 2026-10 · 底部购物车抽屉：汇总栏整体可点击展开，面板自底向上弹出。 */
-.fm-media .y-cart-dock{position:relative}
-.fm-media .y-cart-bar-wrap{display:flex;align-items:center;gap:14px;min-width:0}
-.fm-media .y-cart-bar{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;border:0;background:none;padding:0;text-align:left;cursor:pointer;border-radius:10px}
-.fm-media .y-cart-bar[aria-disabled=true]{cursor:default}
+/* The slot tracks the real content width; only the dock leaves document flow. */
+.fm-media .y-cart-slot{height:132px;width:100%;min-width:0;margin-top:16px}
+.fm-media .b-bottom.y-cart-dock{position:fixed;left:var(--y-cart-left,0px);width:var(--y-cart-width,0px);bottom:calc(var(--y-cart-viewport-bottom,0px) + max(12px,env(safe-area-inset-bottom,0px)));display:block;margin:0;visibility:hidden;z-index:5}
+.fm-media .y-cart-dock[data-positioned=true]{visibility:visible}
+.fm-media .y-cart-bar-wrap{display:flex;align-items:center;gap:14px;min-width:0;width:100%}
+.fm-media .y-cart-bar{position:static;flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:12px;border:0;background:none;padding:0;text-align:left;cursor:pointer;border-radius:10px}
+/* Extend the native disclosure button hit area through the card's blank space.
+   Independent action controls and the drawer sit above it, never inside it. */
+.fm-media .y-cart-bar::after{content:'';position:absolute;inset:0;border-radius:16px;cursor:pointer}
+.fm-media .y-cart-bar[aria-disabled=true],.fm-media .y-cart-bar[aria-disabled=true]::after{cursor:default}
+.fm-media .y-cart-bar:not([aria-disabled=true]):hover .y-cart-toggle i{background:#ecd4e5}
+.fm-media .y-cart-bar:focus-visible{outline:none}
+.fm-media .y-cart-bar:focus-visible::after{outline:3px solid #cf77a2;outline-offset:3px}
 .fm-media .y-cart-bar-summary{display:grid;gap:3px;min-width:0}
-.fm-media .y-cart-bar-summary .small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fm-media .y-cart-bar-summary strong{overflow-wrap:anywhere;line-height:1.5}
+.fm-media .y-cart-bar-summary .small{white-space:normal;overflow-wrap:anywhere;line-height:1.6}
+.fm-media .y-cart-bar-wrap .y-cart-actions{position:relative;z-index:1;flex:0 1 auto;justify-content:flex-end;max-width:48%;margin-left:auto;pointer-events:none}
+.fm-media .y-cart-actions>*{pointer-events:auto}
+.fm-media .y-cart-actions .button{max-width:100%;white-space:normal;text-align:center}
 .fm-media .y-cart-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--brand,#b33467);font-size:12px;font-weight:600;white-space:nowrap}
 .fm-media .y-cart-toggle i{font-style:normal;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f9eef4;transition:transform .18s}
 .fm-media .y-cart-toggle.is-open i{transform:rotate(180deg)}
-.fm-media .y-cart-drawer{position:absolute;left:0;right:0;bottom:calc(100% + 10px);display:flex;flex-direction:column;max-height:42vh;background:#fff;border:1px solid #e7d8e3;border-radius:16px;box-shadow:0 -10px 34px #3723451a;overflow:hidden;z-index:6}
+.fm-media .y-cart-drawer{position:absolute;left:0;right:0;bottom:calc(100% + 10px);max-height:min(42vh,var(--y-cart-drawer-room,42vh));max-height:min(42dvh,var(--y-cart-drawer-room,42dvh));background:#fff;border:1px solid #e7d8e3;border-radius:16px;box-shadow:0 -10px 34px #3723451a;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;z-index:6}
 .fm-media .y-cart-drawer-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--line,#e6e8f1);background:#fff}
 .fm-media .y-cart-drawer-head strong{font-size:14px;color:var(--plum,#4c1467)}
 .fm-media .y-cart-drawer-head .actions{margin-left:auto;display:flex;gap:14px;align-items:center}
-.fm-media .y-cart-drawer ul{list-style:none;margin:0;padding:4px 20px 12px;overflow-y:auto}
+.fm-media .y-cart-drawer ul{list-style:none;margin:0;padding:4px 20px 12px}
 .fm-media .y-cart-drawer li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0eef5;font-size:13px}
 .fm-media .y-cart-drawer li:last-child{border-bottom:0}
 .fm-media .y-cart-drawer li strong{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600}
 .fm-media .y-cart-drawer li small{color:var(--muted,#737991);flex:none}
 .fm-media .y-cart-drawer li .b-price{flex:none}
 .fm-media .y-cart-drawer li .link{flex:none}
+.fm-media .y-cart-drawer-head button{min-width:32px;min-height:32px;justify-content:center}
+@media(max-width:650px){
+ .fm-media .b-bottom.y-cart-dock{padding:12px}
+ .fm-media .y-cart-bar-wrap{gap:10px}
+ .fm-media .y-cart-bar{gap:6px}
+ .fm-media .y-cart-bar-summary strong{font-size:16px}
+ .fm-media .y-cart-bar-wrap .y-cart-actions{flex-direction:column;align-items:flex-end;gap:8px}
+ .fm-media .y-cart-actions .button{padding:6px 10px;font-size:12px}
+ .fm-media .y-cart-drawer-head{padding:12px;gap:8px}
+ .fm-media .y-cart-drawer ul{padding:0 12px 8px}
+ .fm-media .y-cart-drawer li{flex-wrap:wrap;gap:8px}
+ .fm-media .y-cart-drawer li strong{flex-basis:55%}
+}
+@media(prefers-reduced-motion:reduce){.fm-media .y-cart-toggle i{transition:none}}
+@media print{.fm-media .y-cart-slot{display:none!important}}

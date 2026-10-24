@@ -81,25 +81,82 @@ export function MediaTaskbar({title,note,count=0,total,children,actions,saveStat
  */
 export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,onRemove}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];onRemove?:(media:MediaResource)=>void}) {
  const [open,setOpen]=useState(false);
+ const slotRef=useRef<HTMLDivElement>(null),dockRef=useRef<HTMLDivElement>(null),toggleRef=useRef<HTMLButtonElement>(null);
+ const drawerId=useId(),hintId=useId(),expanded=open&&count>0;
+ // The in-flow slot owns width and bottom clearance. The dock itself is fixed,
+ // so it remains visible even while the slot is far below the scroll viewport.
+ useLayoutEffect(()=>{
+  const slot=slotRef.current,dock=dockRef.current;
+  if(!slot||!dock)return;
+  let scrollOwner:HTMLElement|null=slot.parentElement;
+  while(scrollOwner&&!/(auto|scroll)/.test(getComputedStyle(scrollOwner).overflowY))scrollOwner=scrollOwner.parentElement;
+  let frame=0;
+  const measure=()=>{
+   frame=0;
+   const anchor=slot.getBoundingClientRect(),viewport=window.visualViewport;
+   const viewportLeft=viewport?.offsetLeft??0,viewportTop=viewport?.offsetTop??0;
+   const viewportRight=viewportLeft+(viewport?.width??document.documentElement.clientWidth);
+   const viewportBottom=viewportTop+(viewport?.height??window.innerHeight);
+   const scrollBounds=scrollOwner?.getBoundingClientRect();
+   const left=Math.max(anchor.left,viewportLeft),right=Math.min(anchor.right,viewportRight);
+   const bottom=Math.min(viewportBottom,scrollBounds?.bottom??viewportBottom);
+   dock.style.setProperty('--y-cart-left',`${left}px`);
+   dock.style.setProperty('--y-cart-width',`${Math.max(0,right-left)}px`);
+   dock.style.setProperty('--y-cart-viewport-bottom',`${Math.max(0,window.innerHeight-bottom)}px`);
+   dock.dataset.positioned=right>left?'true':'false';
+   const bar=dock.getBoundingClientRect();
+   const bottomGap=Math.max(0,bottom-bar.bottom);
+   slot.style.height=`${Math.ceil(bar.height+bottomGap+16)}px`;
+   // Reserve the existing sticky topbar when present; do not change the host.
+   const topbar=scrollOwner?.querySelector('.publish-topbar')?.getBoundingClientRect();
+   const top=Math.max(viewportTop,scrollBounds?.top??viewportTop,topbar?.bottom??viewportTop);
+   dock.style.setProperty('--y-cart-drawer-room',`${Math.max(0,bar.top-top-10)}px`);
+  };
+  const schedule=()=>{if(!frame)frame=window.requestAnimationFrame(measure);};
+  const observer=typeof ResizeObserver==='undefined'?undefined:new ResizeObserver(schedule);
+  observer?.observe(slot);observer?.observe(dock);
+  if(scrollOwner)observer?.observe(scrollOwner);
+  window.addEventListener('resize',schedule);
+  window.addEventListener('scroll',schedule,{capture:true,passive:true});
+  const viewport=window.visualViewport;
+  viewport?.addEventListener('resize',schedule);viewport?.addEventListener('scroll',schedule);
+  measure();
+  return()=>{
+   observer?.disconnect();window.cancelAnimationFrame(frame);
+   window.removeEventListener('resize',schedule);window.removeEventListener('scroll',schedule,true);
+   viewport?.removeEventListener('resize',schedule);viewport?.removeEventListener('scroll',schedule);
+  };
+ },[]);
+ useEffect(()=>{
+  if(count===0&&open){
+   setOpen(false);
+   // Removing the last focused row must not leave keyboard focus on the body.
+   if(document.activeElement===document.body)toggleRef.current?.focus({preventScroll:true});
+  }
+ },[count,open]);
+ const close=()=>{setOpen(false);toggleRef.current?.focus({preventScroll:true});};
  const priceOf=(media:MediaResource)=>!/^[0-9]+$/.test(media.priceTenThousandths)||BigInt(media.priceTenThousandths)<=0n
    ?<span className="y-cart-pending">待确认</span>
    :formatPublishingMoney(media.priceTenThousandths);
- return <div className="b-bottom y-cart-dock" id="x-cart-footer">
-  {open&&count>0?<section id="y-cart-drawer-panel" className="y-cart-drawer" aria-label="购物车已选媒体">
+ return <div ref={slotRef} className="y-cart-slot">
+ <div ref={dockRef} className="b-bottom y-cart-dock" id="x-cart-footer" onKeyDown={event=>{if(event.key==='Escape'&&expanded){event.preventDefault();event.stopPropagation();close();}}}>
+  <div className="y-cart-bar-wrap">
+    <button ref={toggleRef} type="button" className="y-cart-bar" aria-expanded={expanded} aria-disabled={count===0||undefined} aria-controls={drawerId} onClick={()=>{if(count>0)setOpen(v=>!v)}}>
+      <span className="y-cart-bar-summary"><strong>购物车 {count} 家 <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</span>{nextDisabled&&nextHint&&<span id={hintId} className="small muted y-cart-next-hint" role="status">{nextHint}</span>}</span>
+      <span className={'y-cart-toggle'+(expanded?' is-open':'')} aria-hidden="true"><i>▴</i></span>
+      <span className="sr">{expanded?'收起已选媒体':'展开已选媒体'}</span>
+    </button>
+    <div className="actions y-cart-actions">{nextDisabled&&articlesHref&&<Link className="button secondary" href={articlesHref}>进入稿件选择</Link>}<button type="button" className="button primary" disabled={nextDisabled} aria-describedby={nextDisabled&&nextHint?hintId:undefined} onClick={onNext}>{nextLabel} →</button></div>
+  </div>
+  <section id={drawerId} className="y-cart-drawer" aria-label="购物车已选媒体" hidden={!expanded}>
     <header className="y-cart-drawer-head">
       <strong>已选媒体 {count} 家</strong>
       <span className="small muted">{count>0&&pending===count?'全部报价待确认':<>{total===undefined?'总价待确认':formatPublishingMoney(total)}{pending>0?<> · {pending} 项待询价</>:''}</>}</span>
-      <div className="actions"><Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link><button className="link small" type="button" onClick={()=>setOpen(false)}>收起 ▾</button></div>
+      <div className="actions"><Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link><button className="link small" type="button" aria-label="收起购物车" onClick={close}>▾</button></div>
     </header>
-    <ul>{(items??[]).map(media=><li key={media.id}><strong>{media.name}</strong><small>{media.kind==='self_media'?'自媒体':'软文媒体'}</small><span className="b-price">{priceOf(media)}</span><button className="link danger small" type="button" onClick={()=>onRemove?.(media)}>移除</button></li>)}</ul>
-  </section>:null}
-  <div className="y-cart-bar-wrap">
-    <button type="button" className="y-cart-bar" aria-expanded={open} aria-disabled={count===0||undefined} aria-controls="y-cart-drawer-panel" onClick={()=>{if(count>0)setOpen(v=>!v)}}>
-      <span className="y-cart-bar-summary"><strong>购物车 {count} 家 <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</span></span>
-      <span className={'y-cart-toggle'+(open?' is-open':'')} aria-hidden="true">{open?'收起':'展开'}<i>▴</i></span>
-    </button>
-    <div className="actions">{nextDisabled&&nextHint&&<span className="small muted" role="status">{nextHint}</span>}{nextDisabled&&articlesHref&&<Link className="button secondary" href={articlesHref}>进入稿件选择</Link>}<button className="button primary" disabled={nextDisabled} onClick={onNext}>{nextLabel} →</button></div>
-  </div>
+    <ul>{(items??[]).map(media=><li key={media.id}><strong>{media.name}</strong><small>{media.kind==='self_media'?'自媒体':'软文媒体'}</small><span className="b-price">{priceOf(media)}</span><button className="link danger small" type="button" aria-label={`移除 ${media.name}`} onClick={()=>onRemove?.(media)}>移除</button></li>)}</ul>
+  </section>
+ </div>
  </div>;
 }
 export function RowHead(){return <div className="y-row-head" aria-hidden="true">{['媒体 / 账号','价格信息','平台与覆盖','稿件要求','发布条件与备注'].map(x=><span key={x}>{x}</span>)}</div>;}
