@@ -16,3 +16,6 @@
   .user-brand-dashboard.operator-mode .monitoring-module .publishing-review-page > .publishing-page.publishing-flow-step .publishing-review-group-status { padding:16px; }
   .publishing-review-page .publishing-review-receipts li { grid-template-columns:minmax(0,1fr); gap:6px; }
 }
+.monitoring-module .publishing-review-page .publishing-review-check-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px 20px; flex-wrap:wrap; min-width:0; }
+.monitoring-module .publishing-review-page .publishing-review-check-toolbar h2 { margin:0; color:var(--publishing-ink); font-size:17px; line-height:1.5; }
+.monitoring-module .publishing-review-page .publishing-review-check-toolbar .publishing-button { min-width:136px; max-width:100%; }

@@ -27,7 +27,7 @@ export function createTitleEditor(draft: PublicationDraft): TitleEditor {
     draft,
     items: draft.items,
     mode: draft.titleMode,
-    sharedTitle: draft.sharedTitle ?? draft.articleTitle,
+    sharedTitle: draft.sharedTitle ?? "",
     titles: Object.fromEntries(draft.items.map(item => [item.media.id, item.title])),
     checked: draft.items.map(item => item.media.id),
     onlyErrors: false,
@@ -39,6 +39,7 @@ export function createTitleEditor(draft: PublicationDraft): TitleEditor {
 export function sameDraftSelection(left: PublicationDraft, right: PublicationDraft) {
   const ids = new Set(left.items.map(item => item.media.id));
   return left.articleVersionId === right.articleVersionId &&
+    left.titleMode === right.titleMode && left.sharedTitle === right.sharedTitle &&
     left.revision === right.revision && ids.size === right.items.length &&
     right.items.every(item => ids.has(item.media.id));
 }
@@ -58,6 +59,7 @@ export function reconcileTitleEditor(draft: PublicationDraft, previous?: TitleEd
     return acceptTitleEditorSave(previous, draft, false);
   }
   const fresh = new Map(draft.items.map(item => [item.media.id, item]));
+  const modeChanged = previous.mode !== draft.titleMode || previous.draft.titleMode !== draft.titleMode;
   const oldServer = new Map(previous.draft.items.map(item => [item.media.id, item]));
   const oldIds = new Set(previous.items.map(item => item.media.id));
   const items = [
@@ -68,7 +70,7 @@ export function reconcileTitleEditor(draft: PublicationDraft, previous?: TitleEd
   const titles = Object.fromEntries(items.map(item => [item.media.id, previous.titles[item.media.id] ?? item.title]));
   for (const item of draft.items) {
     const old = oldServer.get(item.media.id);
-    if (!oldIds.has(item.media.id) || (old && titles[item.media.id] === old.title))
+    if (modeChanged || !oldIds.has(item.media.id) || (old && titles[item.media.id] === old.title))
       titles[item.media.id] = item.title;
   }
   const checked = previous.checked.filter(id => fresh.has(id) || !oldServer.has(id));
@@ -81,9 +83,10 @@ export function reconcileTitleEditor(draft: PublicationDraft, previous?: TitleEd
     items,
     titles,
     checked,
-    mode: previous.mode === previous.draft.titleMode ? draft.titleMode : previous.mode,
-    sharedTitle: previous.sharedTitle === (previous.draft.sharedTitle ?? previous.draft.articleTitle)
-      ? draft.sharedTitle ?? draft.articleTitle : previous.sharedTitle,
+    // Title mode and a single title now belong exclusively to the upstream draft.
+    // Old title-page snapshots must not reapply their former mode-switch choices.
+    mode: draft.titleMode,
+    sharedTitle: draft.sharedTitle ?? "",
   };
   // A clean persisted editor stays clean when the server changed during review.
   if (titleEditorSignature(previous) === previous.savedSignature)
@@ -98,6 +101,11 @@ export function acceptTitleEditorSave(editor: TitleEditor, draft: PublicationDra
     ...editor,
     pendingMedia: undefined,
     draft,
+    mode: draft.titleMode,
+    sharedTitle: draft.sharedTitle ?? "",
+    titles: editor.mode === draft.titleMode ? editor.titles : {
+      ...editor.titles, ...Object.fromEntries(draft.items.map(item => [item.media.id, item.title])),
+    },
     items: editor.items.map(item => fresh.get(item.media.id) ?? item),
   };
   return saved ? { ...next, savedSignature: titleEditorSignature(next) } : next;

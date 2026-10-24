@@ -11,6 +11,8 @@ import {
 import { useLocation } from "wouter";
 import { projectWorkspaceUrl } from "./host";
 import { withPublishingBatch } from "./batchPublishing";
+import { publishingTitleStage } from "./titleFlow";
+import type { PublisherTitleMode } from "./types";
 import type { WorkbenchTaskState, WorkbenchOutputRef, BusinessWorkspaceOutput } from "./flow-contracts";
 import {
   DEFAULT_MEDIA_FILTERS,
@@ -100,6 +102,12 @@ export function publishingTaskResumePath(
   const articleIds = savedIds("batchArticleIds").length
     ? savedIds("batchArticleIds") : resources("article");
   const batchMode = state?.values.editorMode === "batch" || savedIds("batchArticleVersionIds").length > 0 || versionIds.length > 1 || draftIds.length > 1;
+  const savedModes = state?.values.publishingDraftTitleModes;
+  const titleStage = publishingTitleStage(draftIds.map(id => {
+    const value = savedModes && typeof savedModes === "object" && !Array.isArray(savedModes)
+      ? (savedModes as Record<string, unknown>)[id] : undefined;
+    return { titleMode: value === "single" || value === "per_media" ? value as PublisherTitleMode : undefined };
+  }));
   if (agentId === "media") {
     const params = new URLSearchParams();
     const saved = state?.values.mediaFilters;
@@ -122,7 +130,11 @@ export function publishingTaskResumePath(
     if (batchMode) {
       versionIds.forEach((id) => url.searchParams.append("batchArticleVersion", id));
       url.searchParams.set("mode", "batch");
+    } else if (state?.values.editorMode === "single" || state?.values.editorMode === "multi") {
+      url.searchParams.set("mode", state.values.editorMode);
+      if (!draftIds.length && (state.values.titleMode === "single" || state.values.titleMode === "per_media")) url.searchParams.set("titleMode", state.values.titleMode);
     }
+    if (!batchMode && draftIds[0]) url.pathname = `/publishing/drafts/${encodeURIComponent(draftIds[0])}/media`;
     if (articleIds.length === versionIds.length)
       articleIds.forEach((id) => url.searchParams.append("batchArticle", id));
     if (batchMode && draftIds.length) url.pathname = `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/media`;
@@ -134,6 +146,8 @@ export function publishingTaskResumePath(
     if (articleIds.length > 1 || state?.values.editorMode === "batch") {
       params.set("mode", "batch");
       articleIds.forEach((id) => params.append("batchArticle", id));
+    } else if (state?.values.editorMode === "single" || state?.values.editorMode === "multi") {
+      params.set("mode", state.values.editorMode);
     }
     if (draftIds.length === 1) params.set("draftId", draftIds[0]!);
     return withPublishingBatch(`/publishing/articles/${encodeURIComponent(articleIds[0]!)}/edit${params.size ? `?${params}` : ""}`, draftIds, savedIds("excludedDraftIds"));
@@ -142,7 +156,7 @@ export function publishingTaskResumePath(
   if (draftIds.length > 1 || (draftIds.length > 0 && state?.values.publishingBatchReviewPending)) {
     // A batch can be partially accepted: returning only its first receipt loses
     // pending drafts. The grouped review owns all per-draft receipts.
-    const stage = batch || state?.step === "titles" || state?.values.publishingBatchReviewPending
+    const stage = batch || titleStage === "review" || state?.step === "titles" || state?.values.publishingBatchReviewPending
       ? "review" : "titles";
     return withPublishingBatch(
       `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/${stage}`,
@@ -153,7 +167,7 @@ export function publishingTaskResumePath(
   if (batch) return `/publishing/publications/${encodeURIComponent(batch)}`;
   const draft = draftIds[0];
   if (draft)
-    return `/publishing/drafts/${encodeURIComponent(draft)}/${state?.step === "titles" ? "review" : "titles"}`;
+    return `/publishing/drafts/${encodeURIComponent(draft)}/${titleStage === "review" || state?.step === "titles" ? "review" : "titles"}`;
   return "/publishing";
 }
 

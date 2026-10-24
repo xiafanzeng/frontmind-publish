@@ -35,6 +35,7 @@ import {
 } from "../host";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
+import { flowStagesForMode, titleModeForFlowMode } from "../components/PublishingFlowSteps";
 import {
   PublishingBreadcrumbs,
   PublishingError,
@@ -100,13 +101,6 @@ const EDITOR_MODES: [EditorMode, string, string][] = [
   ["batch", "批量投放", "逐篇准备多份稿件"],
 ];
 
-const PUBLISH_STEPS = [
-  "1. 编辑稿件",
-  "2. 选择媒体",
-  "3. 配置标题",
-  "4. 预检与发布",
-];
-
 const EMPTY_CONTENT: PublisherEditorContent = {
   html: "",
   text: "",
@@ -163,6 +157,16 @@ export default function PublishingArticleEditorPage({
   const [editorMode, setEditorMode] = useState<EditorMode>(
     modeParam === "multi" || modeParam === "batch" ? modeParam : "single",
   );
+  const mediaRoute = (versionId: string, keepDraft = false) => {
+    const params = new URLSearchParams(search);
+    for (const key of ["batchArticle", "batchArticleVersion", "batchDraft", "excludedDraft", "titleMode"]) params.delete(key);
+    if (!keepDraft) params.delete("draftId");
+    params.set("articleVersion", versionId);
+    params.set("mode", editorMode);
+    // Explicit upstream intent is distinct from a restored/display-only mode.
+    params.set("titleMode", titleModeForFlowMode(editorMode));
+    return `/publishing/media?${params.toString()}`;
+  };
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
   const newFileInput = useRef<HTMLInputElement>(null);
@@ -344,6 +348,8 @@ export default function PublishingArticleEditorPage({
       );
       if (flow) {
         setFrozenResult(frozen);
+        await flow.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
+        if (!isCurrent()) return;
         await flow
           .record({
             id: `article-frozen:${frozen.currentVersionId}`,
@@ -370,7 +376,7 @@ export default function PublishingArticleEditorPage({
         performApprovedWorkspaceNavigation(() =>
           navigate(
             publishingTaskUrl(
-              `/publishing/media?articleVersion=${encodeURIComponent(frozen.currentVersionId!)}&mode=${editorMode}`,
+              mediaRoute(frozen.currentVersionId!),
             ),
           ),
         );
@@ -382,11 +388,12 @@ export default function PublishingArticleEditorPage({
     }
   };
   const handoffToMedia = async () => {
-    if (!flow || !frozenResult?.currentVersionId || dirty || freezeLock.current)
+    if (!flow || !frozenResult?.currentVersionId || dirty || freezeLock.current || flow.outcomePending)
       return;
     freezeLock.current = true;
     setFreezing(true);
     try {
+      await flow.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
       await flow.handoff({
         targetAgentId: "media",
         title: `媒体选择 · ${frozenResult.title}`,
@@ -395,7 +402,7 @@ export default function PublishingArticleEditorPage({
           { kind: "article_version", id: frozenResult.currentVersionId },
         ],
         idempotencyKey: `article-media-${frozenResult.currentVersionId}`,
-        route: `/publishing/media?articleVersion=${encodeURIComponent(frozenResult.currentVersionId)}&mode=${editorMode}`,
+        route: mediaRoute(frozenResult.currentVersionId),
       });
     } catch (reason) {
       setSaveError(
@@ -440,15 +447,24 @@ export default function PublishingArticleEditorPage({
     [article, gateway, operationScope],
   );
 
-  const goToMediaSelection = () => {
+  const goToMediaSelection = async () => {
     if (editorMode === "batch") { batchContinue.current?.(); return; }
-    if (isNew || embedded) return;
-    if (article?.currentVersionId) {
-      performApprovedWorkspaceNavigation(() =>
-        navigate(
-          publishingTaskUrl(`/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId!)}&mode=${editorMode}`),
-        ),
-      );
+    if (isNew || embedded || saving || freezing || flow?.outcomePending) return;
+    if (article?.currentVersionId && article.status === "frozen" && !dirty) {
+      if (freezeLock.current) return;
+      const isCurrent = operationScope();
+      freezeLock.current = true;
+      setFreezing(true);
+      try {
+        await flow?.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
+        if (!isCurrent()) return;
+        performApprovedWorkspaceNavigation(() => navigate(publishingTaskUrl(mediaRoute(article.currentVersionId!, true))));
+      } catch (reason) {
+        if (isCurrent()) setSaveError(reason instanceof Error ? reason.message : "标题模式尚未保存，请重试。");
+      } finally {
+        freezeLock.current = false;
+        if (isCurrent()) setFreezing(false);
+      }
       return;
     }
     void freezeAndContinue();
@@ -468,7 +484,9 @@ export default function PublishingArticleEditorPage({
   const editorChrome = (
     <>
       <ol className="publishing-publish-steps" aria-label="发布步骤">
-        {PUBLISH_STEPS.map((step, index) => (
+        {flowStagesForMode(editorMode).map((label, index) => {
+          const step = `${index + 1}. ${label === "预检发布" ? "预检与发布" : label}`;
+          return (
           <li
             key={step}
             className={
@@ -486,7 +504,7 @@ export default function PublishingArticleEditorPage({
             <b>{index + 1}</b>
             {step.replace(/^\d+\.\s*/u, "")}
           </li>
-        ))}
+        ); })}
       </ol>
       <div className="publishing-publish-uploads" aria-label="素材上传">
         {isNew ? (

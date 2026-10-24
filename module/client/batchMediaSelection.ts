@@ -1,5 +1,6 @@
 import type { PublisherGateway } from "./gateway";
 import type { PublicationDraft, PublisherTitleMode } from "./types";
+import { saveUpstreamDraftTitles } from "./titleFlow";
 
 export function uniqueBatchIds(values: readonly string[]) {
   return [...new Set(values.map(value => value.trim()).filter(Boolean))];
@@ -51,6 +52,9 @@ export async function prepareBatchMediaDrafts(input: {
   gateway: Pick<PublisherGateway, "createDraft" | "getDraft" | "updateDraftMedia" | "saveDraftTitles">;
   versionIds: readonly string[];
   articleIdsByVersion?: Readonly<Record<string, string>>;
+  confirmedTitlesByVersion?: Readonly<Record<string, string>>;
+  /** The editor's existing contract for a new draft, never inferred from count. */
+  newDraftTitleMode?: PublisherTitleMode;
   excludedArticleIds?: readonly string[];
   existingDrafts: readonly PublicationDraft[];
   selectedMediaIds: readonly string[];
@@ -87,7 +91,9 @@ export async function prepareBatchMediaDrafts(input: {
       if (!receipt) {
         const mappedMediaIds = sourceDraft?.items.map(item => item.media.id);
         const initialMediaIds = excluded ? mappedMediaIds ?? [] : mappedMediaIds ? uniqueBatchIds([...mappedMediaIds.filter(id => selected.includes(id)), ...added]) : selected;
-        receipt = { versionId, initialMediaIds, initialTitleMode: sourceDraft?.titleMode ?? "per_media", requestKey: await input.requestKey(versionId, initialMediaIds),
+        const initialTitleMode = sourceDraft?.titleMode ?? input.newDraftTitleMode;
+        if (!initialTitleMode) throw new Error("新稿件的标题模式无法恢复，请返回稿件页面重新确认。");
+        receipt = { versionId, initialMediaIds, initialTitleMode, requestKey: await input.requestKey(versionId, initialMediaIds),
           ...(sourceDraft ? { sourceDraftId: sourceDraft.id, mappedMediaIds } : {}) };
         assertCurrent();
         input.journal.push(receipt);
@@ -96,6 +102,8 @@ export async function prepareBatchMediaDrafts(input: {
       // whose key has never reached durable task or browser storage.
       await input.persistJournal(input.journal);
       assertCurrent();
+      // Old journals without mode were created by the previous per-media batch
+      // contract. Recover that exact request before applying any newer choice.
       draft = await input.gateway.createDraft(versionId, receipt.initialMediaIds, receipt.requestKey, receipt.initialTitleMode ?? "per_media");
       assertCurrent();
       receipt.draftId = draft.id;
@@ -116,12 +124,16 @@ export async function prepareBatchMediaDrafts(input: {
       const titles = Object.fromEntries(draft.items.map(item => [item.media.id,
         sourceDraft.items.find(previous => previous.media.id === item.media.id)?.title ?? item.title]));
       const mode = sourceDraft.titleMode;
-      const sharedTitle = mode === "single" ? sourceDraft.sharedTitle ?? sourceDraft.articleTitle : undefined;
+      const sharedTitle = mode === "single" ? input.confirmedTitlesByVersion?.[versionId] ?? sourceDraft.sharedTitle : undefined;
+      if (mode === "single" && !sharedTitle?.trim()) throw new Error("正式共享标题无法恢复，请返回对应稿件重新确认。");
+      if (mode === "single") for (const mediaId of Object.keys(titles)) titles[mediaId] = sharedTitle!;
       if (draft.titleMode !== mode || mode === "single" && draft.sharedTitle !== sharedTitle || draft.items.some(item => item.title !== titles[item.media.id])) {
         draft = await input.gateway.saveDraftTitles(draft.id, { mode, ...(sharedTitle !== undefined ? { sharedTitle } : {}), titles, expectedRevision: draft.revision });
         assertCurrent();
       }
     }
+    if (!excluded) draft = await saveUpstreamDraftTitles(input.gateway, draft);
+    assertCurrent();
     await input.onSaved(draft);
     assertCurrent();
     result.push(draft);

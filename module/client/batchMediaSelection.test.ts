@@ -34,7 +34,7 @@ function harness(initial: PublicationDraft[] = []) {
       saved.set(id, result); return result;
     }),
   };
-  return { gateway, saved, input: { gateway, versionIds: ["a", "b"], existingDrafts: initial,
+  return { gateway, saved, input: { gateway, versionIds: ["a", "b"], newDraftTitleMode: "per_media" as const, existingDrafts: initial,
     selectedMediaIds: ["shared"], originalMediaIds: [] as string[], journal: [] as BatchDraftCreation[],
     requestKey: async (version: string, ids: string[]) => JSON.stringify([version, ids]),
     persistJournal: vi.fn(async (_journal: BatchDraftCreation[]) => {}), onSaved: vi.fn(async (_draft: PublicationDraft) => {}) } };
@@ -146,5 +146,40 @@ describe("batch media upstream", () => {
     expect(result.titleMode).toBe("single");
     expect(result.sharedTitle).toBe("已保存统一标题");
     expect(result.items[0].title).toBe("已保存统一标题");
+  });
+
+  it("keeps overlapping single-title drafts independent instead of forcing batch mode", async () => {
+    const originals = ["a", "b"].map(version => {
+      const item = { ...draft(version, ["shared"]), titleMode: "single" as const, sharedTitle: `正式标题-${version}` };
+      item.items[0].title = item.sharedTitle;
+      return item;
+    });
+    const { input, gateway } = harness(originals);
+    const result = await prepareBatchMediaDrafts({ ...input, originalMediaIds: ["shared"] });
+    expect(result.map(item => [item.titleMode, item.sharedTitle, item.items[0].title])).toEqual([
+      ["single", "正式标题-a", "正式标题-a"], ["single", "正式标题-b", "正式标题-b"],
+    ]);
+    expect(gateway.saveDraftTitles).not.toHaveBeenCalled();
+    expect(gateway.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not infer a missing new-draft title mode from the number of manuscripts", async () => {
+    const { input, gateway } = harness();
+    await expect(prepareBatchMediaDrafts({ ...input, newDraftTitleMode: undefined })).rejects.toThrow("标题模式无法恢复");
+    expect(gateway.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("uses the revised manuscript's confirmed title for its new single-title version", async () => {
+    const previous = { ...draft("a", ["shared"]), titleMode: "single" as const, sharedTitle: "上一版标题" };
+    previous.items[0].title = previous.sharedTitle;
+    const { input, gateway, saved } = harness([previous]);
+    gateway.createDraft.mockImplementation(async (version, media) => {
+      const result = { ...draft(version, media), articleId: "article-a" };
+      saved.set(result.id, result); return result;
+    });
+    const [result] = await prepareBatchMediaDrafts({ ...input, versionIds: ["a2"], articleIdsByVersion: { a2: "article-a" },
+      confirmedTitlesByVersion: { a2: "新冻结版本确认标题" }, originalMediaIds: ["shared"] });
+    expect(result.sharedTitle).toBe("新冻结版本确认标题");
+    expect(result.items[0].title).toBe("新冻结版本确认标题");
   });
 });
