@@ -5,6 +5,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import {
   BatchStatusBadge,
+  PublicationBatchAttention,
   PublishingEmpty,
   PublishingError,
   PublishingLoading,
@@ -18,6 +19,7 @@ import {
   type PublicationListFilters,
 } from "../queryState";
 import { formatPublishingMoney, publishingDateTime } from "../types";
+import { PublishingConnectionCheck } from "../components/PublishingConnectionCheck";
 
 export default function PublishingPublicationsPage() {
   const gateway = usePublisherGateway();
@@ -76,6 +78,8 @@ export default function PublishingPublicationsPage() {
       description="按 FrontMind 发布编号追踪软文与自媒体的结果、回链和资金状态。"
       busy={query.loading || query.refreshing}
       actions={
+        <>
+        <PublishingConnectionCheck gateway={gateway} />
         <button
           className="publishing-button publishing-button-secondary"
           type="button"
@@ -88,8 +92,10 @@ export default function PublishingPublicationsPage() {
           />
           同步回执
         </button>
+        </>
       }
     >
+      {query.data ? <PublicationBatchAttention batches={query.data.items} /> : null}
       <section
         className="publishing-panel publishing-publication-filters"
         aria-label="筛选发布记录"
@@ -163,7 +169,7 @@ export default function PublishingPublicationsPage() {
       {invalidDateRange ? <div className="publishing-notice is-warning" role="alert">开始日期不能晚于结束日期。请调整日期范围后再查看记录。</div> : null}
       {query.loading && !invalidDateRange ? <PublishingLoading label="正在读取发布记录…" /> : null}
       {query.error ? (
-        <PublishingError error={query.error} onRetry={query.reload} />
+        <PublishingError error={new Error("发布记录暂时无法读取，请稍后刷新。")} onRetry={query.reload} />
       ) : null}
       {query.data && !invalidDateRange ? (
         query.data.items.length ? (
@@ -220,6 +226,8 @@ export default function PublishingPublicationsPage() {
                     <small>
                       已扣 {formatPublishingMoney(batch.consumedTenThousandths)}
                     </small>
+                    {BigInt(batch.frozenTenThousandths) > 0n ? <small className="is-warning">冻结 {formatPublishingMoney(batch.frozenTenThousandths)}</small> : null}
+                    {BigInt(batch.releasedTenThousandths) > 0n ? <small>预占已退回 {formatPublishingMoney(batch.releasedTenThousandths)}</small> : null}
                   </span>
                   <span>{publishingDateTime(batch.createdAt)}</span>
                   <BatchStatusBadge status={batch.status} />

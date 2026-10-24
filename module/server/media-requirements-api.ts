@@ -2,8 +2,9 @@ import { Router, json } from "express";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { ModuleHttpCore } from "./http-api.js";
-import { createKolRuntimeClient, getKolRuntimeStatus } from "./providers/kol/runtime.js";
-import { KolClient } from "./providers/kol/client.js";
+import { getKolRuntimeStatus } from "./providers/kol/runtime.js";
+import { setTimeout as pause } from "node:timers/promises";
+import { requestMediaRulesCollection, getMediaRulesCollection } from "./catalog-read-jobs.js";
 import { KolProviderError } from "./providers/kol/errors.js";
 import { parseMediaRules, preflightMediaRules, type MediaRules } from "./providers/kol/media-rules.js";
 
@@ -89,28 +90,26 @@ export function createMediaRequirementsApi(core: ModuleHttpCore): Router {
   router.post("/collect", async (req, res) => {
     try {
       const { page } = z.object({ page: pageSchema }).strict().parse(req.body);
-      const client = createKolRuntimeClient(core.environment);
-      if (!(client instanceof KolClient)) throw new Error("Real client required");
-      const collected = await client.listMediaRules(page);
+      const context = core.context(req);
       const db = await core.database();
-      // Persist only a requirements snapshot in the existing media JSON archive.
-      // Prices and availability remain owned by catalog sync. Advance revision
-      // so frozen selections and previous publication preflights are invalidated.
-      let matched = 0;
-      await db.transaction(async tx => {
-        for (const item of collected.resources) {
-          const title = item.rules.rules.find(x => x.field === "title_chars");
-          const apiEvidence = title?.evidence.find(x => x.startsWith("API title_limit="));
-          const snapshot = JSON.stringify({ rawRemark: item.rules.rawRemark, collectedAt: item.rules.collectedAt,
-            source: item.rules.source, apiTitleLimit: apiEvidence ? Number(apiEvidence.split("=")[1]) : null });
-          const [result] = await tx.execute(sql`update publisher_media_resources
-            set raw_payload = JSON_SET(raw_payload, '$.frontmindMediaRules', cast(${snapshot} as json)),
-                catalog_revision = SHA2(CONCAT(catalog_revision, ${snapshot}), 256)
-            where external_resource_id = ${item.externalResourceId}`);
-          matched += Number((result as unknown as { affectedRows?: number }).affectedRows ?? 0);
+      const { jobId } = await requestMediaRulesCollection(db, page, context.businessActorId);
+      const deadline = Date.now() + 25_000;
+      // Keep the existing collect response while the single publishing Worker
+      // performs the read and snapshot update with its own authenticated client.
+      while (!res.destroyed) {
+        const check = await getMediaRulesCollection(db, jobId);
+        if (check.status === "succeeded" && check.result) {
+          res.json(check.result);
+          return;
         }
-      });
-      res.json({ collected: collected.resources.length, matched, pagination: collected.pagination });
+        if (check.status === "failed") throw new Error("Media requirements collection failed");
+        if (Date.now() >= deadline) {
+          res.status(503).json({ code: "rules_collection_pending",
+            message: "媒体要求正在后台采集，请稍后重新读取。", jobId });
+          return;
+        }
+        await pause(250);
+      }
     } catch (error) { fail(res, error); }
   });
   router.post("/preflight", async (req, res) => {

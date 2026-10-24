@@ -26,7 +26,6 @@ import type {
 } from "./ports.js";
 
 const SUBMISSION_LEASE_MS = 10 * 60_000;
-const UNKNOWN_RECONCILIATION_LOOKBACK_MS = 24 * 60 * 60_000;
 const MAX_CATALOG_RESOURCES = 100_000;
 const CATALOG_SYNC_LEASE_MS = 5 * 60_000;
 const CATALOG_STAGING_RETENTION_MS = 7 * 24 * 60 * 60_000;
@@ -51,6 +50,16 @@ export class PublisherWorkerProcessor {
   }
 
   async handle(job: PublisherJob, signal?: AbortSignal): Promise<void> {
+    if (job.type === "sync_kol_catalog" && job.payload && typeof job.payload === "object"
+      && (job.payload as Record<string, unknown>).purpose === "credential_check") {
+      await this.checkConnection(job, signal);
+      return;
+    }
+    if (job.type === "sync_kol_catalog" && job.payload && typeof job.payload === "object"
+      && (job.payload as Record<string, unknown>).purpose === "media_rules_collect") {
+      await this.collectMediaRules(job, signal);
+      return;
+    }
     if (this.config.providerEnabled === false && !["import_docx", "purge_publisher_assets"].includes(job.type)) {
       throw new DeferPublisherJobError("Media publishing provider is not configured", new Date(this.now().valueOf() + 30 * 60_000));
     }
@@ -89,6 +98,39 @@ export class PublisherWorkerProcessor {
           signal,
         );
     }
+  }
+
+  private async checkConnection(job: PublisherJob, signal?: AbortSignal) {
+    let credentialStatus: "healthy" | "auth_blocked" | "unknown" = "unknown";
+    if (this.config.providerEnabled !== false) {
+      try {
+        await this.dependencies.provider.listOrders({ page: 1 }, signal);
+        credentialStatus = "healthy";
+      } catch (error) {
+        credentialStatus = isKolAuthenticationError(error) ? "auth_blocked" : "unknown";
+      }
+    }
+    await this.dependencies.repository.completePublisherConnectionCheck({
+      jobId: job.id, workerId: this.config.workerId, checkedAt: this.now(), credentialStatus,
+    });
+  }
+
+  private async collectMediaRules(job: PublisherJob, signal?: AbortSignal) {
+    let credentialStatus: "healthy" | "auth_blocked" | "unknown" = "unknown";
+    let result: Parameters<PublisherWorkerDependencies["repository"]["completePublisherMediaRulesCollection"]>[0]["result"];
+    const page = (job.payload as Record<string, unknown>).page;
+    if (this.config.providerEnabled !== false && typeof page === "number" && Number.isSafeInteger(page) && page > 0 && page <= 100_000) {
+      try {
+        const catalog = await this.dependencies.provider.listResources(page, signal);
+        result = { resources: catalog.resources.map(({ id, remark, titleLimit }) => ({ id, remark, titleLimit })), pagination: catalog.pagination };
+        credentialStatus = "healthy";
+      } catch (error) {
+        credentialStatus = isKolAuthenticationError(error) ? "auth_blocked" : "unknown";
+      }
+    }
+    await this.dependencies.repository.completePublisherMediaRulesCollection({
+      jobId: job.id, workerId: this.config.workerId, checkedAt: this.now(), credentialStatus, result,
+    });
   }
 
   async cleanupExpiredObjectLeases(
@@ -187,6 +229,7 @@ export class PublisherWorkerProcessor {
             itemId,
             attemptId: prepared.attemptId,
             reason: safePublisherError(error),
+            providerRaw: publisherSubmissionFailureEvidence(error),
             observedAt: this.now(),
             blockCredentialGate: isKolPostAuthenticationUnknown(error),
           });
@@ -197,6 +240,7 @@ export class PublisherWorkerProcessor {
             itemId,
             attemptId: prepared.attemptId,
             reason: error.message,
+            providerRaw: publisherSubmissionFailureEvidence(error),
             settledAt: this.now(),
           });
           return;
@@ -211,6 +255,7 @@ export class PublisherWorkerProcessor {
           attemptId: prepared.attemptId,
           status: authenticationFailure ? "auth_blocked" : "action_required",
           reason: safePublisherError(error),
+          providerRaw: publisherSubmissionFailureEvidence(error),
           observedAt: this.now(),
         });
         return;
@@ -854,26 +899,40 @@ export class PublisherWorkerProcessor {
     signal?: AbortSignal,
   ): Promise<void> {
     const observedAt = this.now();
+    const context = await this.dependencies.repository.getPublisherReconciliationContext(itemId);
+    if (!context) return;
+    // Anchor discovery to the original attempt, so tomorrow's scan cannot
+    // silently exclude yesterday's submission. Absence is never proof of no order.
+    const since = new Date(context.startedAt.valueOf() - 5 * 60_000);
     const orders = [];
+    let pagesFetched = 0;
+    let ordersSeen = 0;
+    let reportedLastPage: number | undefined;
+    let complete = false;
     try {
       for (let page = 1; page <= 5; page += 1) {
         const result = await this.dependencies.provider.listOrders(
           { page },
           signal,
         );
+        pagesFetched = page;
+        ordersSeen += result.orders.length;
+        reportedLastPage = result.pagination?.lastPage;
         orders.push(
           ...result.orders.filter((order) => {
-            if (order.createdAt === undefined) return true;
-            return (
-              order.createdAt * 1_000 >=
-              observedAt.valueOf() - UNKNOWN_RECONCILIATION_LOOKBACK_MS
-            );
+            return order.resourceId === context.resourceId
+              && order.title.trim() === context.title.trim()
+              && (order.createdAt === undefined || order.createdAt * 1_000 >= since.valueOf());
           }),
         );
-        if (!result.pagination || page >= result.pagination.lastPage) break;
+        if (!result.pagination) break;
+        if (page >= result.pagination.lastPage) { complete = true; break; }
       }
     } catch (error) {
       if (isKolProviderError(error)) {
+        if (isKolAuthenticationError(error)) {
+          await this.dependencies.repository.markKolCredentialAuthBlocked({ failedAt: observedAt });
+        }
         throw new DeferPublisherJobError(
           `UNKNOWN reconciliation is temporarily unavailable: ${safePublisherError(error)}`,
           new Date(observedAt.valueOf() + 10 * 60_000),
@@ -885,9 +944,17 @@ export class PublisherWorkerProcessor {
     // one exact order or authorize a new attempt after checking provider state.
     await this.dependencies.repository.recordPublisherReconciliationCandidates({
       itemId,
+      expectedAttemptNumber: context.attemptNumber,
       orders,
       observedAt,
+      scan: { pagesFetched, reportedLastPage, complete, ordersSeen, since: since.toISOString() },
     });
+    // Keep checking while the item is unresolved. A successful empty scan must
+    // not silently complete the only reconciliation job and strand frozen funds.
+    throw new DeferPublisherJobError(
+      "发布结果待核实，已更新订单查询记录，等待管理员核对",
+      new Date(observedAt.valueOf() + 10 * 60_000),
+    );
   }
 
   private async purgeAsset(
@@ -1280,7 +1347,7 @@ function redactProviderPayload(value: unknown, depth = 0): unknown {
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "";
 }
-function isKolProviderError(error: unknown): error is { code: string; message: string; submissionMayHaveSucceeded?: boolean; details?: { operation?: string; httpStatus?: number } } {
+function isKolProviderError(error: unknown): error is { code: string; message: string; submissionMayHaveSucceeded?: boolean; details?: { operation?: string; httpStatus?: number; submissionPhase?: string } } {
   return Boolean(error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string");
 }
 function isKolSubmissionUnknownError(error: unknown): boolean {
@@ -1300,6 +1367,17 @@ function isKolPostAuthenticationUnknown(error: unknown): boolean {
     isKolProviderError(error) &&
     error.submissionMayHaveSucceeded === true &&
     error.details?.operation === "create_order" &&
-    (error.details?.httpStatus === 401 || isKolAuthenticationError(error))
+    ([401, 403].includes(error.details?.httpStatus ?? 0) || isKolAuthenticationError(error))
   );
+}
+
+function publisherSubmissionFailureEvidence(error: unknown) {
+  if (!isKolProviderError(error)) return undefined;
+  return { failure: {
+    code: error.code.slice(0, 64),
+    operation: error.details?.operation?.slice(0, 64),
+    httpStatus: error.details?.httpStatus,
+    submissionPhase: error.details?.submissionPhase,
+    submissionMayHaveSucceeded: error.submissionMayHaveSucceeded === true,
+  } };
 }

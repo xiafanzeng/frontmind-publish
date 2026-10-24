@@ -26,6 +26,8 @@ import {
   PublishingError,
   PublishingLoading,
   PublishingPage,
+  PublicationBatchAttention,
+  publicationItemResultText,
 } from "../components/PublishingUi";
 import { formatPublishingMoney, publishingDateTime } from "../types";
 import { usePublishingSummary } from "../PublishingFlowContext";
@@ -133,6 +135,7 @@ export default function PublishingPublicationDetailPage({
         ) : undefined
       }
     >
+      {query.data ? <PublicationBatchAttention batches={[query.data]} /> : null}
       <PublishingBreadcrumbs
         items={[
           { label: "发布记录", href: "/publishing/articles/records" },
@@ -150,7 +153,7 @@ export default function PublishingPublicationDetailPage({
       ) : null}
       {query.loading ? <PublishingLoading label="正在读取发布批次…" /> : null}
       {query.error ? (
-        <PublishingError error={query.error} onRetry={query.reload} />
+        <PublishingError error={new Error("发布结果暂时无法读取，请稍后刷新。")} onRetry={query.reload} />
       ) : null}
       {query.data ? (
         <>
@@ -295,12 +298,7 @@ export default function PublishingPublicationDetailPage({
                   <small className="publishing-result-id">
                     FrontMind 明细号：{item.id}
                   </small>
-                  {item.resultMessage ? (
-                    <span>{item.resultMessage}</span>
-                  ) : null}
-                  {!item.resultUrl && !item.resultMessage ? (
-                    <span>等待服务端提交</span>
-                  ) : null}
+                  <span>{publicationItemResultText(item)}</span>
                 </span>
                 <span data-label="费用状态">
                   <FundStatusBadge status={item.fundStatus} />
@@ -314,18 +312,6 @@ export default function PublishingPublicationDetailPage({
               </article>
             ))}
           </section>
-
-          {query.data.unknownCount ? (
-            <div className="publishing-notice is-info">
-              <CircleHelp size={20} />
-              <div>
-                <strong>状态未知不会自动重投</strong>
-                <p>
-                  请求可能已经越过发送边界。管理员核对供应商后台后，结果会在这里更新；冻结金额在确认终态前不会扣除或退回。
-                </p>
-              </div>
-            </div>
-          ) : null}
 
           <div className="publishing-detail-bottom">
             <Link

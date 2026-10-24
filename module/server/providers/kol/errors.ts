@@ -22,6 +22,7 @@ export class KolProviderError extends Error {
       httpStatus?: number;
       retryable?: boolean;
       submissionMayHaveSucceeded?: boolean;
+      submissionPhase?: "before_send" | "after_send";
     }>,
     options?: ErrorOptions,
   ) {
@@ -46,6 +47,7 @@ export class KolSubmissionUnknownError extends KolProviderError {
         operation: "create_order",
         httpStatus: details.httpStatus,
         submissionMayHaveSucceeded: true,
+        submissionPhase: "after_send",
       },
       options,
     );
