@@ -1,0 +1,138 @@
+/* Ordinary article routes own this inset, even when a flow context is present.
+ * Media/workbench routes and explicit guided flows never receive this frame.
+ * Keep page/flow typography and editor behavior; restore only container geometry.
+ */
+.monitoring-module .publishing-article-content {
+  --article-content-gutter: 30px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: calc(1520px + 2 * var(--article-content-gutter));
+  margin-inline: auto;
+  padding: 26px var(--article-content-gutter) 38px;
+}
+
+/* Only the route's page loses its old inset, never a nested editor/page.
+ * The host-qualified selector also beats operator-module-details.css for
+ * non-flow pages and the Suspense fallback, which has no flow-step class. */
+.monitoring-module .publishing-article-content > .publishing-page,
+.user-brand-dashboard.operator-mode .monitoring-module .publishing-article-content > .publishing-page {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > :is(
+  .publishing-flow-intro,
+  .publishing-page-heading,
+  .publishing-article-subnav,
+  .publishing-article-filterbar,
+  .publishing-editor-layout,
+  .publishing-editor-meta,
+  .publishing-panel,
+  .publishing-article-stack,
+  .publishing-loading,
+  .publishing-state
+) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > :is(
+  .publishing-editor-card,
+  .publishing-publication-filters
+),
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-editor-layout > .publishing-editor-card,
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-editor-layout > .publishing-editor-inspector > .publishing-panel {
+  border: 1px solid var(--publishing-line, #e6e8f1);
+  border-radius: var(--publishing-radius, 16px);
+}
+
+/* These cards lost horizontal padding to the flow reset. Rows/editor fields
+ * already own their padding, so do not add a generic inset to every panel. */
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters {
+  padding-inline: 14px;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters > label,
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters :is(input, select) {
+  min-width: 0;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-editor-layout > .publishing-editor-inspector > .publishing-panel {
+  padding-inline: 20px;
+}
+
+/* Individual manuscript cards already supply their own border and inner inset. */
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-panel.publishing-article-stack {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > :is(
+  .publishing-article-table,
+  .publishing-batch-list
+) {
+  overflow-x: auto;
+}
+
+/* Mobile lists already render a border around each row. */
+@media (min-width: 721px) {
+  .monitoring-module .publishing-article-content > .publishing-page > :is(
+    .publishing-article-table,
+    .publishing-batch-list
+  ) {
+    border: 1px solid var(--publishing-line, #e6e8f1);
+    border-radius: var(--publishing-radius, 16px);
+  }
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > :is(.publishing-flow-intro, .publishing-page-heading) {
+  flex-wrap: wrap;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > :is(.publishing-flow-intro, .publishing-page-heading) > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-module .publishing-article-content > .publishing-page > .publishing-article-stack > .publishing-article-stack-card > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Wrap before the existing viewport breakpoint would squeeze the inset page.
+ * Keep the frame free of containment/overflow so fixed previews and sticky
+ * editor controls retain their existing containing blocks and scroll owner. */
+@media (max-width: 1150px) {
+  .monitoring-module .publishing-article-content {
+    --article-content-gutter: 22px;
+  }
+
+  .monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters > :is(.publishing-search-field, .publishing-filter-actions) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 650px) {
+  .monitoring-module .publishing-article-content {
+    --article-content-gutter: 14px;
+    padding-block: 18px 28px;
+  }
+
+  .monitoring-module .publishing-article-content > .publishing-page > .publishing-publication-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitoring-module .publishing-article-content > .publishing-page > .publishing-article-filterbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
