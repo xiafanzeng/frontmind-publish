@@ -40,6 +40,7 @@ type ApiArticleVersion =
 type ApiMedia = ApiOutputs["publisher"]["media"]["list"]["items"][number];
 type ApiMediaPage = ApiOutputs["publisher"]["media"]["list"];
 type CatalogInventoryResponse = {
+  filterSchemaVersion?: number;
   catalogCounts?: { all: number; news: number; selfMedia: number } | null;
   catalogCountStatus?: "available" | "unavailable";
 };
@@ -527,6 +528,10 @@ export function createServerBackedPublisherGateway(
               taxonomies: Array<{ value: string; count: number }>;
               mediaTypes: Array<{ value: string; count: number }>;
               areas: Array<{ value: string; count: number }>;
+              coverageProvinces?: Array<{ value: string; count: number }>;
+              coverageCities?: Array<{ province: string; value: string; count: number }>;
+              aiPlatforms?: Array<{ value: string; count: number }>;
+              recommendationGroups?: Array<{ value: string; count: number }>;
               includeTypes: Array<{ value: string; count: number }>;
               publishSpeeds: Array<{ value: string; count: number }>;
               entryTypes: Array<{ value: string; count: number }>;
@@ -576,6 +581,13 @@ export function createServerBackedPublisherGateway(
             label: labels[item.value] ?? item.value,
           }));
         const mapped: MediaFacets = {
+          ...(result.filterSchemaVersion === 2 ? {
+            filterSchemaVersion: 2,
+            coverageProvinces: options(result.coverageProvinces ?? []),
+            coverageCities: (result.coverageCities ?? []).map((item) => ({ ...item, label: item.value })),
+            aiPlatforms: options(result.aiPlatforms ?? []),
+            recommendationGroups: options(result.recommendationGroups ?? []),
+          } : {}),
           kinds: {
             news: result.kindCounts.news,
             self_media: result.kindCounts.selfMedia,
@@ -645,6 +657,7 @@ export function createServerBackedPublisherGateway(
         const result = await rawMediaPage(filters, signal);
         return {
           items: result.items.map((item) => mapMedia(item)),
+          ...(result.filterSchemaVersion === 2 ? { filterSchemaVersion: 2 } : {}),
           total: result.total,
           page: result.page,
           pageSize: result.pageSize,
@@ -1437,6 +1450,10 @@ function mediaInput(filters: MediaFilters) {
     ...(filters.area || filters.region
       ? { area: filters.area || filters.region }
       : {}),
+    ...(filters.province ? { coverageProvince: filters.province } : {}),
+    ...(filters.city ? { coverageCity: filters.city } : {}),
+    ...(filters.aiPlatform ? { aiPlatform: filters.aiPlatform } : {}),
+    ...(filters.recommendationGroup ? { recommendationGroup: filters.recommendationGroup } : {}),
     ...(filters.recommended === "true" ? { recommended: true } : {}),
     ...(filters.recommendationTag ? { recommendationTag: filters.recommendationTag } : {}),
     ...(filters.includeType ? { includeType: filters.includeType } : {}),
@@ -1509,6 +1526,14 @@ function assertMediaFilterSupport(
 ) {
   // mediaInput returns a per-branch object literal union; probe it as a record.
   const provided = input as Record<string, unknown>;
+  const requiresNormalizedContract = provided.coverageProvince !== undefined ||
+    provided.coverageCity !== undefined || provided.aiPlatform !== undefined ||
+    provided.recommendationGroup !== undefined;
+  if (requiresNormalizedContract && result.filterSchemaVersion !== 2) {
+    // An older schema may strip unknown inputs. Reject that broad response,
+    // rather than showing unfiltered resources as matches for a chosen filter.
+    throw new PublisherGatewayError("当前媒体服务尚未接入省市和平台标签筛选，请更新服务后重试", "unavailable");
+  }
   const requiresCurrentContract = provided.nameQuery !== undefined || provided.nameBatchQuery !== undefined ||
     provided.recommendationTag !== undefined || provided.minimumMobileWeight !== undefined ||
     provided.minimumPriceExclusive !== undefined || provided.mediaIds !== undefined;

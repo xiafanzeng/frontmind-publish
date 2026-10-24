@@ -15,8 +15,9 @@ import type { ArticleDetail, CatalogFreshness, MediaFacets, MediaResource, Publi
 
 // Keep the real page, route state, query lifecycle and flow context. Only replace
 // presentation and the separate media-rules API; these tests never use a network.
+const marketRuleStatus = vi.hoisted(() => ({ ready: true, error: "", loading: false }));
 vi.mock("../source-matrix/MediaMarket", () => ({
-  useMarketRules: () => ({ key: "rules", rules: {}, ready: true, error: "", loading: false, reload: () => {} }),
+  useMarketRules: () => ({ key: "rules", rules: {}, ...marketRuleStatus, reload: () => {} }),
   rulesRequest: vi.fn(async () => ({ items: [] })),
   exportRows: vi.fn(),
   RowHead: () => null,
@@ -140,7 +141,10 @@ const choice = (id: string) => screen.getByRole("checkbox", { name: `选择 媒�
 const pageSelection = () => screen.getByRole("checkbox", { name: "本页全选" }) as HTMLInputElement;
 const count = () => screen.getByTestId("cart-count").textContent;
 
-beforeEach(() => { vi.stubGlobal("crypto", webcrypto); });
+beforeEach(() => {
+  vi.stubGlobal("crypto", webcrypto);
+  Object.assign(marketRuleStatus, { ready: true, error: "", loading: false });
+});
 afterEach(() => {
   cleanup();
   configurePublishingHost({});
@@ -150,6 +154,33 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it("shows loaded rows before rules arrive while keeping new selections blocked", async () => {
+    Object.assign(marketRuleStatus, { ready: false, loading: true });
+    const fixture = gatewayFixture();
+    const view = harness(fixture.gateway, "/publishing/media/third?articleVersion=version-1");
+    await waitFor(() => expect(choice("a").disabled).toBe(true));
+    expect(screen.getByText(/媒体已载入，正在读取投稿要求/)).not.toBeNull();
+    expect(screen.queryByText("没有匹配的媒体")).toBeNull();
+    expect(pageSelection().disabled).toBe(true);
+    fireEvent.click(choice("a"));
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+
+    Object.assign(marketRuleStatus, { ready: true, loading: false });
+    view.rerenderFlow(flow());
+    await waitFor(() => expect(choice("a").disabled).toBe(false));
+    expect(screen.queryByText(/媒体已载入，正在读取投稿要求/)).toBeNull();
+  });
+
+  it("keeps rows visible with a rules retry when rule loading fails", async () => {
+    Object.assign(marketRuleStatus, { ready: false, error: "读取超时" });
+    const fixture = gatewayFixture();
+    harness(fixture.gateway, "/publishing/media/third?articleVersion=version-1");
+    await waitFor(() => expect(choice("a").disabled).toBe(true));
+    expect(screen.getByRole("button", { name: "重试读取投稿要求" })).not.toBeNull();
+    expect(screen.queryByText("没有匹配的媒体")).toBeNull();
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
   it.each(["news", "self_media"] as const)("saves and restores unknown image requirements for an image article in %s", async (kind) => {
     const pending = media("pending", { kind, capability: "image_pending", priceTenThousandths: "3850000" });
     const detail = article();
@@ -675,6 +706,17 @@ function expectResultCount(total: number) {
 }
 
 describe("media catalogue inventory, filters and cart integration", () => {
+  it("does not report zero matching resources before the first complete catalogue sync", async () => {
+    const fixture = catalogueFixture({ catalog: {
+      activeRevision: "", lastSyncedAt: "", kindComplete: false, stale: true, countStatus: "unavailable",
+    } });
+    harness(fixture.gateway, "/publishing/media/third?query=no-such-media");
+    await waitFor(() => expect(screen.getByText("媒体目录尚未完整同步")).not.toBeNull());
+    expect(screen.queryByText("没有匹配的媒体")).toBeNull();
+    expect(document.getElementById("y-result-count")?.textContent).toContain("待确认");
+    expect(screen.getByRole("button", { name: "重试读取媒体目录" })).not.toBeNull();
+  });
+
   it("keeps 10 + 20 = 30 inventory across kind switches and name search while current totals change", async () => {
     const fixture = catalogueFixture();
     const currentFlow = flow();
@@ -737,6 +779,7 @@ describe("media catalogue inventory, filters and cart integration", () => {
     const facetCalls = fixture.getMediaFacets.mock.calls.length;
     expect(fixture.getMediaFacets).toHaveBeenLastCalledWith(expect.objectContaining({ kind: undefined, query: "", taxonomy: "", searchScope: "name" }), expect.any(AbortSignal));
 
+    fireEvent.click(screen.getByRole("button", { name: "展开频道类型选项" }));
     fireEvent.click(within(screen.getByRole("group", { name: "频道类型" })).getByRole("button", { name: "IT科技" }));
     await waitFor(() => {
       expectResultCount(1);

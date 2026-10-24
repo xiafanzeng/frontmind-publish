@@ -11,8 +11,28 @@ import {
   writeMediaRouteState,
   writePublicationWorkbenchRouteState,
 } from "./queryState";
+import { publishingTaskResumePath } from "./PublishingFlowContext";
 
 describe("publishing route state", () => {
+  it("round trips normalized and exact legacy constraints without widening aliases", () => {
+    const filters = {
+      ...DEFAULT_MEDIA_FILTERS, province: "广东", city: "深圳市", aiPlatform: "Kimi",
+      recommendationGroup: "周末可发（需预约）", area: "深圳", region: "综合全国",
+      recommendationTag: "kimi", channel: "科技", price: "under_100" as const,
+    };
+    const url = writeMediaRouteState("/publishing/media", filters, "frozen-v2");
+    expect(readMediaRouteState(url.split("?")[1] ?? "")).toEqual({ filters, articleVersionId: "frozen-v2" });
+  });
+
+  it("restores both filter generations from task values and retains the frozen version", () => {
+    const path = publishingTaskResumePath("media", {
+      resources: [{ kind: "article_version", id: "frozen-task-v2" }], step: "select",
+      values: { mediaFilters: { province: "广东", city: "深圳市", aiPlatform: "Kimi", recommendationGroup: "周末可发", area: "未知旧区域", recommendationTag: "预约旧标签", mediaIds: ["private-id"] } },
+    });
+    const restored = readMediaRouteState(path.split("?")[1] ?? "");
+    expect(restored).toMatchObject({ articleVersionId: "frozen-task-v2", filters: { province: "广东", city: "深圳市", aiPlatform: "Kimi", recommendationGroup: "周末可发", area: "未知旧区域", recommendationTag: "预约旧标签" } });
+    expect(path).not.toContain("mediaIds");
+  });
   it("preserves old publication filters in the workbench records view", () => {
     const filters = readPublicationRouteState("query=品牌&kind=self_media&status=success&from=2026-09-01&to=2026-09-06&page=3&pageSize=50");
     const route = writePublicationWorkbenchRouteState(filters);

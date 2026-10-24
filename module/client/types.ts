@@ -193,6 +193,12 @@ export type MediaFilters = {
   taxonomy?: string;
   mediaType?: string;
   area?: string;
+  /** Reviewed coverage dimensions; raw area/region remain independent exact constraints. */
+  province?: string;
+  city?: string;
+  /** Supplier platform label, independent of recommendationGroup and recommended. */
+  aiPlatform?: string;
+  recommendationGroup?: string;
   recommended?: "" | "true";
   /** Exact provider recommend label, never inferred from free text or platform_recommend. */
   recommendationTag?: string;
@@ -226,6 +232,12 @@ export type MediaFacetOption = {
 };
 
 export type MediaFacets = {
+  /** Version 2 is required before exposing normalized coverage and label filters. */
+  filterSchemaVersion?: number;
+  coverageProvinces?: MediaFacetOption[];
+  coverageCities?: Array<MediaFacetOption & { province: string }>;
+  aiPlatforms?: MediaFacetOption[];
+  recommendationGroups?: MediaFacetOption[];
   kinds: Record<PublisherMediaKind, number>;
   platforms: MediaFacetOption[];
   taxonomies: MediaFacetOption[];
@@ -248,6 +260,7 @@ export type MediaFacets = {
 };
 
 export type MediaList = {
+  filterSchemaVersion?: number;
   items: MediaResource[];
   total: number;
   page: number;

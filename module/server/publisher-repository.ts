@@ -1,4 +1,6 @@
 import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
+import { MediaCatalogPromiseCache } from "./media-catalog-cache.js";
+import { aiPlatformRawValues, coverageRawValues, normalizedCoverageFacets, normalizedTagFacets, recommendationRawValues } from "../shared/media-catalog-filters.js";
 import { mediaRulesTitleLimit, mediaRulesEvidence, mediaRulesImageBlocker } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -51,13 +53,10 @@ const { mediaPublishingItemPriceSnapshots, publisherArticleAssets, publisherArti
 class PublishingRepository {
 
   constructor(public readonly db: Database) {}
-  mediaFacetsCache = new Map<
-    string,
-    {
-      expiresAt: number;
-      value: ReturnType<PublishingRepository["loadPublisherMediaFacets"]>;
-    }
-  >();
+  // Shared catalog only: routes authorize customers, and neither these predicates
+  // nor the catalog/capability tables carry owner/workspace-specific visibility.
+  // A future scoped catalog MUST include that scope here before reusing results.
+  mediaFacetsCache = new MediaCatalogPromiseCache<Awaited<ReturnType<PublishingRepository["loadPublisherMediaFacets"]>>>();
 
   async createPublisherObjectLease(
     ownerId: string,
@@ -920,6 +919,10 @@ class PublishingRepository {
       conditions.push(eq(publisherMediaResources.mediaType, input.mediaType));
     if (input.area)
       conditions.push(eq(publisherMediaResources.area, input.area));
+    if (input.coverageProvince || input.coverageCity) {
+      const rawAreas = input.coverageProvince ? coverageRawValues(input.coverageProvince, input.coverageCity) : [];
+      conditions.push(rawAreas.length ? inArray(publisherMediaResources.area, [...rawAreas]) : sql`FALSE`);
+    }
     if (input.recommended !== undefined)
       conditions.push(
         eq(publisherMediaResources.recommended, input.recommended),
@@ -1002,6 +1005,12 @@ class PublishingRepository {
     }
     if (input.recommendationTag)
       conditions.push(sql`JSON_TYPE(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')) = 'ARRAY' AND JSON_CONTAINS(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags'), JSON_QUOTE(${input.recommendationTag}))`);
+    // Exact alias membership is OR within one dimension; the two conditions are AND.
+    const tagGroupCondition = (rawTags: readonly string[]) => rawTags.length
+      ? or(...rawTags.map((tag) => sql`JSON_TYPE(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')) = 'ARRAY' AND JSON_CONTAINS(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags'), JSON_QUOTE(${tag}))`))!
+      : sql`FALSE`;
+    if (input.aiPlatform) conditions.push(tagGroupCondition(aiPlatformRawValues(input.aiPlatform)));
+    if (input.recommendationGroup) conditions.push(tagGroupCondition(recommendationRawValues(input.recommendationGroup)));
     if (input.minimumMobileWeight !== undefined)
       conditions.push(gte(publisherMediaResources.mobileWeight, input.minimumMobileWeight));
     return conditions;
@@ -1035,6 +1044,7 @@ class PublishingRepository {
     const available = runtime?.catalogKindComplete === true && Boolean(runtime.activeCatalogRevision) && Boolean(runtime.catalogSyncedAt);
     const catalogSyncedAt = runtime?.catalogSyncedAt ?? null;
     return {
+      filterSchemaVersion: 2 as const,
       catalogCounts: available ? { all: news + selfMedia, news, selfMedia } : null,
       // Compatibility observation only: callers must honor kindComplete before
       // treating these as complete inventory. Never manufacture zero on missing sync.
@@ -1049,6 +1059,7 @@ class PublishingRepository {
 
   async loadPublisherMedia(input: Partial<MediaCatalogListInput>, database: Database | Transaction) {
     const conditions = this.mediaConditions(input);
+    const catalog = await this.loadPublisherCatalogSnapshot(database);
     const pageSize = Math.min(
       Math.max(input.pageSize ?? input.limit ?? 20, 1),
       100,
@@ -1056,17 +1067,22 @@ class PublishingRepository {
     const page = Math.max(input.page ?? 1, 1);
     const legacyCursorMode =
       input.page === undefined && input.pageSize === undefined;
-    const [{ total = 0 } = { total: 0 }] = await database
-      .select({ total: count() })
-      .from(publisherMediaResources)
-      .leftJoin(
-        publisherMediaCapabilities,
-        eq(
-          publisherMediaCapabilities.mediaResourceId,
-          publisherMediaResources.id,
-        ),
-      )
-      .where(and(...conditions));
+    // The common all/category-only query has exactly the inventory predicates.
+    // Reuse counts computed IN THIS transaction, never a TTL-cached inventory.
+    // Capability has a unique media_resource_id, so its LEFT JOIN cannot add rows.
+    const inventoryOnly = !input.includeInactive && conditions.length === (input.kind ? 3 : 2);
+    let total: number;
+    if (inventoryOnly) {
+      total = input.kind === "news" ? catalog.kindCounts.news
+        : input.kind === "self_media" ? catalog.kindCounts.selfMedia
+        : catalog.kindCounts.news + catalog.kindCounts.selfMedia;
+    } else {
+      const [countRow] = await database.select({ total: count() })
+        .from(publisherMediaResources)
+        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        .where(and(...conditions));
+      total = Number(countRow?.total ?? 0);
+    }
     const pageConditions = input.cursor
       ? [...conditions, gt(publisherMediaResources.id, input.cursor)]
       : conditions;
@@ -1091,7 +1107,6 @@ class PublishingRepository {
       .limit(legacyCursorMode ? pageSize + 1 : pageSize)
       .offset(legacyCursorMode ? 0 : (page - 1) * pageSize);
     const pageRows = rows.slice(0, pageSize);
-    const catalog = await this.loadPublisherCatalogSnapshot(database);
     return {
       ...catalog,
       items: pageRows.map(({ resource, imageSupport }) =>
@@ -1109,27 +1124,30 @@ class PublishingRepository {
 
   async getPublisherMediaFacets(input: Partial<MediaCatalogListInput> = {}) {
     const runtime = await this.getPublisherRuntimeState();
+    // Pagination and ordering cannot affect aggregate membership. Stable keys merge
+    // equivalent callers without dropping any actual filter, including legacy fields.
+    const facetInput = Object.fromEntries(Object.entries(input)
+      .filter(([key, value]) => value !== undefined && !["page", "pageSize", "limit", "cursor", "sort"].includes(key))
+      .sort(([left], [right]) => left.localeCompare(right)));
     const key = JSON.stringify([
+      2,
       runtime?.activeCatalogRevision,
       runtime?.catalogSyncedAt,
-      input,
+      runtime?.catalogKindComplete,
+      facetInput,
     ]);
-    const cached = this.mediaFacetsCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-    if (this.mediaFacetsCache.size >= 3) this.mediaFacetsCache.clear();
-    const value = this.db.transaction(
-      (tx) => this.loadPublisherMediaFacets(input, tx),
+    const result = await this.mediaFacetsCache.getOrLoad(key, () => this.db.transaction(
+      (tx) => this.loadPublisherMediaFacets(facetInput, tx),
       { isolationLevel: "repeatable read", withConsistentSnapshot: true },
-    );
-    const entry = { expiresAt: Date.now() + 60_000, value };
-    this.mediaFacetsCache.set(key, entry);
-    try {
-      return await value;
-    } catch (error) {
-      if (this.mediaFacetsCache.get(key) === entry)
-        this.mediaFacetsCache.delete(key);
-      throw error;
+    ));
+    // Sync may activate between the lightweight identity read and the snapshot.
+    // Return its internally coherent result, but never retain it under the wrong key.
+    if (result.catalogRevision !== (runtime?.activeCatalogRevision ?? null) ||
+        result.catalogSyncedAt?.getTime() !== runtime?.catalogSyncedAt?.getTime() ||
+        result.kindComplete !== (runtime?.catalogKindComplete ?? false)) {
+      this.mediaFacetsCache.delete(key);
     }
+    return { ...result, catalogStale: !result.catalogSyncedAt || Date.now() - result.catalogSyncedAt.getTime() > CATALOG_STALE_MS };
   }
 
   async loadPublisherMediaFacets(
@@ -1252,6 +1270,7 @@ class PublishingRepository {
     const prices = priceRows[0];
     const advancedCounts = advancedCountRows[0];
     const tagCounts = new Map<string, number>();
+    const groupedTags: { tags: string[]; count: number }[] = [];
     for (const row of recommendationTagRows) {
       let tags: unknown = row.tags;
       if (typeof tags === "string") {
@@ -1262,6 +1281,7 @@ class PublishingRepository {
       const exactTags = new Set(tags.filter((tag): tag is string =>
         typeof tag === "string" && tag.length > 0 && tag.length <= 120 && tag.trim() === tag,
       ));
+      groupedTags.push({ tags: [...exactTags], count: Number(row.total) });
       for (const tag of exactTags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + Number(row.total));
     }
     const countedOptions = (
@@ -1276,6 +1296,8 @@ class PublishingRepository {
       taxonomies,
       mediaTypes,
       areas,
+      ...normalizedCoverageFacets(areas),
+      ...normalizedTagFacets(groupedTags),
       includeTypes,
       publishSpeeds,
       entryTypes: entryLevels,
@@ -2333,6 +2355,9 @@ class PublishingRepository {
           verifiedAt,
         },
       });
+    // Capability changes are not catalog activations; invalidate this instance now.
+    // Other processes retain the existing bounded 60-second facet freshness window.
+    this.mediaFacetsCache.clear();
   }
 
   async setPublisherLiveWhitelist(input: {
