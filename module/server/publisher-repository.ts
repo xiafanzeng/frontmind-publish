@@ -1,5 +1,5 @@
 import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
-import { mediaRulesTitleLimit, mediaRulesEvidence } from "./providers/kol/media-rules.js";
+import { mediaRulesTitleLimit, mediaRulesEvidence, mediaRulesImageBlocker } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
 import type {
@@ -31,7 +31,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { publisherCanonicalImageReferences } from "./domain/canonical-html.js";
-import { publisherImageCapabilityEvidenceBlocker } from "./publisher-capability.js";
+import { publisherImageCapabilityEvidenceBlocker, publisherImageCompatibilityBlocker } from "./publisher-capability.js";
 import { assertPublisherNoOrderResolution, publisherReconciliationScan } from "./reconciliation.js";
 import { derivePublicationBatchStatus } from "./domain/state-machine.js";
 import { publisherMoneyFromApiString, publisherMoneyToApiString } from "./money-format.js";
@@ -2783,6 +2783,16 @@ class PublishingRepository {
       const resourceById = new Map(
         resources.map((row) => [row.resource.id, row]),
       );
+      const imageCount = Math.max(
+        version.containsImages ? 1 : 0,
+        publisherCanonicalImageReferences(version.canonicalHtml).length,
+      );
+      for (const { resource, imageSupport } of resources) {
+        const imageBlocker =
+          (imageCount > 0 ? publisherImageCompatibilityBlocker(imageSupport) : null) ??
+          mediaRulesImageBlocker(resource.remark, resource.titleLimit, resource.rawPayload, imageCount);
+        if (imageBlocker) throw new RepositoryError("INVALID_STATE", imageBlocker);
+      }
       let draftId = input.draftId;
       let nextRevision = 1;
       let previousTitleByMedia = new Map<string, string>();
@@ -3662,6 +3672,10 @@ async function computePreflight(
     containsImages: mode !== "mock" && version.containsImages,
     assets: versionImageAssets,
   });
+  const imageCount = Math.max(
+    version.containsImages ? 1 : 0,
+    publisherCanonicalImageReferences(version.canonicalHtml).length,
+  );
   const items = selections.map(
     ({
       draftItem,
@@ -3754,6 +3768,16 @@ async function computePreflight(
           itemId: draftItem.id,
         });
       }
+      const imageRulesBlocker = mediaRulesImageBlocker(
+        resource.remark, resource.titleLimit, resource.rawPayload, imageCount,
+      );
+      if (imageRulesBlocker) {
+        blockers.push({
+          code: "IMAGE_RULE_VIOLATION",
+          message: imageRulesBlocker,
+          itemId: draftItem.id,
+        });
+      }
       const liveEntry = whitelistByMedia.get(resource.id);
       const canaryBlocker =
         mode === "live" &&
@@ -3776,14 +3800,17 @@ async function computePreflight(
         });
       }
       if (mode !== "mock" && version.containsImages) {
-        const capabilityBlocker = publisherImageCapabilityEvidenceBlocker({
-          imageSupport,
-          evidenceUrl: capabilityEvidenceUrl,
-          verifiedAt: capabilityVerifiedAt,
-        });
+        const capabilityBlocker = publisherImageCompatibilityBlocker(imageSupport) ??
+          (mode === "live" && !runtime?.imagePublishEnabled
+            ? publisherImageCapabilityEvidenceBlocker({
+                imageSupport,
+                evidenceUrl: capabilityEvidenceUrl,
+                verifiedAt: capabilityVerifiedAt,
+              })
+            : null);
         if (capabilityBlocker) {
           blockers.push({
-            code: "IMAGE_UNVERIFIED",
+            code: imageSupport === "unsupported" ? "IMAGE_UNSUPPORTED" : "IMAGE_UNVERIFIED",
             message: capabilityBlocker,
             itemId: draftItem.id,
           });

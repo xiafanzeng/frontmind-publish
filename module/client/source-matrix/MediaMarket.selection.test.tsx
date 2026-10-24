@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaRules } from '../../server/providers/kol/media-rules';
 import type { MediaResource } from '../types';
 import { MarketRow, useMarketRules } from './MediaMarket';
+import { mediaSelectionBlocker } from '../mediaShortlist';
 
 const workspace = vi.hoisted(() => ({ value: 1 }));
 vi.mock('../host', () => ({
@@ -55,10 +56,24 @@ beforeEach(() => { workspace.value = 1; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('media selection controls', () => {
+  it('lets the real checkbox select unspecified image requirements without a blocking warning', () => {
+    const onToggle = vi.fn();
+    const blocker = mediaSelectionBlocker(media, true);
+    render(<MarketRow media={media} rules={rules} disabled={Boolean(blocker)} selectionDisabledReason={blocker} onToggle={onToggle} />);
+    const checkbox = screen.getByRole('checkbox', { name: '选择 测试媒体 平台' }) as HTMLInputElement;
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.getAttribute('aria-describedby')).toBeNull();
+    expect(screen.queryByText('当前稿件含图片，此媒体的图文能力尚未确认')).toBeNull();
+    expect(screen.getAllByText('未注明').length).toBeGreaterThan(0);
+    fireEvent.click(checkbox);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(media.capability).toBe('image_pending');
+  });
   it('explains a legitimate selection restriction without enabling the checkbox', () => {
     const onToggle = vi.fn();
-    const reason = '当前稿件含图片，此媒体的图文能力尚未确认';
-    render(<MarketRow media={media} disabled selectionDisabledReason={reason} onToggle={onToggle} />);
+    const textOnly = { ...media, capability: 'text' as const };
+    const reason = mediaSelectionBlocker(textOnly, true);
+    render(<MarketRow media={textOnly} disabled selectionDisabledReason={reason} onToggle={onToggle} />);
     const checkbox = screen.getByRole('checkbox', { name: '选择 测试媒体 平台', description: reason }) as HTMLInputElement;
     expect(checkbox.disabled).toBe(true);
     expect(screen.getByText(reason)).toBeTruthy();

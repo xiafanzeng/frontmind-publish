@@ -4,6 +4,15 @@ export type PublisherImageCapabilityEvidence = {
   verifiedAt?: Date | null;
 };
 
+/** Unspecified supplier capability adds no image restriction to normal selection. */
+export function publisherImageCompatibilityBlocker(
+  imageSupport: PublisherImageCapabilityEvidence["imageSupport"],
+): string | null {
+  return imageSupport === "unsupported"
+    ? "Media explicitly does not support images"
+    : null;
+}
+
 /**
  * "verified" is a security-sensitive state: it is valid only when backed by
  * a durable HTTPS evidence URL and a real verification timestamp.

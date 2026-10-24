@@ -12,7 +12,9 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { publisherImageCapabilityEvidenceBlocker } from "./publisher-capability.js";
+import { publisherImageCapabilityEvidenceBlocker, publisherImageCompatibilityBlocker } from "./publisher-capability.js";
+import { publisherCanonicalImageReferences } from "./domain/canonical-html.js";
+import { mediaRulesImageBlocker } from "./providers/kol/media-rules.js";
 import { publisherPriceToTenThousandths } from "./money-format.js";
 import { RepositoryError } from "@frontmind/module-contracts/errors";
 import type { PublishPersistenceCore, PublishDatabase as Database, PublishTransaction as Transaction } from "./persistence-core.js";
@@ -3011,6 +3013,16 @@ async function submissionBlocker(
   if (row.version.contentHash !== row.item.articleContentHash)
     return "Article hash changed";
   if (!row.resource.isActive) return "Media resource is inactive";
+  const imageRulesBlocker = mediaRulesImageBlocker(
+    row.resource.remark,
+    row.resource.titleLimit,
+    row.resource.rawPayload,
+    Math.max(
+      row.version.containsImages ? 1 : 0,
+      publisherCanonicalImageReferences(row.version.canonicalHtml).length,
+    ),
+  );
+  if (imageRulesBlocker) return imageRulesBlocker;
   if (
     !row.resource.mediaKind ||
     (row.item.mediaKindSnapshot !== "unknown" &&
@@ -3093,8 +3105,10 @@ async function submissionBlocker(
       .from(publisherMediaCapabilities)
       .where(eq(publisherMediaCapabilities.mediaResourceId, row.resource.id))
       .limit(1);
-    const capabilityBlocker =
-      publisherImageCapabilityEvidenceBlocker(capability);
+    const capabilityBlocker = publisherImageCompatibilityBlocker(capability?.imageSupport) ??
+      (row.batch.mode === "live" && !runtime?.imagePublishEnabled
+        ? publisherImageCapabilityEvidenceBlocker(capability)
+        : null);
     if (capabilityBlocker) return capabilityBlocker;
     const assets = await tx
       .select({
@@ -3191,7 +3205,7 @@ function publisherLiveCanaryBlocker(input: {
 
 function publisherLiveImageEvidenceBlocker(input: {
   containsImages: boolean;
-  imageSupport?: "unknown" | "verified" | "unsupported";
+  imageSupport?: "unknown" | "verified" | "unsupported" | null;
   assets: ReadonlyArray<{
     isFrozen: boolean;
     publicCapabilityDigest: string | null;
@@ -3200,9 +3214,8 @@ function publisherLiveImageEvidenceBlocker(input: {
   }>;
 }): string | null {
   if (!input.containsImages) return null;
-  if (input.imageSupport !== "verified") {
-    return "Media image capability is not verified";
-  }
+  const capabilityBlocker = publisherImageCompatibilityBlocker(input.imageSupport);
+  if (capabilityBlocker) return capabilityBlocker;
   if (input.assets.length === 0) {
     return "Frozen article version has no image asset evidence";
   }

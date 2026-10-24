@@ -30,17 +30,32 @@ beforeEach(() => {
 });
 
 describe("media shortlist", () => {
-  it("allows unknown image capability for text but still rejects images, inactive media and invalid quotes", () => {
+  it("allows unspecified image requirements without claiming verified support", () => {
     expect(mediaSelectionBlocker(media, false)).toBe("");
-    expect(mediaSelectionBlocker(media, true)).toContain("图文能力");
+    expect(mediaSelectionBlocker(media, true)).toBe("");
+    expect(media.capability).toBe("image_pending");
+    expect(mediaSelectionBlocker({ ...media, capability: "image" }, true)).toBe("");
+  });
+  it("retains explicit image bans and does not invent a ban from unrelated remarks", () => {
+    expect(mediaSelectionBlocker({ ...media, capability: "text" }, true)).toContain("明确不支持图片");
+    expect(mediaSelectionBlocker({ ...media, capability: "text" }, false)).toBe("");
+    for (const remark of ["不支持图片", "仅限纯文字", "禁止图片", "图片最多0张"]) {
+      expect(mediaSelectionBlocker({ ...media, remark }, true)).toBeTruthy();
+      expect(mediaSelectionBlocker({ ...media, remark }, false)).toBe("");
+    }
+    for (const remark of ["未注明", "", "图片不限", "改稿需要付费", "图片最多3张"]) {
+      expect(mediaSelectionBlocker({ ...media, remark }, true)).toBe("");
+    }
+  });
+  it("still rejects inactive media and invalid quotes for image articles", () => {
     expect(
-      mediaSelectionBlocker({ ...media, active: false }, false),
+      mediaSelectionBlocker({ ...media, active: false }, true),
     ).toBeTruthy();
     expect(
-      mediaSelectionBlocker({ ...media, priceTenThousandths: "bad" }, false),
+      mediaSelectionBlocker({ ...media, priceTenThousandths: "bad" }, true),
     ).toBeTruthy();
     expect(
-      mediaSelectionBlocker({ ...media, priceTenThousandths: "0" }, false),
+      mediaSelectionBlocker({ ...media, priceTenThousandths: "0" }, true),
     ).toBeTruthy();
   });
   it("persists only display estimates and keeps viewers, owners and enterprise projects isolated", () => {
