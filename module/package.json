@@ -81,6 +81,10 @@
       "types": "./client/queryState.ts",
       "import": "./client/queryState.ts"
     },
+    "./client/publisherTransport": {
+      "types": "./client/publisherTransport.ts",
+      "import": "./client/publisherTransport.ts"
+    },
     "./client/editorContent": {
       "types": "./client/editorContent.ts",
       "import": "./client/editorContent.ts"

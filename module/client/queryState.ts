@@ -23,6 +23,10 @@ export const DEFAULT_MEDIA_FILTERS: MediaFilters = {
   taxonomy: "",
   mediaType: "",
   area: "",
+  province: "",
+  city: "",
+  aiPlatform: "",
+  recommendationGroup: "",
   recommended: "",
   recommendationTag: "",
   priceMin: "",
@@ -117,6 +121,16 @@ export function readMediaRouteState(search: string): {
     taxonomy: one(params, "taxonomy"),
     mediaType: one(params, "mediaType"),
     area: one(params, "area"),
+    // Preserve old exact constraints alongside normalized dimensions. Choosing a
+    // new dimension in the UI explicitly clears its old constraint; restoration
+    // must never silently widen an old task or URL.
+    region: one(params, "region"),
+    channel: one(params, "channel"),
+    price: listedValue(one(params, "price"), ["under_100", "100_300", "over_300"]) as MediaFilters["price"],
+    province: one(params, "province"),
+    city: one(params, "city"),
+    aiPlatform: one(params, "aiPlatform"),
+    recommendationGroup: one(params, "recommendationGroup"),
     recommended: one(params, "recommended") === "true" ? "true" : "",
     recommendationTag: one(params, "recommendationTag"),
     priceMin: decimalInput(one(params, "priceMin")),

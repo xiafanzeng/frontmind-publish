@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
+import { createTRPCProxyClient } from '@trpc/client';
 import type { createPublishRoutes } from '../module/server/routes';
 import PublishingRoutes from '../module/client/PublishingRoutes';
 import { createServerBackedPublisherGateway } from '../module/client/ProductionPublishingEntry';
+import { createPublisherTransportLink } from '../module/client/publisherTransport';
 import type { PublisherGateway } from '../module/client/gateway';
 import PublishingShell from './PublishingShell';
 import { createPreviewGateway } from './preview';
@@ -22,7 +23,7 @@ export default function App({preview=false}:{preview?:boolean}) {
       if(!response.ok)throw new Error('无法读取开发工作区，请重新通过域名门禁。');
       const context=await response.json();if(context.module!=='publish'||!context.workspace?.id)throw new Error('当前运行入口不是发布模块。');
       setWorkspaceKey(`${context.workspace.id}:${context.workspace.ownerUserId}`);
-      const publisher=createTRPCProxyClient<PublisherRouter>({links:[()=>({op,next})=>next({...op,path:`publisher.${op.path}`}),httpBatchLink({url:'/api/monitoring/trpc',fetch:(url,options)=>fetch(url,{...options,credentials:'same-origin'})})]});
+      const publisher=createTRPCProxyClient<PublisherRouter>({links:[()=>({op,next})=>next({...op,path:`publisher.${op.path}`}),createPublisherTransportLink<PublisherRouter>({url:'/api/monitoring/trpc',fetch:(url,options)=>fetch(url,{...options,credentials:'same-origin'})})]});
       setGateway(createServerBackedPublisherGateway({publisher}));
     }).catch(cause=>{if(!abort.signal.aborted)setError(cause instanceof Error?cause.message:String(cause));});
     return()=>abort.abort();
