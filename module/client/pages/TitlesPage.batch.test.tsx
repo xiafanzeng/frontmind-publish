@@ -103,7 +103,7 @@ it("retains excluded rows and their titles when returning from review", { timeou
   fireEvent.click(screen.getByRole("button", { name: "预检与发布" }));
   await waitFor(() => expect(task.onSaved).toHaveBeenCalledTimes(2));
   expect(task.updateDraftMedia).toHaveBeenLastCalledWith("A", ["shared", "other"], 3);
-}, 15000);
+});
 
 it("stops on changed server membership before any writes and displays the latest selection", async () => {
   const task = setup();
