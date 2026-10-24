@@ -10,6 +10,7 @@ import {MediaShell,MediaCartFooter,MediaTaskbar,RowHead,Property,MarketRow,Media
 import {usePublisherGateway} from '../PublishingContext';
 import {publishingDraftRequestKey,usePublishingFlow} from '../PublishingFlowContext';
 import {useMediaSelectionTask} from '../useMediaSelectionTask';
+import {uniqueBatchIds} from '../batchMediaSelection';
 import {titleModeForFlowMode,type FlowStageMode} from '../components/PublishingFlowSteps';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
 import type {ArticleVersion,MediaResource,PublicationDraft} from '../types';
@@ -27,6 +28,7 @@ export default function SourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
   const next=new URLSearchParams(search);next.set('simulation',enabled?'1':'0');
   // Neither a real task nor a draft binding crosses the mode boundary.
   next.delete('task');next.delete('draftId');next.delete('matrixTask');next.delete('articleVersion');next.delete('workbenchTask');
+  next.delete('batchDraft');next.delete('batchArticleVersion');next.delete('batchArticle');next.delete('excludedDraft');
   navigate(projectWorkspaceUrl(path+'?'+next.toString()));
  };
  return <><div className="fm-media sm-sim-mode" style={referenceScopeStyle}>
@@ -77,8 +79,17 @@ function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  const contextDraftId=routeDraftId||flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id||'';
  const articleVersionId=routeVersionId||flow?.resources?.find(resource=>resource.kind==='article_version')?.id||'';
  const mode=params.get('mode')??'',workbenchTask=routeTaskId||flow?.taskId||'';
- const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
-  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,taskId,flow?.scopeKey,flow?.agentId]);
+ const batchBindingKey=JSON.stringify([params.getAll('batchArticleVersion'),params.getAll('batchDraft')]);
+ const selectionResources=(draft:PublicationDraft)=>{
+  if(mode!=='batch')return [{kind:'article_version' as const,id:draft.articleVersionId},{kind:'publication_draft' as const,id:draft.id}];
+  // Workbench records replace a resource kind as a whole. Preserve every
+  // batch member when the matrix updates its currently bound article.
+  const versions=uniqueBatchIds([...params.getAll('batchArticleVersion'),...(flow?.resources?.filter(item=>item.kind==='article_version').map(item=>item.id)??[]),draft.articleVersionId]);
+  const drafts=uniqueBatchIds([...params.getAll('batchDraft'),...(flow?.resources?.filter(item=>item.kind==='publication_draft').map(item=>item.id)??[]),draft.id]);
+  return [...versions.map(id=>({kind:'article_version' as const,id})),...drafts.map(id=>({kind:'publication_draft' as const,id}))];
+ };
+ const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
+  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flow?.scopeKey,flow?.agentId]);
  const selectionTask=useMediaSelectionTask(flow,taskContext);
  const cartKey=JSON.stringify([shortlist,flow?.scopeKey,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
  const cartScope=useMemo(()=>({gateway,key:cartKey}),[gateway,cartKey]);
@@ -161,7 +172,7 @@ function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
    setServerDraft(saved);
    if(!contextDraftId){
     // The draft already exists even if recording its task reference fails.
-    if(flow)try{await flow.record({id:`media-draft:${saved.id}`,label:'已保存媒体选择',resources:[{kind:'article_version',id:saved.articleVersionId},{kind:'publication_draft',id:saved.id}]});}
+    if(flow)try{await flow.record({id:`media-draft:${saved.id}`,label:'已保存媒体选择',resources:selectionResources(saved)});}
     catch{if(stillOnPage())setNotice('媒体选择已保存到投放草稿，但任务关联未完成；可保留当前草稿继续操作。');}
     if(!stillOnPage())return false;
     const query=new URLSearchParams(search);query.set('draftId',saved.id);query.set('articleVersion',saved.articleVersionId);
@@ -175,7 +186,7 @@ function LiveSourceMatrixPage({view='matrix'}:{view?:MatrixView}) {
  const retryAssociation=async()=>{
   if(!flow||!serverDraft||!registrationPending||bindingIssue||cartMutation.current)return;
   const owner=routeOwner;cartMutation.current=true;setCartBusy(true);
-  try{await flow.record({id:`media-draft:${serverDraft.id}`,label:'已保存媒体选择',resources:[{kind:'article_version',id:serverDraft.articleVersionId},{kind:'publication_draft',id:serverDraft.id}]});if(mounted.current&&latestOwner.current===owner){setAssociationAck({scope:cartScope,draftId:serverDraft.id,versionId:serverDraft.articleVersionId});setNotice('投放草稿已重新关联到当前任务。');}}
+  try{await flow.record({id:`media-draft:${serverDraft.id}`,label:'已保存媒体选择',resources:selectionResources(serverDraft)});if(mounted.current&&latestOwner.current===owner){setAssociationAck({scope:cartScope,draftId:serverDraft.id,versionId:serverDraft.articleVersionId});setNotice('投放草稿已重新关联到当前任务。');}}
   catch{if(mounted.current&&latestOwner.current===owner)setNotice('投放草稿仍已保存，任务关联暂未完成，请重试。');}
   finally{if(mounted.current&&latestOwner.current===owner){cartMutation.current=false;setCartBusy(false);}}
  };

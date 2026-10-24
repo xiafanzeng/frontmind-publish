@@ -23,6 +23,25 @@ export function publishingFlowScope(path: string, search = "") {
   const resources = resource ? [resource] : [];
   const version = params.get("articleVersion");
   if (version && !resources.some(item => item.kind === "article_version")) resources.push({kind:"article_version",id:version});
+  if (article) {
+    const articleIds = params.getAll("batchArticle").filter(Boolean);
+    if (articleIds.includes(decode(article[1]!))) resources.splice(0, 1);
+    for (const id of articleIds) {
+      if (id && !resources.some(item => item.kind === "article" && item.id === id)) resources.push({kind:"article", id});
+    }
+  }
+  if (draft || mediaPage || article) {
+    for (const [key, kind] of [["batchDraft", "publication_draft"], ["batchArticleVersion", "article_version"]] as const) {
+      for (const id of params.getAll(key)) {
+        if (id && !resources.some(item => item.kind === kind && item.id === id)) resources.push({kind, id});
+      }
+    }
+  }
+  if (draft?.[2] === "media" || mediaPage) {
+    for (const id of params.getAll("batchArticle")) {
+      if (id && !resources.some(item => item.kind === "article" && item.id === id)) resources.push({kind:"article", id});
+    }
+  }
   const key = `${agentId}:${resource ? `${resource.kind}:${resource.id}` : "entry"}`;
   return {agentId, resource, resources, key, seedKey: JSON.stringify([key,resources])};
 }
@@ -53,8 +72,17 @@ function indexEntry(active: FlowDocument["active"], entry: FlowEntry) {
 }
 
 function matchesScope(entry: FlowEntry | undefined, scope: ReturnType<typeof publishingFlowScope>) {
-  return entry?.agentId === scope.agentId && scope.resources.every(expected =>
+  return entry?.agentId === scope.agentId && !groupSizeConflict(entry, scope) && scope.resources.every(expected =>
     entry.resources.some(resource => resource.kind === expected.kind && resource.id === expected.id));
+}
+
+function groupSizeConflict(entry: FlowEntry, scope: ReturnType<typeof publishingFlowScope>) {
+  const kind = scope.resource?.kind;
+  if (kind !== "article_version" && kind !== "publication_draft") return false;
+  const owned = entry.resources.filter(resource => resource.kind === kind);
+  const requested = scope.resources.filter(resource => resource.kind === kind);
+  // A deliberate single-draft route must not silently recover its old batch.
+  return owned.length > 0 && owned.length !== requested.length;
 }
 
 // An explicit workbenchTask continuation owns a page while it merely lacks some
@@ -63,8 +91,10 @@ function matchesScope(entry: FlowEntry | undefined, scope: ReturnType<typeof pub
 // seeding a second one. Only a real contradiction (same resource kind bound to
 // a different id, or a different agent) ends the continuation.
 function conflictsScope(entry: FlowEntry | undefined, scope: ReturnType<typeof publishingFlowScope>) {
-  return !entry || entry.agentId !== scope.agentId || scope.resources.some(expected =>
-    entry.resources.some(resource => resource.kind === expected.kind && resource.id !== expected.id));
+  return !entry || entry.agentId !== scope.agentId || groupSizeConflict(entry, scope) || scope.resources.some(expected => {
+    const peers = entry.resources.filter(resource => resource.kind === expected.kind);
+    return peers.length > 0 && !peers.some(resource => resource.id === expected.id);
+  });
 }
 
 /** Only UI choices and resource references are browser-owned. Drafts, revisions,
