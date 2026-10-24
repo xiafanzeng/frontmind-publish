@@ -130,6 +130,16 @@ function parseRawPayload(value: unknown): Record<string, unknown> {
 }
 
 /**
+ * mysql2 results arrive as [rows, fields], a bare OkPacket or a typed
+ * ResultSetHeader depending on the drizzle/mysql2 version; normalise through
+ * unknown so both the standalone and host builds typecheck.
+ */
+function rowsOf(result: unknown): Row[] {
+  const rows = Array.isArray(result) ? result[0] : undefined;
+  return Array.isArray(rows) ? rows.filter((row): row is Row => !!row && typeof row === 'object') : [];
+}
+
+/**
  * Pure diff of one budget plan against the current trusted cart. The plan is
  * trusted data from the archived snapshot; resources are the live catalogue.
  * Items that cannot be honoured honestly are skipped with a reason instead of
@@ -297,22 +307,22 @@ export class BindingStore {
     planIdentity: { taskId: string; planId: string; planVersion: string; planIndex: number };
   }): Promise<{ ok: true; revision: number } | { ok: false; reason: 'draft_changed' | 'revision_conflict' }> {
     return this.db.transaction(async tx => {
-      const locked = await tx.execute(sql`select id, revision, status from publisher_drafts
+      const locked: unknown = await tx.execute(sql`select id, revision, status from publisher_drafts
         where id = ${input.draftId} and owner_id = ${this.ctx.ownerId}
           and (enterprise_project_id is null or enterprise_project_id = ${this.ctx.enterpriseProjectId}) for update`);
-      const rows = (Array.isArray(locked) ? locked[0] as unknown[] : []) as Row[];
+      const rows = rowsOf(locked);
       const draft = rows[0];
       if (!draft) return { ok: false, reason: 'draft_changed' } as const;
       if (Number(draft.revision) !== input.expectedRevision) return { ok: false, reason: 'revision_conflict' } as const;
       if (draft.status === 'submitted' || draft.status === 'archived') return { ok: false, reason: 'draft_changed' } as const;
       const keys = input.additions.map(addition => addition.mediaResourceId);
       const placeholders = keys.length ? sql.join(keys.map(key => sql`${key}`), sql`, `) : sql`''`;
-      const resourceRows = await tx.execute(sql`select r.id, r.name, r.external_resource_id, r.media_kind,
+      const resourceRows: unknown = await tx.execute(sql`select r.id, r.name, r.external_resource_id, r.media_kind,
         cast(r.price_ten_thousandths as char) as price, r.catalog_revision, r.remark, r.title_limit, r.raw_payload, c.image_support
         from publisher_media_resources r left join publisher_media_capabilities c on c.media_resource_id = r.id
         where r.id in (${placeholders}) and r.is_active = 1 and r.media_kind is not null`);
       const resources = new Map<string, BindingMediaResource>();
-      for (const row of ((Array.isArray(resourceRows) ? resourceRows[0] as unknown[] : []) as Row[])) {
+      for (const row of rowsOf(resourceRows)) {
         resources.set(String(row.id), {
           id: String(row.id), name: String(row.name ?? ''), externalResourceId: String(row.external_resource_id ?? ''),
           mediaKind: String(row.media_kind), priceTenThousandths: String(row.price ?? ''),
@@ -322,8 +332,8 @@ export class BindingStore {
           imageSupport: ['unknown', 'verified', 'unsupported'].includes(String(row.image_support)) ? String(row.image_support) as BindingMediaResource['imageSupport'] : 'unknown',
         });
       }
-      const existing = await tx.execute(sql`select media_resource_id from publisher_draft_items where draft_id = ${input.draftId} and owner_id = ${this.ctx.ownerId}`);
-      const existingIds = new Set(((Array.isArray(existing) ? existing[0] as unknown[] : []) as Row[]).map(row => String(row.media_resource_id)));
+      const existing: unknown = await tx.execute(sql`select media_resource_id from publisher_draft_items where draft_id = ${input.draftId} and owner_id = ${this.ctx.ownerId}`);
+      const existingIds = new Set(rowsOf(existing).map(row => String(row.media_resource_id)));
       const selectedAt = new Date().toISOString().slice(0, 23).replace('T', ' ');
       for (const addition of input.additions) {
         if (existingIds.has(addition.mediaResourceId)) continue;
@@ -338,10 +348,10 @@ export class BindingStore {
             ${resource.mediaKind}, ${JSON.stringify(snapshot)}, ${selectedAt})`);
         existingIds.add(resource.id);
       }
-      const updated = await tx.execute(sql`update publisher_drafts set revision = revision + 1, status = 'draft', updated_at = now(3)
+      const updated: unknown = await tx.execute(sql`update publisher_drafts set revision = revision + 1, status = 'draft', updated_at = now(3)
         where id = ${input.draftId} and owner_id = ${this.ctx.ownerId} and revision = ${input.expectedRevision}`);
-      const affected = !Array.isArray(updated) && typeof (updated as { affectedRows?: unknown }).affectedRows === 'number'
-        ? (updated as { affectedRows: number }).affectedRows : Array.isArray(updated) ? Number((updated[1] as { affectedRows?: unknown } | undefined)?.affectedRows ?? 1) : 1;
+      const header = (Array.isArray(updated) ? updated[0] : updated) as { affectedRows?: unknown } | undefined;
+      const affected = header && typeof header.affectedRows === 'number' ? header.affectedRows : 1;
       if (affected !== 1) return { ok: false, reason: 'revision_conflict' } as const;
       return { ok: true, revision: input.expectedRevision + 1 } as const;
     });
