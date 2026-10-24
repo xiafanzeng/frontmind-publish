@@ -27,6 +27,11 @@ const accepted = () => Response.json({ success: true, status: 200, response_data
   { order_id: "test-order", resource_id: 1, resource_name: "测试媒体" },
 ] });
 const order = { resourceId: 1, title: "测试订单", html: "<p>仅测试</p>" };
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((yes) => { resolve = yes; });
+  return { promise, resolve };
+}
 function subject(
   responses: (() => Response)[],
   options: Partial<ConstructorParameters<typeof KolClient>[0]> = {},
@@ -139,6 +144,61 @@ describe("KOL explicit token plus account refresh", () => {
       "/api/news_resource_2/data",
     ]);
   });
+  it.each(["connection check", "media rules collection"])(
+    "reuses the refreshed token when a delayed old-token 401 arrives from a concurrent %s",
+    async (purpose) => {
+      const delayedRejection = deferred<Response>();
+      const shortReadStarted = deferred<void>();
+      const calls: { method: string; path: string; token: string | null }[] = [];
+      let logins = 0;
+      const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const requestToken = url.searchParams.get("token") ??
+          new Headers(init?.headers).get("authorization")?.replace(/^Bearer /, "") ?? null;
+        calls.push({ method: init?.method ?? "GET", path: url.pathname, token: requestToken });
+        if (url.pathname === "/api/auth/authenticate") {
+          logins += 1;
+          return Response.json({ success: true, status: 200, data: { token: `refreshed-token-${logins}` } });
+        }
+        if (init?.method !== "GET") throw new Error("Only safe reads and authentication are permitted in this test");
+        if (requestToken === "test-supplied-token") {
+          if (url.pathname === "/api/news_order" || url.searchParams.get("page") === "2") {
+            shortReadStarted.resolve();
+            return delayedRejection.promise;
+          }
+          return Response.json({ status: 401 }, { status: 401 });
+        }
+        if (url.pathname === "/api/news_resource_2/data") return page();
+        if (url.pathname === "/api/news_order") return Response.json({ success: true, status: 200, data: [] });
+        throw new Error("Unexpected request in test");
+      });
+      const client = new KolClient({
+        baseUrl: "https://api.kol.test", mode: "live", accessToken: "test-supplied-token",
+        ...credentials, maxGetAttempts: 1, realEnabled: false, publishEnabled: false, fetch: fetchImpl,
+      });
+      const catalog = client.listResources();
+      const shortRead = purpose === "connection check" ? client.listOrders({ page: 1 }) : client.listResources(2);
+      try {
+        await shortReadStarted.promise;
+        await catalog;
+        expect(logins).toBe(1);
+        // The old request fails only after the catalog has already used the new token.
+        delayedRejection.resolve(Response.json({ status: 401 }, { status: 401 }));
+        await shortRead;
+        await client.listResources(3);
+        expect(logins).toBe(1);
+        expect(calls.filter((call) => call.method === "POST")).toEqual([
+          { method: "POST", path: "/api/auth/authenticate", token: null },
+        ]);
+        expect(calls.slice(-3).map((call) => call.token)).toEqual([
+          "refreshed-token-1", "refreshed-token-1", "refreshed-token-1",
+        ]);
+      } finally {
+        delayedRejection.resolve(Response.json({ status: 401 }, { status: 401 }));
+        await Promise.allSettled([catalog, shortRead]);
+      }
+    },
+  );
   it("does not log in for a forbidden 403 response", async () => {
     const { client, calls } = subject([
       () => Response.json({ status: 403 }, { status: 403 }),

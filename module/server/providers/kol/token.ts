@@ -21,6 +21,7 @@ export class KolTokenCache {
   async getToken(
     input: {
       forceRefresh?: boolean;
+      rejectedToken?: string;
       signal?: AbortSignal;
     } = {},
   ): Promise<string> {
@@ -31,7 +32,14 @@ export class KolTokenCache {
         { operation: "authenticate" },
       );
     }
-    if (!input.forceRefresh && this.usable(this.current))
+    // A concurrent safe read may already have refreshed the rejected token.
+    // Reuse that newer credential even if this request is on its retry.
+    if (
+      this.usable(this.current) &&
+      (!input.forceRefresh ||
+        (input.rejectedToken !== undefined &&
+          this.current.value !== input.rejectedToken))
+    )
       return this.current.value;
     this.inFlight ??= this.authenticate(input.signal)
       .then((value) => ({ value, expiresAt: jwtExpiry(value) }))
@@ -49,8 +57,8 @@ export class KolTokenCache {
     }
   }
 
-  invalidate(): void {
-    this.current = undefined;
+  invalidate(rejectedToken: string): void {
+    if (this.current?.value === rejectedToken) this.current = undefined;
   }
 
   block(): void {
