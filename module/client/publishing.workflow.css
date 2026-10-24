@@ -1126,6 +1126,21 @@
   color: var(--publishing-orange);
 }
 
+.monitoring-module :where(.publishing-page) .publishing-attention-notice {
+  width: 100%;
+  border-width: 2px;
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+
+.monitoring-module :where(.publishing-page) .publishing-attention-notice strong {
+  font-size: 15px;
+}
+
+.monitoring-module :where(.publishing-page) .publishing-attention-notice p {
+  font-size: 13px;
+}
+
 .monitoring-module :where(.publishing-page) .publishing-notice.is-danger {
   border-color: #efc4c7;
   background: #fff5f5;

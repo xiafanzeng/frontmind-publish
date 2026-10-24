@@ -202,7 +202,7 @@ export class KolClient implements KolProviderPort {
       throw new KolProviderError(
         "invalid_configuration",
         "KOL create-order encoding has not been verified",
-        { operation: "create_order" },
+        { operation: "create_order", submissionPhase: "before_send" },
       );
     }
     assertPositiveInteger(input.resourceId, "resourceId");
@@ -212,8 +212,9 @@ export class KolClient implements KolProviderPort {
     if (!html || html.length > 2_000_000)
       throw new TypeError("html is invalid");
 
-    // Resolve authentication before entering the non-idempotent send window.
-    const token = await this.tokenCache.getToken({ signal });
+    // Probe a safe read before entering the non-idempotent send window. A
+    // cached token can have been revoked by another provider login.
+    const token = await this.preflightCreateOrder(signal);
     const payload = {
       token,
       title,
@@ -240,6 +241,7 @@ export class KolClient implements KolProviderPort {
           };
 
     let response: Response;
+    let responseStatus: number | undefined;
     let body: unknown;
     try {
       response = await this.fetchOnce(
@@ -247,9 +249,14 @@ export class KolClient implements KolProviderPort {
         request,
         signal,
       );
+      responseStatus = response.status;
       body = await readJson(response, this.maxResponseBytes);
     } catch (cause) {
-      throw new KolSubmissionUnknownError(undefined, {}, { cause });
+      throw new KolSubmissionUnknownError(
+        undefined,
+        { httpStatus: responseStatus },
+        { cause },
+      );
     }
 
     const envelope = kolErrorEnvelopeSchema.safeParse(body);
@@ -278,7 +285,11 @@ export class KolClient implements KolProviderPort {
       throw new KolProviderError(
         "order_rejected",
         safeProviderMessage(body, "KOL rejected the publication order"),
-        { operation: "create_order", httpStatus: response.status },
+        {
+          operation: "create_order",
+          httpStatus: response.status,
+          submissionPhase: "after_send",
+        },
       );
     }
     const parsed = kolCreateOrderResponseSchema.safeParse(body);
@@ -302,6 +313,35 @@ export class KolClient implements KolProviderPort {
       message: parsed.data.message,
       raw: Object.freeze({ ...(body as Record<string, unknown>) }),
     };
+  }
+
+  private async preflightCreateOrder(signal?: AbortSignal): Promise<string> {
+    try {
+      signal?.throwIfAborted();
+      // A prior ambiguous order must not unlock itself by running this
+      // preflight. Only a separate, deliberate read-only check may recover it.
+      await this.tokenCache.getToken({ signal });
+      // Only authentication and response validity matter here. An empty page
+      // does not prove that any earlier submission failed to create an order.
+      await this.listOrders({ page: 1 }, signal);
+      const token = await this.tokenCache.getToken({ signal });
+      signal?.throwIfAborted();
+      return token;
+    } catch (cause) {
+      const failure = cause instanceof KolProviderError ? cause : undefined;
+      throw new KolProviderError(
+        failure?.code ?? "upstream_unavailable",
+        "KOL publication preflight failed before order submission",
+        {
+          operation: "create_order_preflight",
+          httpStatus: failure?.details.httpStatus,
+          retryable: failure?.retryable ?? false,
+          submissionMayHaveSucceeded: false,
+          submissionPhase: "before_send",
+        },
+        { cause },
+      );
+    }
   }
 
   private async authenticate(signal?: AbortSignal): Promise<string> {
@@ -390,15 +430,15 @@ export class KolClient implements KolProviderPort {
           signal,
         });
       } catch (error) {
-        // A create-order 401 deliberately blocks further POSTs. A later safe
-        // GET is the only automatic operation allowed to probe refreshed
-        // credentials and clear that block.
+        // A separate safe GET can recover a blocked worker credential. Order
+        // preflight checks the block before reaching this refresh path.
         if (
           authAttempt === 0 &&
-          this.authenticationMode === "login" &&
+          this.authenticationMode !== "access_token" &&
           error instanceof KolProviderError &&
           error.code === "authentication_blocked"
         ) {
+          this.accessTokenRejected = true;
           continue;
         }
         throw error;
@@ -550,14 +590,14 @@ export class KolClient implements KolProviderPort {
       throw new KolProviderError(
         "publishing_disabled",
         "KOL real publication is disabled by worker safety switches",
-        { operation: "create_order" },
+        { operation: "create_order", submissionPhase: "before_send" },
       );
     }
     if (this.mode === "test" && resourceId !== this.options.testResourceId) {
       throw new KolProviderError(
         "test_resource_required",
         "KOL TEST mode permits only the configured resource",
-        { operation: "create_order" },
+        { operation: "create_order", submissionPhase: "before_send" },
       );
     }
   }

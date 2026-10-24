@@ -23,6 +23,10 @@ const token = () =>
     status: 200,
     data: { token: "test-refreshed-token" },
   });
+const accepted = () => Response.json({ success: true, status: 200, response_data: [
+  { order_id: "test-order", resource_id: 1, resource_name: "测试媒体" },
+] });
+const order = { resourceId: 1, title: "测试订单", html: "<p>仅测试</p>" };
 function subject(
   responses: (() => Response)[],
   options: Partial<ConstructorParameters<typeof KolClient>[0]> = {},
@@ -181,19 +185,154 @@ describe("KOL explicit token plus account refresh", () => {
       "/api/news_resource_2/data",
     ]);
   });
-  it("never refreshes or repeats a non-idempotent order POST after a 401", async () => {
+  it.each([401, 403])("never refreshes or repeats a non-idempotent order POST after a %s", async status => {
     const { client, calls } = subject([
-      () => Response.json({ status: 401 }, { status: 401 }),
+      page,
+      () => Response.json({ status }, { status }),
     ]);
-    const order = { resourceId: 1, title: "测试订单", html: "<p>仅测试</p>" };
     await expect(client.createOrder(order)).rejects.toMatchObject({
       code: "submission_unknown",
+      submissionMayHaveSucceeded: true,
+      details: { httpStatus: status, submissionPhase: "after_send" },
     });
     await expect(client.createOrder(order)).rejects.toMatchObject({
       code: "authentication_blocked",
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
     });
     expect(calls).toEqual([
+      { method: "GET", path: "/api/news_order", token: "Bearer test-supplied-token" },
       { method: "POST", path: "/api/news_order", token: null },
+    ]);
+  });
+  it("recovers a blocked credential through a separate read-only check before a new explicit order", async () => {
+    const { client, calls } = subject([
+      page,
+      () => Response.json({ status: 401 }, { status: 401 }),
+      token,
+      page,
+      page,
+      accepted,
+    ]);
+    await expect(client.createOrder(order)).rejects.toMatchObject({ code: "submission_unknown" });
+    await expect(client.createOrder(order)).rejects.toMatchObject({ code: "authentication_blocked", submissionMayHaveSucceeded: false });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/news_order", "POST /api/news_order"]);
+    await client.listOrders({ page: 1 });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/news_order", "POST /api/news_order", "POST /api/auth/authenticate", "GET /api/news_order",
+    ]);
+    // Recovery never submits an order. Only this subsequent explicit call can.
+    await expect(client.createOrder({ ...order, title: "用户明确创建的新订单" })).resolves.toMatchObject({ orderId: "test-order" });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/news_order", "POST /api/news_order", "POST /api/auth/authenticate", "GET /api/news_order",
+      "GET /api/news_order", "POST /api/news_order",
+    ]);
+  });
+  it.each([401, 200])("refreshes a rejected credential on the safe order preflight with HTTP %s", async status => {
+    const { client, calls, fetchImpl } = subject([
+      () => Response.json({ status: 401 }, { status }),
+      token,
+      page,
+      accepted,
+    ]);
+    await expect(client.createOrder(order)).resolves.toMatchObject({ orderId: "test-order" });
+    expect(calls).toEqual([
+      { method: "GET", path: "/api/news_order", token: "Bearer test-supplied-token" },
+      { method: "POST", path: "/api/auth/authenticate", token: null },
+      { method: "GET", path: "/api/news_order", token: "Bearer test-refreshed-token" },
+      { method: "POST", path: "/api/news_order", token: null },
+    ]);
+    expect(new URL(String(fetchImpl.mock.calls[0]![0])).searchParams.get("page")).toBe("1");
+    expect(new URLSearchParams(String(fetchImpl.mock.calls[3]![1]!.body)).get("token"))
+      .toBe("test-refreshed-token");
+  });
+  it.each([401, 403])("does not submit with a rejected token-only credential (%s)", async status => {
+    const { client, calls } = subject([
+      () => Response.json({ status }, { status }),
+    ], { apiKey: undefined });
+    await expect(client.createOrder(order)).rejects.toMatchObject({
+      code: "authentication_blocked",
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", httpStatus: status, submissionPhase: "before_send" },
+    });
+    expect(calls.map(call => call.method)).toEqual(["GET"]);
+  });
+  it("does not log in or submit after a forbidden preflight", async () => {
+    const { client, calls } = subject([
+      () => new Response("Forbidden", { status: 403 }),
+    ]);
+    await expect(client.createOrder(order)).rejects.toMatchObject({
+      code: "authentication_blocked",
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", httpStatus: 403, submissionPhase: "before_send" },
+    });
+    expect(calls.map(call => call.method)).toEqual(["GET"]);
+  });
+  it("stops before the order POST when the only permitted login refresh fails", async () => {
+    const { client, calls } = subject([
+      () => Response.json({ status: 401 }, { status: 401 }),
+      () => Response.json({ status: 401 }, { status: 401 }),
+    ]);
+    await expect(client.createOrder(order)).rejects.toMatchObject({
+      code: "authentication_failed",
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
+    });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/news_order", "POST /api/auth/authenticate",
+    ]);
+  });
+  it("does not repeat login or submit when the refreshed preflight token is rejected", async () => {
+    const rejected = () => Response.json({ status: 401 }, { status: 401 });
+    const { client, calls } = subject([rejected, token, rejected]);
+    await expect(client.createOrder(order)).rejects.toMatchObject({
+      code: "authentication_blocked",
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
+    });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/news_order", "POST /api/auth/authenticate", "GET /api/news_order",
+    ]);
+  });
+  it.each([
+    { response: () => { throw new TypeError("network interrupted"); }, code: "upstream_unavailable" },
+    { response: () => new Response("{incomplete"), code: "invalid_response" },
+    { response: () => Response.json({ success: true, status: 200, data: "wrong shape" }), code: "invalid_response" },
+    { response: () => Response.json({ status: 503 }, { status: 503 }), code: "upstream_unavailable" },
+  ])("records preflight $code before any order POST", async ({ response, code }) => {
+    const { client, calls } = subject([response]);
+    const failure = await client.createOrder(order).catch(error => error);
+    expect(failure).toMatchObject({
+      code,
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
+    });
+    expect(JSON.stringify(failure.details)).not.toContain("test-supplied-token");
+    expect(JSON.stringify(failure.details)).not.toContain(order.html);
+    expect(calls.map(call => call.method)).toEqual(["GET"]);
+  });
+  it("honors an already aborted submission before any HTTP", async () => {
+    const { client, calls } = subject([]);
+    await expect(client.createOrder(order, AbortSignal.abort())).rejects.toMatchObject({
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
+    });
+    expect(calls).toEqual([]);
+  });
+  it("honors a cancellation after the safe preflight before the order POST", async () => {
+    const controller = new AbortController();
+    const { client, calls } = subject([() => { controller.abort(); return page(); }]);
+    await expect(client.createOrder(order, controller.signal)).rejects.toMatchObject({
+      submissionMayHaveSucceeded: false,
+      details: { operation: "create_order_preflight", submissionPhase: "before_send" },
+    });
+    expect(calls.map(call => call.method)).toEqual(["GET"]);
+  });
+  it("logs in only once before the safe preflight and order in account-only mode", async () => {
+    const { client, calls } = subject([token, page, accepted], { accessToken: undefined });
+    await expect(client.createOrder(order)).resolves.toMatchObject({ orderId: "test-order" });
+    expect(calls.map(call => `${call.method} ${call.path}`)).toEqual([
+      "POST /api/auth/authenticate", "GET /api/news_order", "POST /api/news_order",
     ]);
   });
   it("retains the existing account-only login path", async () => {

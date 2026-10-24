@@ -12,7 +12,7 @@ export interface PrivateObjectStore {
 export interface PrivateObjectReader { read(key: string, signal?: AbortSignal, maxBytes?: number): Promise<Uint8Array | undefined>; }
 export interface FetchedMedia { sourceUrl: string; finalUrl: string; contentType: string; body: Uint8Array; size: number; sha256: string; }
 export interface SecureMediaFetchOptions { maxBytes?: number; timeoutMs?: number; maxRedirects?: number; allowedContentTypes?: ReadonlySet<string>; userAgent?: string; signal?: AbortSignal; }
-import type { KolResource, KolOrder, KolProviderPort } from "../server/providers/kol/types.js";
+import type { KolResource, KolOrder, KolPagination, KolProviderPort } from "../server/providers/kol/types.js";
 export type { KolResource, KolOrder, KolProviderPort } from "../server/providers/kol/types.js";
 
 export interface LoggerPort {
@@ -176,6 +176,7 @@ export interface PublisherWorkerRepositoryPort {
     attemptId: string;
     status: "auth_blocked" | "action_required";
     reason: string;
+    providerRaw?: unknown;
     observedAt: Date;
   }): Promise<void>;
 
@@ -310,6 +311,15 @@ export interface PublisherWorkerRepositoryPort {
     reviewAudit?: PublisherLogoSearchAudit;
   }): Promise<void>;
   markKolCredentialAuthBlocked(input: { failedAt: Date }): Promise<void>;
+  completePublisherConnectionCheck(input: {
+    jobId: string; workerId: string; checkedAt: Date;
+    credentialStatus: "healthy" | "auth_blocked" | "unknown";
+  }): Promise<void>;
+  completePublisherMediaRulesCollection(input: {
+    jobId: string; workerId: string; checkedAt: Date;
+    credentialStatus: "healthy" | "auth_blocked" | "unknown";
+    result?: { resources: ReadonlyArray<Pick<KolResource, "id" | "remark" | "titleLimit">>; pagination: KolPagination };
+  }): Promise<void>;
 
   getPublisherDocxImport(
     importId: string,
@@ -333,10 +343,18 @@ export interface PublisherWorkerRepositoryPort {
     failedAt: Date;
   }): Promise<void>;
 
+  getPublisherReconciliationContext(itemId: string): Promise<{
+    attemptNumber: number;
+    startedAt: Date;
+    resourceId: number;
+    title: string;
+  } | undefined>;
   recordPublisherReconciliationCandidates(input: {
     itemId: string;
+    expectedAttemptNumber: number;
     orders: readonly KolOrder[];
     observedAt: Date;
+    scan?: { pagesFetched: number; reportedLastPage?: number; complete: boolean; ordersSeen: number; since: string };
   }): Promise<void>;
   getPublisherAssetPurgeCandidate(
     assetId: string,
@@ -423,11 +441,14 @@ const REQUIRED_METHODS = [
   "failKolMediaLogoArchive",
   "recordKolMediaLogoFallback",
   "markKolCredentialAuthBlocked",
+  "completePublisherConnectionCheck",
+  "completePublisherMediaRulesCollection",
   "getPublisherDocxImport",
   "leasePublisherDocxImportImages",
   "completePublisherDocxImport",
   "failPublisherDocxImport",
   "recordPublisherReconciliationCandidates",
+  "getPublisherReconciliationContext",
   "getPublisherAssetPurgeCandidate",
   "finalizePublisherAssetPurge",
 ] as const satisfies readonly (keyof PublisherWorkerRepositoryPort)[];

@@ -31,6 +31,8 @@ import type {
   PublicationItemStatus,
 } from "../types";
 
+export { PublishingAttentionNotice, PublicationBatchAttention, publicationItemResultText } from "./PublishingAttention";
+
 export function PublishingPage({
   title,
   description,

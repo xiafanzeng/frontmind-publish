@@ -32,6 +32,8 @@ import {
 } from "drizzle-orm";
 import { publisherCanonicalImageReferences } from "./domain/canonical-html.js";
 import { publisherImageCapabilityEvidenceBlocker } from "./publisher-capability.js";
+import { assertPublisherNoOrderResolution, publisherReconciliationScan } from "./reconciliation.js";
+import { derivePublicationBatchStatus } from "./domain/state-machine.js";
 import { publisherMoneyFromApiString, publisherMoneyToApiString } from "./money-format.js";
 import { RepositoryError } from "@frontmind/module-contracts/errors";
 import type { PublishApiCore, PublishDatabase as Database, PublishTransaction as Transaction } from "./persistence-core.js";
@@ -1901,6 +1903,46 @@ class PublishingRepository {
     return runtime ?? null;
   }
 
+  async requestPublisherConnectionCheck(actorId: string, requestedAt = new Date()) {
+    const slot = Math.floor(requestedAt.valueOf() / 60_000);
+    const key = `publisher:credential-check:${slot}`;
+    return this.db.transaction(async tx => {
+      await tx.insert(publisherJobs).values({
+        id: randomUUID(), type: "sync_kol_catalog", enterpriseProjectId: null,
+        deterministicKey: key, aggregateId: key,
+        payload: { purpose: "credential_check", requestedBy: actorId },
+        availableAt: requestedAt, maxAttempts: 1,
+      }).onDuplicateKeyUpdate({ set: { deterministicKey: sql`${publisherJobs.deterministicKey}` } });
+      const [job] = await tx.select({ id: publisherJobs.id }).from(publisherJobs)
+        .where(eq(publisherJobs.deterministicKey, key)).limit(1);
+      if (!job) throw new RepositoryError("INVALID_STATE", "发布连接检查未能排队，请稍后重试");
+      return { checkId: job.id };
+    });
+  }
+
+  async getPublisherConnectionCheck(checkId: string, now = new Date()): Promise<{
+    status: "pending" | "healthy" | "failed"; checkedAt?: Date; message?: string;
+  }> {
+    const [job] = await this.db.select().from(publisherJobs)
+      .where(and(eq(publisherJobs.id, checkId), eq(publisherJobs.type, "sync_kol_catalog"))).limit(1);
+    if (!job || job.payload.purpose !== "credential_check") {
+      throw new RepositoryError("NOT_FOUND", "发布连接检查不存在");
+    }
+    const result = job.payload.connectionCheck;
+    if (job.status === "succeeded" && result && typeof result === "object") {
+      const value = result as Record<string, unknown>;
+      const checkedAt = typeof value.checkedAt === "string" ? new Date(value.checkedAt) : undefined;
+      if ((value.status === "healthy" || value.status === "failed") && checkedAt && Number.isFinite(checkedAt.valueOf())) {
+        return { status: value.status, checkedAt,
+          message: value.status === "healthy" ? "发布连接检查成功，当前凭据可用。" : "发布连接检查未通过，请联系管理员或稍后重试。" };
+      }
+    }
+    if (job.status === "dead" || job.status === "succeeded" || now.valueOf() - job.createdAt.valueOf() >= 5 * 60_000) {
+      return { status: "failed", checkedAt: job.completedAt ?? now, message: "本次连接检查未完成，请稍后重新检查或联系管理员。" };
+    }
+    return { status: "pending" };
+  }
+
   async updatePublisherRuntimeState(
     input: Partial<{
       mode: PublicationMode;
@@ -2350,6 +2392,20 @@ class PublishingRepository {
     });
   }
 
+  async getPublisherAttentionSummary() {
+    const [row] = await this.db.select({ count: count(),
+      total: sql<string>`COALESCE(SUM(${mediaPublishingItemPriceSnapshots.amountTenThousandths}), 0)`,
+    }).from(publisherItems).innerJoin(mediaPublishingItemPriceSnapshots, eq(mediaPublishingItemPriceSnapshots.itemId, publisherItems.id))
+      .where(and(inArray(publisherItems.status, ["submission_unknown", "action_required"]), eq(publisherItems.fundsStatus, "frozen")));
+    return { count: Number(row?.count ?? 0), frozenTenThousandths: String(row?.total ?? "0") };
+  }
+
+  async getPublisherReconciliationScan(itemId: string, attemptNumber: number) {
+    const [row] = await this.db.select().from(publisherSubmissionAttempts)
+      .where(and(eq(publisherSubmissionAttempts.itemId, itemId), eq(publisherSubmissionAttempts.attemptNumber, attemptNumber))).limit(1);
+    return publisherReconciliationScan(row?.responseRedacted?.reconciliation);
+  }
+
   async listPublisherUnknownItems(limit = 100) {
     const rows = await this.db
       .select({
@@ -2565,6 +2621,45 @@ class PublishingRepository {
           reason: input.reason,
           attemptNumber: item.attemptCount + 1,
         },
+      });
+    });
+  }
+
+  async resolvePublisherNoOrder(input: {
+    itemId: string; actorId: string; expectedAttemptNumber: number;
+    reason: string; evidenceReference: string; resolvedAt?: Date;
+  }) {
+    const at = input.resolvedAt ?? new Date();
+    if (input.reason.trim().length < 3 || input.evidenceReference.trim().length < 3
+      || input.reason.length > 2000 || input.evidenceReference.length > 2000
+      || !Number.isSafeInteger(input.expectedAttemptNumber) || input.expectedAttemptNumber < 1) {
+      throw new RepositoryError("INVALID_STATE", "请填写供应商核验说明及有效的发布尝试版本");
+    }
+    await this.db.transaction(async tx => {
+      const [item] = await tx.select().from(publisherItems).where(eq(publisherItems.id, input.itemId)).for("update").limit(1);
+      if (!item) throw new RepositoryError("NOT_FOUND", "Publication item not found");
+      const hash = sha256(`publisher:no-order:${item.id}:${input.expectedAttemptNumber}`);
+      const auditId = `${hash.slice(0,8)}-${hash.slice(8,12)}-5${hash.slice(13,16)}-a${hash.slice(17,20)}-${hash.slice(20,32)}`;
+      const previous = await core.readAudit(tx, auditId, item.ownerId);
+      if (previous?.action === "admin.publisher_unknown_no_order_released"
+        && item.status === "failed" && item.fundsStatus === "released") return;
+      const [bound] = await tx.select({ id: publisherReconciliationCandidates.id }).from(publisherReconciliationCandidates)
+        .where(and(eq(publisherReconciliationCandidates.itemId, item.id), isNotNull(publisherReconciliationCandidates.boundAt))).for("update").limit(1);
+      assertPublisherNoOrderResolution(item, input.expectedAttemptNumber, Boolean(bound));
+      await settlePublisherItemMoney(tx, { itemId: item.id, settlement: "released", settledAt: at,
+        reason: "管理员核实供应商未创建订单，退回预占金额" });
+      await tx.update(publisherItems).set({ status: "failed", completedAt: at, nextPollAt: null,
+        failureReason: "管理员已核实未成单，预占金额已退回", actionRequiredReason: null,
+      }).where(eq(publisherItems.id, item.id));
+      const items = await tx.select({status:publisherItems.status,fundsStatus:publisherItems.fundsStatus}).from(publisherItems).where(eq(publisherItems.batchId, item.batchId));
+      const allFinal = items.every(row => row.status === "success" || row.status === "failed");
+      await tx.update(publisherBatches).set({ status: derivePublicationBatchStatus(items.map(row=>row.status)),
+        fundsStatus: derivePublisherBatchFundsStatus(items.map(row=>row.fundsStatus)), completedAt: allFinal ? at : null,
+      }).where(eq(publisherBatches.id, item.batchId));
+      await core.audit(tx, { id: auditId, actorId: input.actorId, actorRole: "admin", ownerId: item.ownerId,
+        action: "admin.publisher_unknown_no_order_released", targetType: "publication_item", targetIdHash: sha256(item.id),
+        metadata: { itemId: item.id, batchId: item.batchId, attemptNumber: input.expectedAttemptNumber,
+          reason: input.reason.trim(), evidenceReference: input.evidenceReference.trim(), resolvedAt: at.toISOString() },
       });
     });
   }

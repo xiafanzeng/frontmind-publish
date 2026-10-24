@@ -54,17 +54,53 @@ describe("module-owned media runtime", () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
-  it("supports complete legacy account settings without exposing them", async () => {
-    const paths: string[] = [];
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const path = new URL(String(input)).pathname; paths.push(path);
-      return path === "/api/auth/authenticate"
-        ? Response.json({ success: true, status: 200, data: { token: "test-issued-token" } }) : page();
-    });
-    await checkKolRuntimeConnection({ ...env, PUBLISHER_KOL_ACCESS_TOKEN: undefined,
+  it("leaves login-only connection checks to the worker without an API login", async () => {
+    const fetcher = vi.fn();
+    await expect(checkKolRuntimeConnection({ ...env, PUBLISHER_KOL_ACCESS_TOKEN: undefined,
       KOL_API_KEY: "test-api", KOL_MOBILE: "test-mobile", KOL_PASSWORD: "test-password",
-      KOL_IDENTITY: "advertiser", KOL_CAPTCHA: "test-captcha", KOL_CAPTCHA_TOKEN: "test-captcha-token" }, { fetch: fetcher });
-    expect(paths).toEqual(["/api/auth/authenticate", "/api/news_resource_2/data"]);
+      KOL_IDENTITY: "advertiser", KOL_CAPTCHA: "test-captcha", KOL_CAPTCHA_TOKEN: "test-captcha-token" }, { fetch: fetcher }))
+      .rejects.toMatchObject({ code: "invalid_configuration", message: expect.stringContaining("Worker") });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects a login-only API runtime client before HTTP with a worker recovery action", () => {
+    const fetcher = vi.fn();
+    expect(() => createKolRuntimeClient({ ...env, PUBLISHER_KOL_ACCESS_TOKEN: undefined,
+      PUBLISHER_KOL_API_KEY: "test-api", PUBLISHER_KOL_MOBILE: "test-mobile", PUBLISHER_KOL_PASSWORD: "test-password",
+      PUBLISHER_KOL_IDENTITY: "advertiser", PUBLISHER_KOL_CAPTCHA: "test-captcha", PUBLISHER_KOL_CAPTCHA_TOKEN: "test-captcha-token",
+    }, { fetch: fetcher })).toThrow("检查发布连接");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps the default API runtime client token-only despite complete primary and legacy login fields", async () => {
+    const methods: string[] = [];
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method ?? "GET");
+      return Response.json({ status: 401 }, { status: 401 });
+    });
+    const client = createKolRuntimeClient({ ...env,
+      PUBLISHER_KOL_API_KEY: "test-api", PUBLISHER_KOL_MOBILE: "test-mobile", PUBLISHER_KOL_PASSWORD: "test-password",
+      PUBLISHER_KOL_IDENTITY: "advertiser", PUBLISHER_KOL_CAPTCHA: "test-captcha", PUBLISHER_KOL_CAPTCHA_TOKEN: "test-captcha-token",
+      KOL_API_KEY: "test-legacy-api", KOL_MOBILE: "test-legacy-mobile", KOL_PASSWORD: "test-legacy-password",
+      KOL_IDENTITY: "advertiser", KOL_CAPTCHA: "test-legacy-captcha", KOL_CAPTCHA_TOKEN: "test-legacy-captcha-token",
+    }, { fetch: fetcher });
+    await expect(client.listOrders({ page: 1 })).rejects.toMatchObject({ code: "authentication_blocked" });
+    expect(methods).toEqual(["GET"]);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("never logs in from an API probe even when all six refresh fields are present", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      return Response.json({ status: 401 }, { status: 401 });
+    });
+    await expect(checkKolRuntimeConnection({ ...env,
+      PUBLISHER_KOL_API_KEY: "test-api", PUBLISHER_KOL_MOBILE: "test-mobile", PUBLISHER_KOL_PASSWORD: "test-password",
+      PUBLISHER_KOL_IDENTITY: "advertiser", PUBLISHER_KOL_CAPTCHA: "test-captcha", PUBLISHER_KOL_CAPTCHA_TOKEN: "test-captcha-token",
+      KOL_API_KEY: "test-legacy-api", KOL_MOBILE: "test-legacy-mobile", KOL_PASSWORD: "test-legacy-password",
+      KOL_IDENTITY: "advertiser", KOL_CAPTCHA: "test-legacy-captcha", KOL_CAPTCHA_TOKEN: "test-legacy-captcha-token",
+    }, { fetch: fetcher })).rejects.toMatchObject({ code: "authentication_blocked" });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("preserves send switches rather than enabling publication in a new route", async () => {
