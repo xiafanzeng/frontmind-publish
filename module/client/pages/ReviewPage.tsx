@@ -288,6 +288,7 @@ export default function PublishingReviewPage({
     Boolean(query.data) && !globalBlocked && passedItems.length > 0;
 
   return (
+    <div className="publishing-review-page">
     <PublishingPage
       title="发布预检与确认"
       description="确认冻结版本、逐家媒体标题、单价与发布风险。"
@@ -315,37 +316,8 @@ export default function PublishingReviewPage({
           >
             <header className="publishing-review-fees-head">
               <h2>费用与预算核验</h2>
-              <p className="publishing-review-counts" role="status">
-                通过 <strong>{passedItems.length}</strong> · 不通过{" "}
-                <strong>{failedItems.length}</strong>
-                {pendingReview ? null : (
-                  <>
-                    {" "}
-                    · 本次可发布 <strong>{passedItems.length}</strong> 家
-                  </>
-                )}
-                {partialPublish ? (
-                  <span className="publishing-review-partial">
-                    部分发布：{failedItems.length} 项未通过组合将被移出本次发布
-                  </span>
-                ) : null}
-              </p>
             </header>
             <dl className="publishing-money-summary">
-              <div>
-                <dt>软文 / 自媒体</dt>
-                <dd>
-                  {query.data.kindCounts?.news ??
-                    query.data.items.filter(
-                      (item) => item.media.kind === "news",
-                    ).length}{" "}
-                  /{" "}
-                  {query.data.kindCounts?.selfMedia ??
-                    query.data.items.filter(
-                      (item) => item.media.kind === "self_media",
-                    ).length}
-                </dd>
-              </div>
               <div>
                 <dt>软文媒体小计</dt>
                 <dd>
@@ -363,20 +335,11 @@ export default function PublishingReviewPage({
                 </dd>
               </div>
               <div>
-                <dt>本次可发布组合费用</dt>
+                <dt>预计总价</dt>
                 <dd className="is-total">
                   {formatPublishingMoney(publishTotal.toString())}
                 </dd>
               </div>
-              {partialPublish ? (
-                <div className="publishing-money-excluded">
-                  <dt>未纳入本次发布</dt>
-                  <dd>
-                    {failedItems.length} 项 ·{" "}
-                    {formatPublishingMoney(excludedTotal.toString())}
-                  </dd>
-                </div>
-              ) : null}
               <div>
                 <dt>可用余额</dt>
                 <dd>
@@ -409,22 +372,17 @@ export default function PublishingReviewPage({
                 </dd>
               </div>
             </dl>
-            <section className="publishing-gate-list">
-              <h3>发布门禁检查</h3>
-              {query.data.gates.map((gate) => (
-                <p
-                  key={gate.label}
-                  className={gate.passed ? "is-passed" : "is-blocked"}
-                >
-                  {gate.passed ? (
-                    <CheckCircle2 size={16} />
-                  ) : (
-                    <AlertTriangle size={16} />
-                  )}
-                  {gate.label}
-                </p>
-              ))}
-            </section>
+            <p className="publishing-review-cost-note">
+              两项媒体小计包含全部已选媒体；预计总价仅计入通过内容检查的媒体。
+              {!canPublish ? "当前不能提交发布，请处理下方检查结果后重新预检。" : null}
+            </p>
+            {query.refreshing || refreshingCatalog || query.error ? (
+              <p className="publishing-review-cost-note" role="status">
+                {query.error
+                  ? "本次预检未能更新，当前保留上一次预检的金额，请重试。"
+                  : "正在更新预检，当前显示上一次预检的金额。"}
+              </p>
+            ) : null}
             <label className="publishing-acknowledgement">
               <input
                 type="checkbox"
@@ -433,8 +391,8 @@ export default function PublishingReviewPage({
               />
               <span>
                 {live
-                  ? `我已确认向 {passedItems.length} 家媒体真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。`
-                  : `我已确认以 Preview 模拟方式提交 {passedItems.length} 家媒体。本次只生成确定性 Mock 批次，不会联系供应商或产生真实费用。`}
+                  ? `我已确认向 ${passedItems.length} 家媒体真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。`
+                  : `我已确认以 Preview 模拟方式提交 ${passedItems.length} 家媒体。本次只生成确定性 Mock 批次，不会联系供应商或产生真实费用。`}
               </span>
             </label>
             {submitError ? (
@@ -498,8 +456,32 @@ export default function PublishingReviewPage({
 
             <section
               className="publishing-panel publishing-review-table"
-              aria-label="逐项发布预检"
+              aria-labelledby="publishing-review-results-title"
             >
+              <header className="publishing-review-results-head">
+                <h2 id="publishing-review-results-title">发布内容检查结果</h2>
+                <p className="publishing-review-counts" role="status">
+                  通过 <strong>{passedItems.length}</strong> · 不通过{" "}
+                  <strong>{failedItems.length}</strong>
+                  {pendingReview ? null : (
+                    <>
+                      {" "}
+                      · 本次可发布 <strong>{passedItems.length}</strong> 家
+                    </>
+                  )}
+                  {partialPublish ? (
+                    <span className="publishing-review-partial">
+                      部分发布：{failedItems.length} 项未通过组合将被移出本次发布
+                    </span>
+                  ) : null}
+                  {failedItems.length ? (
+                    <span className="publishing-review-excluded">
+                      未纳入本次发布：{failedItems.length} 项 ·{" "}
+                      {formatPublishingMoney(excludedTotal.toString())}
+                    </span>
+                  ) : null}
+                </p>
+              </header>
               <div className="publishing-review-head publishing-review-row">
                 <span>媒体</span>
                 <span>
@@ -771,5 +753,6 @@ export default function PublishingReviewPage({
         </PublishingConfirmDialog>
       ) : null}
     </PublishingPage>
+    </div>
   );
 }
