@@ -79,7 +79,7 @@ export function MediaTaskbar({title,note,count=0,total,children,actions,saveStat
  * 数据来自调用方传入的真实选择集合，不维护第二份购物车状态。
  * 独立“查看购物车”按钮已移除，完整购物车页面路由保留，可经抽屉内链接进入。
  */
-export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,onRemove}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];onRemove?:(media:MediaResource)=>void}) {
+export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,onRemove,researchNotice}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];onRemove?:(media:MediaResource)=>void;researchNotice?:string}) {
  const [open,setOpen]=useState(false);
  const slotRef=useRef<HTMLDivElement>(null),dockRef=useRef<HTMLDivElement>(null),toggleRef=useRef<HTMLButtonElement>(null);
  const drawerId=useId(),hintId=useId(),expanded=open&&count>0;
@@ -138,6 +138,8 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
  const priceOf=(media:MediaResource)=>!/^[0-9]+$/.test(media.priceTenThousandths)||BigInt(media.priceTenThousandths)<=0n
    ?<span className="y-cart-pending">待确认</span>
    :formatPublishingMoney(media.priceTenThousandths);
+ // Sample research uses the same measured dock, without inventing an empty live cart.
+ if(researchNotice)return <div ref={slotRef} className="y-cart-slot"><div ref={dockRef} className="b-bottom y-cart-dock" id="x-cart-footer"><div className="y-cart-bar-wrap"><div className="y-cart-bar-summary" role="status"><strong>一航软件样本 · 仅供研究</strong><span className="small muted">{researchNotice}</span></div></div></div></div>;
  return <div ref={slotRef} className="y-cart-slot">
  <div ref={dockRef} className="b-bottom y-cart-dock" id="x-cart-footer" onKeyDown={event=>{if(event.key==='Escape'&&expanded){event.preventDefault();event.stopPropagation();close();}}}>
   <div className="y-cart-bar-wrap">

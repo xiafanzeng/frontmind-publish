@@ -1,34 +1,50 @@
 // @vitest-environment jsdom
-// Source-only UI regression cases; not executed in this round.
+// Source-only regression cases. Execution belongs to the receiving ZCode stage.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
-import SourceMatrixPage from '../SourceMatrixPage';
-import { SourceMatrixPreviewContext } from './mode';
-import { SIMULATION_NOTICE } from './data';
-const gateway=vi.hoisted(()=>({listMedia:vi.fn()}));
-vi.mock('../../PublishingContext',()=>({usePublisherGateway:()=>gateway}));
-
-afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
-it('uses an offline pipeline even when a real task and draft are present in the URL',{timeout:300000},async()=>{
-  window.history.replaceState({},'', '/publishing/source-matrix?simulation=1&task=real-task&draftId=real-draft');
-  const fetch=vi.fn(()=>{throw new Error('Simulation must not call network');});vi.stubGlobal('fetch',fetch);
-  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
-  await screen.findByRole('button',{name:'生成模拟信源矩阵 →'},{timeout:120000});
-  expect(screen.getByText(SIMULATION_NOTICE)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button',{name:'生成模拟信源矩阵 →'}));
-  await screen.findByRole('button',{name:'按预算真实计算 →'},{timeout:120000});
-  fireEvent.click(screen.getByRole('button',{name:'按预算真实计算 →'}));
-  await screen.findByText('边界观察（诊断提案）',{}, {timeout:240000});
-  expect(screen.queryByRole('button',{name:/确认加入购物车/})).toBeNull();
-  expect(screen.queryByRole('link',{name:/购物车/})).toBeNull();
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import SimulationPage from './SimulationPage';
+vi.mock('../../host', () => ({ usePublishingWorkspaceKey: () => 'sample-workspace', projectWorkspaceUrl: (url: string) => url }));
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(() => { throw new Error('A sample must never query live services'); }));
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, '', '/'); });
+it('shows workbook analysis without requiring a recommendation task', () => {
+  render(<SimulationPage />);
+  expect(screen.getByRole('link', { name: '行业信源分布' }).getAttribute('aria-current')).toBe('page');
+  expect(screen.getAllByText(/502/).length).toBeGreaterThan(0);
+  expect(screen.queryByText('固定种子')).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
 });
-it('defaults standalone preview to simulation and allows an explicit real-mode override',{timeout:300000},async()=>{
-  window.history.replaceState({},'', '/publishing/source-matrix');
-  const fetch=vi.fn(async()=>({ok:true,json:async()=>({industries:[],message:'真实服务配置'})}));vi.stubGlobal('fetch',fetch);
-  const view=render(<div className="monitoring-module"><SourceMatrixPreviewContext.Provider value={true}><SourceMatrixPage/></SourceMatrixPreviewContext.Provider></div>);
-  await screen.findByRole('button',{name:'生成模拟信源矩阵 →'},{timeout:120000});expect(fetch).not.toHaveBeenCalled();
-  view.unmount();window.history.replaceState({},'', '/publishing/source-matrix?simulation=0');
-  render(<div className="monitoring-module"><SourceMatrixPreviewContext.Provider value={true}><SourceMatrixPage/></SourceMatrixPreviewContext.Provider></div>);
-  await screen.findByText('真实服务配置',{}, {timeout:60000});expect(fetch).toHaveBeenCalled();
+it('keeps workbook sources unassigned and unpriced rather than inventing purchases', () => {
+  render(<SimulationPage view="matrix" />);
+  expect(screen.getByRole('heading', { name: '尚未分层的样本来源' })).toBeTruthy();
+  expect(screen.getAllByText('北京九运百行文化传播有限公司').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: '生成组合推荐' })).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: '加入本组合' })).toBeNull();
+  expect(screen.queryByText(/购物车 0 家/)).toBeNull();
+  expect(screen.getByText(/真实购物车保留不变/)).toBeTruthy();
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('opens traceable original rows without claiming complete citation evidence', () => {
+  render(<SimulationPage view="matrix" />);
+  const trigger = screen.getAllByRole('button', { name: '查看样本依据' })[0]!;
+  trigger.focus(); fireEvent.click(trigger);
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  expect(screen.getAllByText(/详细表格/).length).toBeGreaterThan(0);
+  expect(screen.getByText(/不证明该来源可售/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '关闭', exact: true }));
+  expect(document.activeElement).toBe(trigger);
+});
+it('keeps two sample destinations and context on legacy report links', () => {
+  window.history.replaceState({}, '', '/publishing/source-report?simulation=1&draftId=d1&workbenchTask=w1#evidence');
+  render(<SimulationPage view="report" />);
+  const href = new URL(screen.getByRole('link', { name: '行业信源分布' }).getAttribute('href')!, 'https://example.invalid');
+  expect(href.pathname).toBe('/publishing/source-matrix');
+  expect(href.searchParams.get('tab')).toBe('analysis');
+  expect(href.searchParams.get('draftId')).toBe('d1');
+  expect(href.searchParams.get('workbenchTask')).toBe('w1');
+  expect(href.hash).toBe('#evidence');
+  expect(screen.queryByRole('link', { name: '方案报告' })).toBeNull();
 });

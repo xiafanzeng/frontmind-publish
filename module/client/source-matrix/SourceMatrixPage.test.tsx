@@ -4,24 +4,37 @@ import { useState } from 'react';
 import { act,cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import { afterEach,beforeEach,expect,it,vi } from 'vitest';
 import SourceMatrixPage from './SourceMatrixPage';
+import {downloadUrl} from './api';
 import { PublishingFlowProvider,type PublishingFlow } from '../PublishingFlowContext';
 import type { MediaResource,PublicationDraft } from '../types';
 import type { MatrixResult } from './types';
 const mediaGateway=vi.hoisted(()=>({listMedia:vi.fn(),getDraft:vi.fn(),getArticleVersion:vi.fn(),createDraft:vi.fn(),updateDraftMedia:vi.fn()}));
 vi.mock('../PublishingContext',()=>({usePublisherGateway:()=>mediaGateway}));
+vi.mock('./industry/IndustryDistribution',()=>({LiveIndustryDistribution:()=> <div>真实行业分布</div>}));
 beforeEach(()=>{Object.values(mediaGateway).forEach(mock=>mock.mockReset());vi.stubGlobal('crypto',webcrypto);});
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
-it('shows the unconfigured industry state without invented media',async()=>{
- window.history.replaceState({},'', '/publishing/source-matrix');
- vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({status:'configuration_required',industries:[],message:'行业数据尚未配置'})})));
+it('defaults to real industry distribution and exposes only the two canonical tabs',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?draftId=draft-1&articleVersion=version-1#range');
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({industries:[]})})));
+ mediaGateway.getDraft.mockResolvedValue(draft());
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByText('行业数据尚未配置');expect((screen.getByLabelText('目标行业') as HTMLSelectElement).disabled).toBe(false);expect(screen.queryByText('加入组合偏好')).toBeNull();
+ await screen.findByText('真实行业分布');
+ const matrixLink=screen.getByRole('link',{name:'信源矩阵推荐'}) as HTMLAnchorElement;
+ expect(matrixLink.search).toContain('tab=matrix');expect(matrixLink.search).toContain('draftId=draft-1');expect(matrixLink.hash).toBe('#range');
+ expect(screen.queryByRole('link',{name:'媒体库首页'})).toBeNull();expect(screen.queryByRole('link',{name:'第三方媒体列表'})).toBeNull();expect(screen.queryByText('输入信源数据')).toBeNull();
 });
-it('renders a structured stale result without reading nonexistent matrix fields',async()=>{
- window.history.replaceState({},'', '/publishing/source-analysis?task=task');
+it('keeps configuration details out of permanent layout and offers a local industry retry',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({status:'configuration_required',industries:[],message:'信源规划存储尚未配置，请联系管理员完成模块迁移'})})));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
+ expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.queryByLabelText('期望发布时效（小时）')).toBeNull();
+});
+it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?task=task&tab=matrix');
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/industries')?{industries:[]}:{task_id:'task',state:'complete',result:{status:'stale_matrix',errors:[{code:'stale_matrix',message:'任务已变化，请重新生成'}]}}})));
- render(<div className="monitoring-module"><SourceMatrixPage view="analysis"/></div>);
- await screen.findByText('任务已变化，请重新生成');await waitFor(()=>expect(screen.getByText('暂无匹配的输入引用数据')).toBeTruthy());
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByText('任务已变化，请重新生成');expect(screen.getByText('等待生成矩阵')).toBeTruthy();
 });
 
 const media:MediaResource={id:'media-1',externalResourceId:'external-1',name:'可投媒体',shortName:'可投',kind:'news',platform:'新闻',taxonomy:'',mediaType:'',channel:'',region:'',titleLimit:200,priceTenThousandths:'1000000',turnaround:'',active:true,capability:'image',catalogRevision:'catalog-1',logoSource:'generated_fallback',logoResolutionStatus:'missing'};
@@ -38,8 +51,8 @@ function liveDirectory(){
 }
 function flow():PublishingFlow{return {taskId:'workbench-1',scopeKey:'workspace-1',agentId:'media',resources:[{kind:'article_version',id:'version-1'}],ensureTask:vi.fn(async()=> 'workbench-1'),record:vi.fn(async()=>{}),saveSelections:vi.fn(async()=>{}),setSummary:vi.fn(),handoff:vi.fn(async()=>{})};}
 function openMatrix(query:string,owner?:PublishingFlow){
- window.history.replaceState({},'', '/publishing/source-industry?task=matrix-1&'+query);
- const page=<div className="monitoring-module"><SourceMatrixPage view="industry"/></div>;
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-1&'+query);
+ const page=<div className="monitoring-module"><SourceMatrixPage view="matrix"/></div>;
  return render(owner?<PublishingFlowProvider value={owner}>{page}</PublishingFlowProvider>:page);
 }
 
@@ -55,11 +68,11 @@ it('creates the exact frozen-version draft only after an eligible matrix selecti
  await waitFor(()=>expect(mediaGateway.createDraft).toHaveBeenCalledWith('version-1',[media.id],expect.stringMatching(/^publisher:draft:/),'per_media'));
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('draftId')).toBe('draft-1'));
  expect(owner.record).toHaveBeenCalledWith(expect.objectContaining({id:'media-draft:draft-1',resources:[{kind:'article_version',id:'version-1'},{kind:'publication_draft',id:'draft-1'}]}));
- expect(window.location.pathname).toBe('/publishing/source-industry');
- const home=new URL((screen.getByRole('link',{name:'媒体库首页'}) as HTMLAnchorElement).href);
- expect(home.pathname).toBe('/publishing/drafts/draft-1/media');
- expect(Object.fromEntries(home.searchParams)).toMatchObject({articleVersion:'version-1',mode:'multi',workbenchTask:'workbench-1',matrixTask:'matrix-1',enterpriseProjectId:'project-1',operatorOwnerId:'owner-1'});
- expect(home.searchParams.has('task')).toBe(false);
+ expect(window.location.pathname).toBe('/publishing/source-matrix');
+ const cartLink=new URL((screen.getByRole('link',{name:/购物车 1/}) as HTMLAnchorElement).href);
+ expect(cartLink.pathname).toBe('/publishing/drafts/draft-1/media/cart');
+ expect(Object.fromEntries(cartLink.searchParams)).toMatchObject({articleVersion:'version-1',mode:'multi',workbenchTask:'workbench-1',matrixTask:'matrix-1',enterpriseProjectId:'project-1',operatorOwnerId:'owner-1'});
+ expect(cartLink.searchParams.has('task')).toBe(false);
  await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(true));
  await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}));
@@ -74,9 +87,9 @@ it('keeps the first matrix selection when the host assigns its task ID during en
  function AssigningHost(){
   const [taskId,setTaskId]=useState<string>();
   const current:PublishingFlow={...owner,taskId,ensureTask:async()=>{setTaskId('created-task');await Promise.resolve();return 'created-task';}};
-  return <PublishingFlowProvider value={current}><div className="monitoring-module"><SourceMatrixPage view="industry"/></div></PublishingFlowProvider>;
+  return <PublishingFlowProvider value={current}><div className="monitoring-module"><SourceMatrixPage view="matrix"/></div></PublishingFlowProvider>;
  }
- window.history.replaceState({},'', '/publishing/source-industry?task=matrix-1&articleVersion=version-1&mode=multi');
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-1&articleVersion=version-1&mode=multi');
  render(<AssigningHost/>);
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));fireEvent.click(checkbox);
@@ -139,12 +152,12 @@ it('ignores an old draft update after changing the bound draft',async()=>{
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));fireEvent.click(checkbox);
  await waitFor(()=>expect(mediaGateway.updateDraftMedia).toHaveBeenCalledWith('draft-1',[media.id],1));
- await act(async()=>{window.history.pushState({},'', '/publishing/source-industry?task=matrix-1&draftId=draft-2&articleVersion=version-1');window.dispatchEvent(new PopStateEvent('popstate'));});
+ await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-1&draftId=draft-2&articleVersion=version-1');window.dispatchEvent(new PopStateEvent('popstate'));});
  await waitFor(()=>expect(mediaGateway.getDraft).toHaveBeenCalledWith('draft-2',expect.any(AbortSignal)));
  await act(async()=>resolveUpdate(draft('draft-1',2,[media])));
  await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(false));
  expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(false);
- expect((screen.getByRole('link',{name:'媒体库首页'}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-2/media');
+ expect((screen.getByRole('link',{name:/购物车 0/}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-2/media/cart');
 });
 
 it('keeps a rejected first selection unchecked and permits a real retry',async()=>{
@@ -233,7 +246,7 @@ it('retries the same failed media mapping without discarding the draft context',
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));
  expect(mediaGateway.listMedia).toHaveBeenCalledTimes(2);expect(mediaGateway.createDraft).not.toHaveBeenCalled();
- expect((screen.getByRole('link',{name:'第三方媒体列表'}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-1/media/third');
+ expect((screen.getByRole('link',{name:/购物车 0/}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-1/media/cart');
 });
 
 it('does not replace a draft belonging to a different frozen version',async()=>{
@@ -255,4 +268,95 @@ it('shows the current independent research cart read-only and links back to its 
  expect((checkbox as HTMLInputElement).checked).toBe(true);expect((checkbox as HTMLInputElement).disabled).toBe(true);
  fireEvent.click(checkbox);
  expect(mediaGateway.getDraft).not.toHaveBeenCalled();expect(mediaGateway.getArticleVersion).not.toHaveBeenCalled();expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+// These regressions are delivered as source and have not been executed in this task.
+it('retains the complete matrix across budget-only responses and invalidates plans after a budget edit',async()=>{
+ liveDirectory();
+ const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/budget'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],reason_summary:'不得覆盖原矩阵的预算理由'}]},budget_plans:[offerPlan]}})};
+  return base(input,init);
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ await screen.findByRole('heading',{name:'保守覆盖'});
+ expect(screen.queryByText('不得覆盖原矩阵的预算理由')).toBeNull();
+ expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'150'}});
+ expect(screen.getByText('条件已变化，此组合仅供对照，请重新生成。')).toBeTruthy();
+ expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('ignores a budget response when the user changed its budget while the request was pending',async()=>{
+ liveDirectory();let finish!:(response:unknown)=>void;
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/budget')?new Promise(resolve=>{finish=resolve;}):base(input,init));
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'300'}});
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],attributes:{source_name:'过期响应媒体'}}]}}})}));
+ await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
+ expect(screen.queryByText('过期响应媒体')).toBeNull();expect((screen.getByLabelText('总预算（CNY）') as HTMLInputElement).value).toBe('300');
+ expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('keeps the cart footer on the distribution tab without discarding selected media',async()=>{
+ liveDirectory();mediaGateway.getDraft.mockResolvedValue(draft('draft-1',1,[media]));
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=analysis&task=matrix-1&draftId=draft-1&articleVersion=version-1');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('link',{name:'购物车 1 · ¥100.00'});expect(screen.getByText('真实行业分布')).toBeTruthy();
+ expect(screen.getByRole('button',{name:'查看购物车'})).toBeTruthy();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('keeps a persisted matrix plan version when an in-flight budget ACK becomes obsolete',async()=>{
+ liveDirectory();let started=false,requests=0,finish!:(response:unknown)=>void;const sentVersions:string[]=[];
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/budget')){requests++;sentVersions.push(JSON.parse(String(init?.body)).plan_version);if(requests===1){started=true;return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:{...matrix,plan_version:'unpersisted-ack-version'}})});}return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:matrix})});}
+  if(started&&String(input).includes('/classify/matrix-1'))return new Promise(resolve=>{finish=resolve;});
+  return base(input,init);
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ await waitFor(()=>expect(typeof finish).toBe('function'));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'300'}});
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-new-budget-version'}})}));
+ await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
+ fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ await waitFor(()=>expect(sentVersions).toEqual(['plan-version-1','plan-version-1']));
+});
+
+it('does not let an old cancellation clear a newly opened matrix task',async()=>{
+ liveDirectory();let finish!:(response:unknown)=>void;
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/cancel'))return new Promise(resolve=>{finish=resolve;});
+  if(url.includes('/classify/matrix-1'))return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:matrix})});
+  if(url.includes('/classify/matrix-2'))return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-2',state:'complete',result:{...matrix,matrix_version:'matrix-task-two',matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],resource_id:null,attributes:{source_name:'任务二研究媒体'}}]}}})});
+  return base(input,init);
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');fireEvent.click(await screen.findByRole('button',{name:'取消生成'}));
+ await waitFor(()=>expect(typeof finish).toBe('function'));
+ await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-2&draftId=draft-1&articleVersion=version-1');window.dispatchEvent(new PopStateEvent('popstate'));});
+ await screen.findByRole('heading',{name:'任务二研究媒体'});
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'cancelled'})}));
+ expect(screen.getByRole('heading',{name:'任务二研究媒体'})).toBeTruthy();expect(screen.queryByText('等待生成矩阵')).toBeNull();
+});
+
+it('pins export to the currently displayed persisted plan rather than the task latest report',async()=>{
+ liveDirectory();openMatrix('draftId=draft-1&articleVersion=version-1');
+ const link=await screen.findByRole('link',{name:'导出当前版本'});
+ const url=new URL((link as HTMLAnchorElement).href);
+ expect(url.pathname).toBe('/api/modules/publish/classify/matrix-1/download');
+ expect(Object.fromEntries(url.searchParams)).toEqual({plan_id:matrix.plan_id,plan_version:matrix.plan_version});
+ expect(downloadUrl('legacy-task')).toBe('/api/modules/publish/classify/legacy-task/download');
 });

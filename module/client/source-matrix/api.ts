@@ -6,4 +6,11 @@ export async function matrixApi<T>(path:string,signal:AbortSignal,body?:unknown)
  if(!response.ok&&!value.result)throw new Error(value.message??value.errors?.map((e:any)=>(e.path?String(e.path)+': ':'')+(e.message??e.code)).join('；')??'信源规划服务暂不可用');
  return value as T;
 }
-export function downloadUrl(taskId:string){return root+'/classify/'+encodeURIComponent(taskId)+'/download';}
+export function downloadUrl(taskId:string,planId?:string,planVersion?:string){
+ const path=root+'/classify/'+encodeURIComponent(taskId)+'/download';
+ // The legacy task-only signature still downloads latest. A visible result
+ // passes both identifiers so export cannot silently switch to another version.
+ if(planId===undefined&&planVersion===undefined)return path;
+ const query=new URLSearchParams();if(planId!==undefined)query.set('plan_id',planId);if(planVersion!==undefined)query.set('plan_version',planVersion);
+ return path+'?'+query.toString();
+}

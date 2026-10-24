@@ -57,7 +57,7 @@ describe("publishing navigation context", () => {
       "matrixTask=matrix-1&articleVersion=v1&mode=batch&workbenchTask=flow-1"));
     expect(target.pathname).toBe("/publishing/drafts/d1/media/matrix");
     expect(Object.fromEntries(target.searchParams)).toEqual({
-      workbenchTask:"flow-1", mode:"batch", articleVersion:"v1", task:"matrix-1",
+      workbenchTask:"flow-1", mode:"batch", articleVersion:"v1", task:"matrix-1", tab:"analysis",
     });
   });
 
@@ -104,5 +104,18 @@ describe("publishing navigation context", () => {
     const crumbs = publishingBreadcrumbs("/publishing/media", "articleVersion=v1&mode=multi");
     expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体库"]);
     expect(crumbs.at(-1)?.href).toBeUndefined();
+  });
+
+  it.each([
+    ['/publishing/source-matrix', '', '行业信源分布'],
+    ['/publishing/source-matrix', 'tab=matrix', '信源矩阵推荐'],
+    ['/publishing/source-analysis', '', '行业信源分布'],
+    ['/publishing/source-industry', '', '行业信源分布'],
+    ['/publishing/source-report', '', '信源矩阵推荐'],
+    ['/publishing/media/matrix', '', '信源矩阵推荐'],
+    ['/publishing/drafts/d1/media/industry', '', '行业信源分布'],
+    ['/publishing/source-report', 'tab=analysis', '行业信源分布'],
+  ])('names the two current tabs for %s %s', (path, search, label) => {
+    expect(publishingBreadcrumbs(path,search).at(-1)).toEqual({label});
   });
 });

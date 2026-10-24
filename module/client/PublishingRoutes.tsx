@@ -42,13 +42,14 @@ export type PublishingRoutesProps = {
 
 export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const search=useSearch();
-  const matrixDraftHref=(draftId:string)=>{
+  const matrixDraftHref=(draftId:string,view:'analysis'|'matrix'='matrix')=>{
     const params=new URLSearchParams(search);
     const matrixTask=params.get("task") || params.get("matrixTask");
     params.set("draftId",draftId);
     params.delete("matrixTask");
     if(matrixTask)params.set("task",matrixTask);
-    return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());
+    if(!['analysis','matrix'].includes(params.get('tab')??''))params.set('tab',view);
+    return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString())+(typeof window!=='undefined'?window.location.hash:'');
   };
   return (
     <PublishingGatewayProvider gateway={gateway}>
@@ -84,11 +85,20 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
             <Route path="/publishing/articles">
               <ArticlesPage />
             </Route>
-            <Route path="/publishing/media/matrix"><SourceMatrixPage /></Route>
+            <Route path="/publishing/media/matrix"><SourceMatrixPage view="matrix" /></Route>
             <Route path="/publishing/media/sources"><SourceMatrixPage view="analysis" /></Route>
             <Route path="/publishing/media/industry"><SourceMatrixPage view="industry" /></Route>
             <Route path="/publishing/media/report"><SourceMatrixPage view="report" /></Route>
             <Route path="/publishing/drafts/:draftId/media/matrix">
+              {(params) => <Redirect to={matrixDraftHref(params.draftId)} />}
+            </Route>
+            <Route path="/publishing/drafts/:draftId/media/sources">
+              {(params) => <Redirect to={matrixDraftHref(params.draftId,'analysis')} />}
+            </Route>
+            <Route path="/publishing/drafts/:draftId/media/industry">
+              {(params) => <Redirect to={matrixDraftHref(params.draftId,'analysis')} />}
+            </Route>
+            <Route path="/publishing/drafts/:draftId/media/report">
               {(params) => <Redirect to={matrixDraftHref(params.draftId)} />}
             </Route>
             <Route path="/publishing/media/:view">

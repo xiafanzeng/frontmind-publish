@@ -9,6 +9,7 @@ import { SOURCE_MATRIX_SKILL,SOURCE_MATRIX_INSTRUCTIONS } from './instructions.j
 import { MatrixRepository } from './repository.js';
 const start=z.object({industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),as_of:z.string()}).strict();
 const budget=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),budget:z.record(z.string(),z.unknown()),selected_candidate_ids:z.array(z.string().max(200)).max(500).optional(),as_of:z.string()}).strict();
+const download=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/).optional(),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/).optional()}).strict().refine(value=>(value.plan_id===undefined)===(value.plan_version===undefined));
 function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brandId:string):Row {
  // Fixed allowlist: config cannot overwrite server identity or user task goals.
  return {tenant_id:tenantId,task_id:taskId,brand_id:brandId,task:{...clone(task),...(dataset.manuscripts?{manuscripts:clone(dataset.manuscripts)}:{}),...(dataset.requirements?{requirements:clone(dataset.requirements)}:{})},catalog:clone(dataset.catalog??[]),citations:clone(dataset.citations??[]),scope:{...clone(dataset.scope??{}),tenant_id:tenantId},identity_config:clone(dataset.identity_config??{}),industry_recommendations:clone(dataset.industry_recommendations??[]),selected_items:clone(dataset.selected_items??[])};
@@ -29,6 +30,11 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  });
  router.get('/industries',wrap(async(req,res)=>{
   const repo=await repository(req),items=await repo.industries();res.json({status:items.length?'configured':'configuration_required',industries:items,message:items.length?null:'行业数据尚未配置，请联系运营接入真实行业、媒体与报价'});
+ }));
+ router.get('/source-distribution',wrap(async(req,res)=>{
+  const repo=await repository(req),view=await repo.sourceDistribution();
+  if(['invalid_data','data_limit_exceeded'].includes(view.status))console.warn('source_matrix_distribution_unavailable',{reason:view.status});
+  res.json(view);
  }));
  router.post('/matrix/generate',wrap(async(req,res)=>{
   const parsed=start.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
@@ -72,16 +78,21 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  router.get('/classify/:taskId',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}res.json({task_id:task.taskId,state:task.state,result:task.state==='cancelled'?null:task.latest});}));
  router.post('/classify/:taskId/cancel',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}await repo.cancel(task.taskId);res.json({task_id:task.taskId,state:'cancelled'});}));
  router.get('/classify/:taskId/download',wrap(async(req,res)=>{
+  const parsed=download.safeParse(req.query);if(!parsed.success){res.status(400).json({status:'invalid_input',message:'请同时提供有效的方案与版本标识'});return;}
   const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}
-  if(task.state==='cancelled'||!task.latest?.report){res.status(409).json({status:'report_unavailable'});return;}
-  res.setHeader('Content-Disposition','attachment; filename="source-matrix-report.json"');res.type('application/json').send(JSON.stringify(task.latest.report,null,2));
+  if(task.state==='cancelled'){res.status(409).json({status:'report_unavailable'});return;}
+  const result=parsed.data.plan_id&&parsed.data.plan_version?await repo.snapshot(task.taskId,parsed.data.plan_id,parsed.data.plan_version):task.latest;
+  if(!result?.report){res.status(409).json({status:'report_unavailable'});return;}
+  res.setHeader('Content-Disposition','attachment; filename="source-matrix-report.json"');res.type('application/json').send(JSON.stringify(result.report,null,2));
  }));
- router.use((err:any,_req:Request,res:Response,_next:NextFunction)=>{
+ router.use((err:any,req:Request,res:Response,_next:NextFunction)=>{
   const missing=err?.code==='ER_NO_SUCH_TABLE'||err?.cause?.code==='ER_NO_SUCH_TABLE';
   const badBody=err?.type==='entity.parse.failed'||err?.type==='entity.too.large';
   if(badBody){res.status(err.type==='entity.too.large'?413:400).json({status:'invalid_input',message:'请求内容不是有效 JSON 或超出大小限制'});return;}
   const status=err?.status===403?403:missing?503:500;
-  res.status(status).json({status:missing?'configuration_required':status===403?'forbidden':'unavailable',message:missing?'信源规划存储尚未配置，请联系管理员完成模块迁移':status===403?'需要已授权企业项目':'信源规划服务暂不可用，请稍后重试'});
+  // Fixed diagnostic codes only: SQL, dataset values and project/tenant identifiers stay out of logs and responses.
+  if(status!==403)console.warn('source_matrix_service_unavailable',{reason:missing?'storage_missing':'service_error'});
+  res.status(status).json({status:missing?'configuration_required':status===403?'forbidden':'unavailable',...(req.path==='/source-distribution'?{batches:[]}:{}),message:status===403?'需要已授权企业项目':'行业信源服务暂不可用，请稍后重试'});
  });
  return router;
 }
