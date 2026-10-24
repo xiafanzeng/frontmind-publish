@@ -6,9 +6,12 @@ export type PublishingWallet = {
 
 export type CatalogFreshness = {
   activeRevision: string;
-  mediaCount: number;
+  /** Inventory counts are independent of the current list filters and page. */
+  mediaCount?: number;
   newsCount?: number;
   selfMediaCount?: number;
+  /** Missing/legacy responses cannot be represented as a verified zero. */
+  countStatus?: "available" | "unavailable";
   kindComplete?: boolean;
   lastSyncedAt: string;
   stale: boolean;
@@ -151,12 +154,15 @@ export type MediaResource = {
   titleLimit: number;
   priceTenThousandths: string;
   turnaround: string;
+  /** Percent on a 0–100 scale; absent means unknown, never a zero estimate. */
   successRate?: number;
+  /** Percent on a 0–100 scale, preserving the source's decimal precision. */
   includeRate?: number;
   includeType?: string;
   entryType?: string;
   linkType?: string;
   pcWeight?: number;
+  mobileWeight?: number;
   authenticated?: boolean;
   authenticationType?: string;
   authenticationDescription?: string;
@@ -176,21 +182,29 @@ export type MediaResource = {
 
 export type MediaFilters = {
   query: string;
-  /** Newline/comma separated media names or resource ids, maximum 50. */
+  /** Catalogue UI opts in to name-only search; older consumers keep their semantics. */
+  searchScope?: "name";
+  /** Newline/comma separated names (legacy callers may also search ids), maximum 50. */
   batchQuery?: string;
+  /** Request-only internal IDs for an account's cart/favourite scope; never persisted in URLs. */
+  mediaIds?: string[];
   kind?: PublisherMediaKind;
   platform?: string;
   taxonomy?: string;
   mediaType?: string;
   area?: string;
   recommended?: "" | "true";
+  /** Exact provider recommend label, never inferred from free text or platform_recommend. */
+  recommendationTag?: string;
   priceMin?: string;
   priceMax?: string;
+  priceMinExclusive?: boolean;
   includeType?: string;
   publishSpeed?: string;
   entryType?: string;
   linkType?: string;
   pcWeight?: string;
+  mobileWeight?: string;
   includeRate?: string;
   successRate?: string;
   authenticated?: "" | "true";
@@ -223,9 +237,11 @@ export type MediaFacets = {
   linkTypes: MediaFacetOption[];
   imageSupports: MediaFacetOption[];
   pcWeightThresholds: MediaFacetOption[];
+  mobileWeightThresholds?: MediaFacetOption[];
   includeRateThresholds: MediaFacetOption[];
   successRateThresholds: MediaFacetOption[];
   recommendedOptions: MediaFacetOption[];
+  recommendationTags?: MediaFacetOption[];
   authenticatedOptions: MediaFacetOption[];
   festivalPublishableOptions: MediaFacetOption[];
   catalog: CatalogFreshness;

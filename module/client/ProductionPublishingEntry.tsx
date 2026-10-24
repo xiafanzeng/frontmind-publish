@@ -15,6 +15,7 @@ import type {
   ArticleImage,
   ArticleStatus,
   ArticleSummary,
+  CatalogFreshness,
   MediaCapability,
   MediaFacets,
   MediaFilters,
@@ -38,6 +39,10 @@ type ApiArticleVersion =
   ApiOutputs["publisher"]["articles"]["versions"][number];
 type ApiMedia = ApiOutputs["publisher"]["media"]["list"]["items"][number];
 type ApiMediaPage = ApiOutputs["publisher"]["media"]["list"];
+type CatalogInventoryResponse = {
+  catalogCounts?: { all: number; news: number; selfMedia: number } | null;
+  catalogCountStatus?: "available" | "unavailable";
+};
 type ApiDraft = ApiOutputs["publisher"]["drafts"]["get"];
 type ApiDraftMedia = ApiDraft["items"][number]["mediaResource"];
 type ApiPreflight = ApiOutputs["publisher"]["drafts"]["preflight"];
@@ -228,10 +233,14 @@ export function createServerBackedPublisherGateway(
     filters: MediaFilters,
     signal?: AbortSignal,
   ): Promise<ApiMediaPage> {
+    throwIfAborted(signal);
+    const input = mediaInput(filters);
     const result = await client.publisher.media.list.query(
-      mediaInput(filters),
+      input,
       { signal },
     );
+    throwIfAborted(signal);
+    assertMediaFilterSupport(input, result);
     result.items.forEach((media) => mediaCache.set(media.id, media));
     return result;
   }
@@ -501,7 +510,7 @@ export function createServerBackedPublisherGateway(
             query(
               input: Record<string, unknown>,
               options: { signal?: AbortSignal },
-            ): Promise<{
+            ): Promise<CatalogInventoryResponse & {
               kindCounts: { news: number; selfMedia: number };
               platforms: Array<{ value: string; count: number }>;
               taxonomies: Array<{ value: string; count: number }>;
@@ -513,9 +522,11 @@ export function createServerBackedPublisherGateway(
               linkTypes: Array<{ value: string; count: number }>;
               imageSupports: Array<{ value: string; count: number }>;
               pcWeightThresholds: Array<{ value: string; count: number }>;
+              mobileWeightThresholds?: Array<{ value: string; count: number }>;
               includeRateThresholds: Array<{ value: string; count: number }>;
               successRateThresholds: Array<{ value: string; count: number }>;
               recommendedOptions: Array<{ value: string; count: number }>;
+              recommendationTags?: Array<{ value: string; count: number }>;
               authenticatedOptions: Array<{ value: string; count: number }>;
               festivalPublishableOptions: Array<{
                 value: string;
@@ -533,12 +544,16 @@ export function createServerBackedPublisherGateway(
           page: 1,
           pageSize: 50,
         };
+        const input = mediaInput(resolvedFilters);
+        throwIfAborted(signal);
         const result = await mediaApi.facets.query(
-          mediaInput(resolvedFilters),
+          input,
           {
             signal,
           },
         );
+        throwIfAborted(signal);
+        assertMediaFilterSupport(input, result);
         const options = (items: Array<{ value: string; count: number }>) =>
           items.map((item) => ({ ...item, label: item.value }));
         const labeledOptions = (
@@ -573,6 +588,12 @@ export function createServerBackedPublisherGateway(
             ...item,
             label: `${item.value} 以上`,
           })),
+          ...(result.mobileWeightThresholds ? {
+            mobileWeightThresholds: result.mobileWeightThresholds.map((item) => ({
+              ...item,
+              label: `${item.value} 以上`,
+            })),
+          } : {}),
           includeRateThresholds: result.includeRateThresholds.map((item) => ({
             ...item,
             label: `${item.value}% 以上`,
@@ -582,9 +603,12 @@ export function createServerBackedPublisherGateway(
             label: `${item.value}% 以上`,
           })),
           recommendedOptions: labeledOptions(result.recommendedOptions, {
-            true: "平台推荐",
+            true: "推荐媒体",
             false: "非推荐",
           }),
+          ...(result.recommendationTags ? {
+            recommendationTags: options(result.recommendationTags),
+          } : {}),
           authenticatedOptions: labeledOptions(result.authenticatedOptions, {
             true: "已认证",
             false: "未认证",
@@ -593,18 +617,12 @@ export function createServerBackedPublisherGateway(
             result.festivalPublishableOptions,
             { true: "节假日可发", false: "节假日不可发" },
           ),
-          catalog: {
-            activeRevision: result.catalogRevision ?? "等待首次完整同步",
-            mediaCount: result.kindCounts.news + result.kindCounts.selfMedia,
-            newsCount: result.kindCounts.news,
-            selfMediaCount: result.kindCounts.selfMedia,
-            kindComplete: result.kindComplete,
-            lastSyncedAt: toIso(result.catalogSyncedAt),
-            stale:
-              !result.catalogSyncedAt ||
+          catalog: catalogFreshness({
+            ...result,
+            catalogStale: !result.catalogSyncedAt ||
               Date.now() - new Date(result.catalogSyncedAt).getTime() >
                 12 * 60 * 60_000,
-          },
+          }),
         };
         return mapped;
       });
@@ -619,7 +637,7 @@ export function createServerBackedPublisherGateway(
           total: result.total,
           page: result.page,
           pageSize: result.pageSize,
-          catalog: catalogFreshness(result, result.total),
+          catalog: catalogFreshness(result),
         };
       });
     },
@@ -993,16 +1011,17 @@ function mapMedia(
     priceTenThousandths:
       snapshot?.priceTenThousandths ?? media.priceTenThousandths,
     turnaround: media.publishSpeed || "—",
-    ...(media.successRateBasisPoints === null
+    ...(validBasisPoints(media.successRateBasisPoints) === undefined
       ? {}
-      : { successRate: Math.round(media.successRateBasisPoints / 100) }),
-    ...(media.includeRateBasisPoints === null
+      : { successRate: media.successRateBasisPoints! / 100 }),
+    ...(validBasisPoints(media.includeRateBasisPoints) === undefined
       ? {}
-      : { includeRate: Math.round(media.includeRateBasisPoints / 100) }),
+      : { includeRate: media.includeRateBasisPoints! / 100 }),
     ...(media.includeType ? { includeType: media.includeType } : {}),
     ...(media.entryType ? { entryType: media.entryType } : {}),
     ...(media.linkType ? { linkType: media.linkType } : {}),
-    ...(media.pcWeight === null ? {} : { pcWeight: media.pcWeight }),
+    ...(validWeight(media.pcWeight) === undefined ? {} : { pcWeight: media.pcWeight! }),
+    ...(validWeight(media.mobileWeight) === undefined ? {} : { mobileWeight: media.mobileWeight! }),
     ...(media.authenticated === null
       ? {}
       : { authenticated: media.authenticated }),
@@ -1318,7 +1337,6 @@ function fallbackMedia(
     titleLimit: 200,
     priceTenThousandths: price,
     turnaround: "以媒体审核为准",
-    successRate: 0,
     capability: "text",
     active: true,
     catalogRevision: "frozen",
@@ -1326,15 +1344,27 @@ function fallbackMedia(
 }
 
 function catalogFreshness(
-  result: Pick<
-    ApiMediaPage,
-    "catalogRevision" | "catalogSyncedAt" | "catalogStale" | "kindComplete"
-  >,
-  mediaCount: number,
-) {
+  result: CatalogInventoryResponse & {
+    catalogRevision: string | null;
+    catalogSyncedAt: DateLike | null;
+    catalogStale: boolean;
+    kindComplete: boolean;
+  },
+): CatalogFreshness {
+  const counts = result.catalogCounts;
+  const available = result.catalogCountStatus === "available" && result.kindComplete === true &&
+    Boolean(result.catalogRevision) && counts &&
+    [counts.all, counts.news, counts.selfMedia].every(
+      (value) => Number.isSafeInteger(value) && value >= 0,
+    ) && counts.all === counts.news + counts.selfMedia;
   return {
     activeRevision: result.catalogRevision ?? "等待首次完整同步",
-    mediaCount,
+    ...(available ? {
+      mediaCount: counts.all,
+      newsCount: counts.news,
+      selfMediaCount: counts.selfMedia,
+    } : {}),
+    countStatus: available ? "available" : "unavailable",
     kindComplete: result.kindComplete,
     lastSyncedAt: toIso(result.catalogSyncedAt ?? new Date(0)),
     stale: result.catalogStale,
@@ -1342,9 +1372,20 @@ function catalogFreshness(
 }
 
 function mediaInput(filters: MediaFilters) {
+  const query = filters.query.trim();
+  const nameOnly = filters.searchScope === "name";
   const batchQuery = filters.batchQuery
-    ? parseMediaBatchQuery(filters.batchQuery)
+    ? parseMediaBatchQuery(filters.batchQuery, nameOnly)
     : [];
+  if (nameOnly && query.length > 120) {
+    throw new PublisherGatewayError("媒体名称最多支持 120 个字符", "validation");
+  }
+  const minimumPrice = mediaPriceInput(filters.priceMin);
+  const maximumPrice = mediaPriceInput(filters.priceMax);
+  if (minimumPrice !== undefined && maximumPrice !== undefined &&
+      BigInt(minimumPrice) > BigInt(maximumPrice)) {
+    throw new PublisherGatewayError("最低价不能高于最高价", "validation");
+  }
   const price =
     filters.price === "under_100"
       ? { maximumPriceTenThousandths: "999999" }
@@ -1368,10 +1409,11 @@ function mediaInput(filters: MediaFilters) {
     page: filters.page,
     pageSize: filters.pageSize,
     limit: filters.pageSize,
-    kind: filters.kind ?? "news",
-    ...(filters.query ? { query: filters.query } : {}),
-    ...(batchQuery.length ? { batchQuery } : {}),
-    ...(filters.query || batchQuery.length ? { includeInactive: true } : {}),
+    ...(filters.kind ? { kind: filters.kind } : {}),
+    ...(query ? (nameOnly ? { nameQuery: query } : { query }) : {}),
+    ...(batchQuery.length ? (nameOnly ? { nameBatchQuery: batchQuery } : { batchQuery }) : {}),
+    ...(!nameOnly && (query || batchQuery.length) ? { includeInactive: true } : {}),
+    ...(filters.mediaIds !== undefined ? { mediaIds: filters.mediaIds } : {}),
     ...(filters.platform ? { platform: filters.platform } : {}),
     ...(filters.taxonomy || filters.channel
       ? { taxonomy: filters.taxonomy || filters.channel }
@@ -1381,11 +1423,13 @@ function mediaInput(filters: MediaFilters) {
       ? { area: filters.area || filters.region }
       : {}),
     ...(filters.recommended === "true" ? { recommended: true } : {}),
+    ...(filters.recommendationTag ? { recommendationTag: filters.recommendationTag } : {}),
     ...(filters.includeType ? { includeType: filters.includeType } : {}),
     ...(filters.publishSpeed ? { publishSpeed: filters.publishSpeed } : {}),
     ...(filters.entryType ? { entryType: filters.entryType } : {}),
     ...(filters.linkType ? { linkType: filters.linkType } : {}),
     ...(filters.pcWeight ? { minimumPcWeight: Number(filters.pcWeight) } : {}),
+    ...(filters.mobileWeight ? { minimumMobileWeight: Number(filters.mobileWeight) } : {}),
     ...(filters.includeRate
       ? { minimumIncludeRate: Number(filters.includeRate) }
       : {}),
@@ -1394,19 +1438,14 @@ function mediaInput(filters: MediaFilters) {
       : {}),
     ...(filters.authenticated === "true" ? { authenticated: true } : {}),
     ...(filters.festival === "true" ? { festivalPublishable: true } : {}),
-    ...(filters.priceMin
-      ? {
-          minimumPriceTenThousandths: String(
-            Math.round(Number(filters.priceMin) * 10_000),
-          ),
-        }
+    ...(minimumPrice !== undefined
+      ? { minimumPriceTenThousandths: minimumPrice }
       : {}),
-    ...(filters.priceMax
-      ? {
-          maximumPriceTenThousandths: String(
-            Math.round(Number(filters.priceMax) * 10_000),
-          ),
-        }
+    ...(maximumPrice !== undefined
+      ? { maximumPriceTenThousandths: maximumPrice }
+      : {}),
+    ...(minimumPrice !== undefined && filters.priceMinExclusive
+      ? { minimumPriceExclusive: true }
       : {}),
     sort: filters.sort ?? "recommended",
     ...(imageSupport ? { imageSupport } : {}),
@@ -1414,15 +1453,51 @@ function mediaInput(filters: MediaFilters) {
   } as const;
 }
 
-function parseMediaBatchQuery(value: string) {
-  return [
+function parseMediaBatchQuery(value: string, nameOnly = false) {
+  const names = [
     ...new Set(
       value
         .split(/[\n,，]/u)
         .map((item) => item.trim())
         .filter(Boolean),
     ),
-  ].slice(0, 50);
+  ];
+  if (nameOnly && (names.length > 50 || names.some((name) => name.length > 120))) {
+    throw new PublisherGatewayError("批量搜索最多支持 50 个去重名称，每个名称最多 120 个字符", "validation");
+  }
+  return names.slice(0, 50);
+}
+
+function mediaPriceInput(value?: string) {
+  if (value === undefined || value.trim() === "") return undefined;
+  const trimmed = value.trim();
+  if (!/^\d+(?:\.\d{1,4})?$/u.test(trimmed) || Number(trimmed) > 100_000_000) {
+    throw new PublisherGatewayError("价格需为 0 或正数，最多四位小数且不超过 100000000", "validation");
+  }
+  const [whole, fraction = ""] = trimmed.split(".");
+  return (BigInt(whole!) * 10_000n + BigInt(fraction.padEnd(4, "0"))).toString();
+}
+
+function validBasisPoints(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 10_000
+    ? value : undefined;
+}
+
+function validWeight(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100
+    ? value : undefined;
+}
+
+function assertMediaFilterSupport(
+  input: ReturnType<typeof mediaInput>,
+  result: CatalogInventoryResponse,
+) {
+  const requiresCurrentContract = input.nameQuery !== undefined || input.nameBatchQuery !== undefined ||
+    input.recommendationTag !== undefined || input.minimumMobileWeight !== undefined ||
+    input.minimumPriceExclusive !== undefined || input.mediaIds !== undefined;
+  if (requiresCurrentContract && result.catalogCountStatus !== "available" && result.catalogCountStatus !== "unavailable") {
+    throw new PublisherGatewayError("当前媒体服务尚未接入此筛选能力，请更新服务后重试", "unavailable");
+  }
 }
 
 function imageAttributes(canonicalHtml: string | null) {

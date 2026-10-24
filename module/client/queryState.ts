@@ -24,13 +24,16 @@ export const DEFAULT_MEDIA_FILTERS: MediaFilters = {
   mediaType: "",
   area: "",
   recommended: "",
+  recommendationTag: "",
   priceMin: "",
   priceMax: "",
+  priceMinExclusive: false,
   includeType: "",
   publishSpeed: "",
   entryType: "",
   linkType: "",
   pcWeight: "",
+  mobileWeight: "",
   includeRate: "",
   successRate: "",
   authenticated: "",
@@ -99,26 +102,32 @@ export function readMediaRouteState(search: string): {
   articleVersionId?: string;
 } {
   const params = new URLSearchParams(search.replace(/^\?/u, ""));
-  const kind: PublisherMediaKind =
-    one(params, "kind") === "self_media" ? "self_media" : "news";
+  const kindValue = one(params, "kind");
+  const kind: PublisherMediaKind | undefined = kindValue === "all"
+    ? undefined
+    : kindValue === "self_media" ? "self_media" : "news";
   const sortValue = one(params, "sort") as MediaSort;
   const filters: MediaFilters = {
     ...DEFAULT_MEDIA_FILTERS,
     kind,
     query: one(params, "query"),
+    ...(one(params, "searchScope") === "name" ? { searchScope: "name" } : {}),
     batchQuery: one(params, "batchQuery"),
     platform: one(params, "platform"),
     taxonomy: one(params, "taxonomy"),
     mediaType: one(params, "mediaType"),
     area: one(params, "area"),
     recommended: one(params, "recommended") === "true" ? "true" : "",
+    recommendationTag: one(params, "recommendationTag"),
     priceMin: decimalInput(one(params, "priceMin")),
     priceMax: decimalInput(one(params, "priceMax")),
+    priceMinExclusive: one(params, "priceMinExclusive") === "true",
     includeType: one(params, "includeType"),
     publishSpeed: one(params, "publishSpeed"),
     entryType: one(params, "entryType"),
     linkType: one(params, "linkType"),
     pcWeight: listedValue(one(params, "pcWeight"), ["1", "2", "3", "4", "5"]),
+    mobileWeight: listedValue(one(params, "mobileWeight"), ["1", "2", "3", "4", "5"]),
     includeRate: listedValue(one(params, "includeRate"), [
       "60",
       "70",
@@ -152,8 +161,11 @@ export function writeMediaRouteState(
   articleVersionId?: string,
 ) {
   const params = new URLSearchParams();
+  // The explicit all marker survives refresh/task resume without changing the legacy news default.
+  params.set("kind", filters.kind ?? "all");
   const defaults = DEFAULT_MEDIA_FILTERS as Record<string, unknown>;
   for (const [key, raw] of Object.entries(filters)) {
+    if (key === "kind" || key === "mediaIds") continue;
     if (raw === undefined || raw === "" || raw === defaults[key]) continue;
     params.set(key, String(raw));
   }

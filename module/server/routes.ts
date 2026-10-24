@@ -107,10 +107,6 @@ import {
   publisherImportListInputSchema,
   publisherImportListOutputSchema,
   publisherImportStatusInputSchema,
-  publisherMediaListInputSchema,
-  publisherMediaListOutputSchema,
-  publisherMediaFacetsInputSchema,
-  publisherMediaFacetsOutputSchema,
   publisherPreflightInputSchema,
   publisherPreflightOutputSchema,
   publisherRefreshDraftMediaInputSchema,
@@ -141,6 +137,12 @@ import { RepositoryError } from "@frontmind/module-contracts/errors";
 import { canonicalizePublisherHtml, publisherCanonicalImageReferences } from "./domain/canonical-html.js";
 import type { PublishRouteContext, PublishRouteCore, PublishingRepository } from "./route-core.js";
 import { checkKolRuntimeConnection, getKolRuntimeStatus } from "./providers/kol/runtime.js";
+import {
+  mediaCatalogListInputSchema,
+  mediaCatalogListOutputSchema,
+  mediaCatalogFacetsInputSchema,
+  mediaCatalogFacetsOutputSchema,
+} from "./media-catalog-contracts.js";
 
 export function createPublishRoutes<Context extends object>(core: PublishRouteCore<Context>) {
 const t = initTRPC.context<Context>().create();
@@ -394,44 +396,27 @@ const publisherRouter = t.router({
   }),
   media: t.router({
     list: publisherCustomerProcedure
-      .input(publisherMediaListInputSchema)
-      .output(publisherMediaListOutputSchema)
+      .input(mediaCatalogListInputSchema)
+      .output(mediaCatalogListOutputSchema)
       .query(({ ctx, input }) =>
         translateRepositoryErrors(async () => {
           const result =
             await ctx.publishingRepository.listPublisherMedia(input);
-          const runtime =
-            await ctx.publishingRepository.getPublisherRuntimeState();
-          const syncedAt = runtime?.catalogSyncedAt ?? null;
           return {
             ...result,
             nextCursor:
               result.legacyCursorMode && result.hasMore
                 ? (result.items.at(-1)?.id ?? null)
                 : null,
-            catalogRevision: runtime?.activeCatalogRevision ?? null,
-            catalogSyncedAt: syncedAt,
-            catalogStale:
-              !syncedAt || Date.now() - syncedAt.getTime() > 12 * 60 * 60_000,
-            kindComplete: runtime?.catalogKindComplete ?? false,
           };
         }),
       ),
     facets: publisherCustomerProcedure
-      .input(publisherMediaFacetsInputSchema)
-      .output(publisherMediaFacetsOutputSchema)
+      .input(mediaCatalogFacetsInputSchema)
+      .output(mediaCatalogFacetsOutputSchema)
       .query(({ ctx, input }) =>
         translateRepositoryErrors(async () => {
-          const [facets, runtime] = await Promise.all([
-            ctx.publishingRepository.getPublisherMediaFacets(input ?? {}),
-            ctx.publishingRepository.getPublisherRuntimeState(),
-          ]);
-          return {
-            ...facets,
-            catalogRevision: runtime?.activeCatalogRevision ?? null,
-            catalogSyncedAt: runtime?.catalogSyncedAt ?? null,
-            kindComplete: runtime?.catalogKindComplete ?? false,
-          };
+          return ctx.publishingRepository.getPublisherMediaFacets(input ?? {});
         }),
       ),
   }),
