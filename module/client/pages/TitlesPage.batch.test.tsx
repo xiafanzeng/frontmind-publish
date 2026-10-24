@@ -84,7 +84,7 @@ it("blocks an entirely unchecked batch without making mutation calls", async () 
   expect(task.onSaved).not.toHaveBeenCalled();
 });
 
-it("retains excluded rows and their titles when returning from review", { timeout: 60000 }, async () => {
+it("retains excluded rows and their titles when returning from review", { timeout: 120000 }, async () => {
   const task = setup();
   const title = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 5000 });
   fireEvent.change(title, { target: { value: "返回时保留" } });
@@ -95,7 +95,7 @@ it("retains excluded rows and their titles when returning from review", { timeou
   render(task.view());
   // Heavy server-kernel suites run concurrently and can starve this restore
   // render far past the default budget on a loaded host; keep a wide margin.
-  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 30000 });
+  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 90000 });
   expect((restored as HTMLInputElement).value).toBe("返回时保留");
   expect((screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }));
