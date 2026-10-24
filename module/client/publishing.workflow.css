@@ -1066,33 +1066,6 @@
   font-weight: 700;
 }
 
-.monitoring-module :where(.publishing-page) .publishing-gate-list {
-  padding: 18px 22px;
-  border-top: 1px solid var(--publishing-line);
-  border-bottom: 1px solid var(--publishing-line);
-}
-
-.monitoring-module :where(.publishing-page) .publishing-gate-list h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-}
-
-.monitoring-module :where(.publishing-page) .publishing-gate-list p {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 9px 0;
-  font-size: var(--operator-caption-size, 11px);
-}
-
-.monitoring-module :where(.publishing-page) .publishing-gate-list p.is-passed {
-  color: var(--publishing-green);
-}
-
-.monitoring-module :where(.publishing-page) .publishing-gate-list p.is-blocked {
-  color: var(--publishing-red);
-}
-
 .monitoring-module :where(.publishing-page) .publishing-acknowledgement {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -2253,7 +2226,6 @@
 .monitoring-module :where(.publishing-page) .publishing-review-counts{font-size:13px;color:var(--publishing-muted)}
 .monitoring-module :where(.publishing-page) .publishing-review-counts strong{color:var(--publishing-purple);font-weight:650}
 .monitoring-module :where(.publishing-page) .publishing-review-partial{display:block;margin-top:5px;font-size:12px;color:#916725}
-.monitoring-module :where(.publishing-page) .publishing-money-excluded dt,.monitoring-module :where(.publishing-page) .publishing-money-excluded dd{color:#916725}
 .monitoring-module :where(.publishing-page) .publishing-row-fix{display:inline-flex;margin-top:7px;font-size:12px;font-weight:600;color:var(--publishing-brand,var(--publishing-purple))}
 .monitoring-module :where(.publishing-page) .publishing-result-metrics article.is-info{color:#3560a8}
 .monitoring-module :where(.publishing-page) .publishing-money-summary{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
@@ -2262,3 +2234,202 @@
 .publishing-batch-unit .publishing-title-field{padding:16px 20px 10px}
 .publishing-batch-unit-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px 16px;border-top:1px solid var(--publishing-line);margin-top:10px;flex-wrap:wrap}
 .publishing-batch-unit-foot .publishing-button{min-height:36px}
+
+/* Review-only insets outrank the later conversation and operator-mode resets. */
+.monitoring-module .publishing-review-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.monitoring-module .publishing-review-page > .publishing-page,
+.user-brand-dashboard.operator-mode .monitoring-module .publishing-review-page > .publishing-page.publishing-flow-step {
+  /* Restore the canonical publishing.tokens.css shadow in this page only. */
+  --publishing-shadow: 0 8px 28px rgba(54, 28, 58, 0.055);
+  padding: 24px clamp(20px, 2vw, 32px) 32px;
+}
+
+.monitoring-module .publishing-review-page > .publishing-page > :is(.publishing-page-heading, .publishing-flow-intro, .publishing-review-layout) {
+  width: 100%;
+  max-width: 1520px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.monitoring-module .publishing-review-page > .publishing-page .publishing-review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.monitoring-module .publishing-review-page > .publishing-page .publishing-panel {
+  min-width: 0;
+  border: 1px solid var(--publishing-line);
+  border-radius: var(--publishing-radius);
+  background: var(--publishing-surface);
+  box-shadow: var(--publishing-shadow);
+}
+
+.monitoring-module .publishing-review-page > .publishing-page .publishing-review-fees {
+  container: publishing-review-fees / inline-size;
+  padding: 20px 24px;
+}
+
+.monitoring-module .publishing-review-page .publishing-review-fees-head {
+  margin: 0 0 12px;
+}
+
+.monitoring-module .publishing-review-page :is(.publishing-review-fees-head, .publishing-review-results-head) h2 {
+  margin: 0;
+  color: var(--publishing-ink);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(44px, auto));
+  grid-auto-flow: column;
+  column-gap: 24px;
+  margin: 0;
+  padding: 0;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary > div {
+  min-width: 0;
+  gap: 16px;
+  padding: 10px 0;
+  color: var(--publishing-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary > div:nth-child(n + 4) {
+  padding-left: 24px;
+  border-left: 1px solid var(--publishing-line);
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary dt {
+  flex-shrink: 0;
+  color: var(--publishing-muted);
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary dd {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary dd.is-total {
+  color: var(--brand, var(--publishing-purple));
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-summary > .publishing-money-after {
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 0;
+}
+
+.monitoring-module .publishing-review-page .publishing-money-after dd {
+  color: var(--publishing-ink);
+  font-weight: 750;
+}
+
+.monitoring-module .publishing-review-page .publishing-review-cost-note {
+  margin: 12px 0 0;
+  color: var(--publishing-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.monitoring-module .publishing-review-page .publishing-acknowledgement {
+  margin-top: 16px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--publishing-line);
+}
+
+.monitoring-module .publishing-review-page > .publishing-page .publishing-frozen-article {
+  padding: 16px 24px;
+}
+
+.monitoring-module .publishing-review-page .publishing-frozen-preview > header {
+  padding-inline: 24px;
+}
+
+.monitoring-module .publishing-review-page > .publishing-page .publishing-frozen-preview-body {
+  padding-inline: 24px;
+}
+
+.monitoring-module .publishing-review-page .publishing-review-results-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--publishing-line);
+}
+
+.monitoring-module .publishing-review-page .publishing-review-counts {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}
+
+.monitoring-module .publishing-review-page .publishing-review-excluded {
+  display: block;
+  margin-top: 5px;
+  color: var(--publishing-orange);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitoring-module .publishing-review-page .publishing-review-row {
+  padding-inline: 24px;
+}
+
+.monitoring-module .publishing-review-page .publishing-workflow-footer {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-top: 0;
+}
+
+.monitoring-module .publishing-review-page .publishing-confirm-actions {
+  padding: 0;
+  border-top: 0;
+}
+
+@container publishing-review-fees (max-width: 620px) {
+  .monitoring-module .publishing-review-page .publishing-money-summary {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-flow: row;
+  }
+
+  .monitoring-module .publishing-review-page .publishing-money-summary > div:nth-child(n + 4) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .monitoring-module .publishing-review-page .publishing-money-summary > div:nth-child(4) {
+    margin-top: 8px;
+    padding-top: 18px;
+    border-top: 1px solid var(--publishing-line);
+  }
+}
+
+@media (max-width: 720px) {
+  .monitoring-module .publishing-review-page > .publishing-page,
+  .user-brand-dashboard.operator-mode .monitoring-module .publishing-review-page > .publishing-page.publishing-flow-step {
+    padding: 16px;
+  }
+
+  .monitoring-module .publishing-review-page > .publishing-page :is(.publishing-review-fees, .publishing-frozen-article),
+  .monitoring-module .publishing-review-page .publishing-review-results-head {
+    padding: 16px;
+  }
+
+  .monitoring-module .publishing-review-page .publishing-frozen-preview > header,
+  .monitoring-module .publishing-review-page > .publishing-page .publishing-frozen-preview-body,
+  .monitoring-module .publishing-review-page .publishing-review-row {
+    padding-inline: 16px;
+  }
+}
