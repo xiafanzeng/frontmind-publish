@@ -52,8 +52,8 @@ describe("media catalogue filter interaction contract", () => {
 
   it("combines real dimensions and removes only the selected dimension", () => {
     const changed = harness({ page: 3 });
-    fireEvent.click(screen.getByRole("button", { name: "财经商业", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "全国", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "财经商业" }));
+    fireEvent.click(screen.getByRole("button", { name: "全国" }));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "财经商业", area: "全国", page: 1 }));
     fireEvent.click(screen.getByRole("button", { name: "移除频道：财经商业" }));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "", area: "全国" }));
@@ -62,8 +62,8 @@ describe("media catalogue filter interaction contract", () => {
   it("leaves unsupported capabilities disabled while applying exact recommendation tags", () => {
     const changed = harness();
     expect((screen.getByRole("button", { name: "DeepSeek" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "包收录", exact: true }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "带视频", exact: true }));
+    expect((screen.getByRole("button", { name: "包收录" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "带视频" }));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ recommendationTag: "带视频", recommended: "" }));
   });
 

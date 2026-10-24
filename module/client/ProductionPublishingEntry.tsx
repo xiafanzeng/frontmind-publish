@@ -1492,9 +1492,11 @@ function assertMediaFilterSupport(
   input: ReturnType<typeof mediaInput>,
   result: CatalogInventoryResponse,
 ) {
-  const requiresCurrentContract = input.nameQuery !== undefined || input.nameBatchQuery !== undefined ||
-    input.recommendationTag !== undefined || input.minimumMobileWeight !== undefined ||
-    input.minimumPriceExclusive !== undefined || input.mediaIds !== undefined;
+  // mediaInput returns a per-branch object literal union; probe it as a record.
+  const provided = input as Record<string, unknown>;
+  const requiresCurrentContract = provided.nameQuery !== undefined || provided.nameBatchQuery !== undefined ||
+    provided.recommendationTag !== undefined || provided.minimumMobileWeight !== undefined ||
+    provided.minimumPriceExclusive !== undefined || provided.mediaIds !== undefined;
   if (requiresCurrentContract && result.catalogCountStatus !== "available" && result.catalogCountStatus !== "unavailable") {
     throw new PublisherGatewayError("当前媒体服务尚未接入此筛选能力，请更新服务后重试", "unavailable");
   }
