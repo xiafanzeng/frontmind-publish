@@ -39,14 +39,27 @@
 | `getOrderByOrderId(id, signal)` | 同上 | 精确匹配已接受订单号 |
 | `createOrder(input, signal)` | `POST /api/news_order` | 发送媒体 id、标题、HTML，返回可核对订单号 |
 
-客户端从服务器运行入口注入 `baseUrl` 和 `accessToken`，也支持完整账号配置。
-默认先使用已有 token；安全 GET 遇到 401 且完整账号配置存在时才刷新一次。
+Worker 从服务器运行入口注入 `baseUrl`、`accessToken` 和完整账号配置。
+Worker 默认先使用已有 token；安全 GET 遇到 401 且完整账号配置存在时才刷新一次。
+API 通过 `createKolRuntimeClient()` 创建的短期客户端始终只使用预发 token；即使
+环境中有完整登录字段，也不会注入客户端或调用登录接口。仅有登录字段时，API
+会明确提示使用“检查发布连接”交由 Worker 处理。token 失效后的连接检查、采集
+及其他需要刷新凭据的读取应通过 Worker 队列执行，复用同一个认证会话。
 不要将这些配置放进 `VITE_*`、网页请求体或 Pro 修改包。
+
+每次创建订单前先只读查询订单第一页，验证当前凭据和响应格式。预检允许复用上述
+安全 GET 的有限重试和单次认证刷新；预检失败时不会发送订单 POST，错误包含
+`operation=create_order_preflight`、`submissionPhase=before_send` 和
+`submissionMayHaveSucceeded=false`，供订单事务释放本次预占并提示管理员。
+预检中的空订单页仅表示凭据通过检查，不能证明任何历史订单未创建，也不能作为
+退款或重发依据。
 
 目录与订单 GET 遇到临时网络、HTTP 或非 JSON 响应时有有限次数退避重试。
 订单 POST 是可能收费的非幂等操作：提交后连接中断或返回不明确时记录
 `submission_unknown`，不得通过自动重试或切换编码再次下单。订单查询用于核实
 既有结果。真实发送开关与 test 模式指定媒体限制仍由服务器配置决定。
+预检通过后凭据仍可能再次失效；订单 POST 返回 401/403、超时或不明确结果时仍为
+`submissionPhase=after_send` 的 `submission_unknown`，不会自动刷新后重发。
 
 ## 无 key 的团队开发步骤
 

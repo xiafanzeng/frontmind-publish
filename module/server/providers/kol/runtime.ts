@@ -62,7 +62,7 @@ export function getKolRuntimeStatus(env: RuntimeEnv = process.env) {
   };
 }
 
-/** Credentials stay within this server process; callers receive the client only. */
+/** Short-lived API clients use a supplied token; only the worker may log in. */
 export function createKolRuntimeClient(
   env: RuntimeEnv = process.env,
   transport: Pick<KolClientOptions, "fetch" | "sleep" | "now"> = {},
@@ -71,14 +71,12 @@ export function createKolRuntimeClient(
   if (!value.enabled) invalid("Media provider is disabled in this runtime");
   if (value.mode === "mock") return new MockKolClient();
   if (!value.validOrigin || !value.baseUrl) invalid("Media provider HTTPS endpoint is not configured");
-  if (!value.accessToken && !value.hasLogin) invalid("Media provider credentials are not configured");
+  if (!value.accessToken) invalid("API 缺少预发 token；请使用“检查发布连接”交由发布 Worker 登录和验证，或联系管理员配置有效 token");
   const encoding = env.PUBLISHER_CREATE_ORDER_ENCODING?.trim().toLowerCase()
     ?? env.KOL_CREATE_ORDER_ENCODING?.trim().toLowerCase() ?? "form";
   if (encoding !== "form" && encoding !== "json" && encoding !== "unknown") invalid("Invalid order encoding configuration");
-  const [apiKey, mobile, password, identity, captcha, captchaToken] = value.hasLogin ? value.login : [];
   return new KolClient({
     baseUrl: value.baseUrl, mode: value.mode, accessToken: value.accessToken,
-    apiKey, mobile, password, identity, captcha, captchaToken,
     realEnabled: value.realEnabled, publishEnabled: value.publishEnabled,
     createOrderEncoding: encoding,
     testResourceId: env.PUBLISHER_TEST_RESOURCE_ID ? integer(env, "PUBLISHER_TEST_RESOURCE_ID", 1)
@@ -95,7 +93,8 @@ export async function checkKolRuntimeConnection(
   env: RuntimeEnv = process.env,
   transport: Pick<KolClientOptions, "fetch" | "sleep" | "now"> = {},
 ) {
-  if (getKolRuntimeStatus(env).mode === "mock") invalid("A live connection check cannot use mock mode");
+  const value = configuration(env);
+  if (value.mode === "mock") invalid("A live connection check cannot use mock mode");
   const page = await createKolRuntimeClient(env, transport).listResources(1);
   return { connectionOk: true as const, pageItemCount: page.resources.length, pagination: page.pagination };
 }

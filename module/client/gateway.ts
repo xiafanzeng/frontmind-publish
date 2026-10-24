@@ -17,7 +17,15 @@ import type {
 } from "./types";
 import type { PublicationListFilters } from "./queryState";
 
+export type PublisherConnectionCheck = {
+  status: "pending" | "healthy" | "failed";
+  checkedAt?: string;
+  message?: string;
+};
+
 export type PublisherGateway = {
+  requestConnectionCheck?(): Promise<{ checkId: string }>;
+  getConnectionCheck?(checkId: string, signal?: AbortSignal): Promise<PublisherConnectionCheck>;
   getDashboard(signal?: AbortSignal): Promise<PublishingDashboard>;
   listArticles(signal?: AbortSignal): Promise<ArticleSummary[]>;
   getArticle(articleId: string, signal?: AbortSignal): Promise<ArticleDetail>;

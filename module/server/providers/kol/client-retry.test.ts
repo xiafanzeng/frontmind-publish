@@ -129,6 +129,7 @@ describe("KOL same-page transient GET recovery", () => {
 
   it("never retries an order POST when the upstream returns temporary HTML", async () => {
     const { client, requests, sleep } = subject([
+      () => Response.json({ success: true, status: 200, data: [] }),
       () => new Response("<html>Unavailable</html>", { status: 503 }),
     ]);
     await expect(
@@ -138,8 +139,7 @@ describe("KOL same-page transient GET recovery", () => {
         html: "<p>仅测试</p>",
       }),
     ).rejects.toMatchObject({ code: "submission_unknown" });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]!.method).toBe("POST");
+    expect(requests.map(request => request.method)).toEqual(["GET", "POST"]);
     expect(sleep).not.toHaveBeenCalled();
   });
 

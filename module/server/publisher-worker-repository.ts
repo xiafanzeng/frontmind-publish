@@ -6,6 +6,7 @@ import {
   eq,
   gt,
   inArray,
+  isNull,
   lte,
   ne,
   or,
@@ -15,6 +16,7 @@ import { publisherImageCapabilityEvidenceBlocker } from "./publisher-capability.
 import { publisherPriceToTenThousandths } from "./money-format.js";
 import { RepositoryError } from "@frontmind/module-contracts/errors";
 import type { PublishPersistenceCore, PublishDatabase as Database, PublishTransaction as Transaction } from "./persistence-core.js";
+import type { KolPagination } from "./providers/kol/types.js";
 
 type PublicationMode = "mock" | "test" | "live";
 
@@ -360,6 +362,21 @@ class PublisherWorkerRepository {
       .onDuplicateKeyUpdate({
         set: { deterministicKey: sql`${publisherJobs.deterministicKey}` },
       });
+    // Older releases completed discovery even with zero candidates. Revive only
+    // completed discovery jobs for still-unresolved items; never resubmit orders.
+    const unresolved = await this.db.select({item:publisherItems}).from(publisherItems)
+      .leftJoin(publisherJobs, eq(publisherJobs.deterministicKey, sql`CONCAT('publisher:reconcile:', ${publisherItems.id}, ':', ${publisherItems.attemptCount})`))
+      .where(and(eq(publisherItems.status, "submission_unknown"), eq(publisherItems.fundsStatus, "frozen"),
+        or(isNull(publisherJobs.id),eq(publisherJobs.status,"succeeded"))))
+      .orderBy(asc(publisherItems.updatedAt)).limit(100);
+    for (const {item} of unresolved) {
+      const key = `publisher:reconcile:${item.id}:${item.attemptCount}`;
+      await this.db.insert(publisherJobs).values({ id:randomUUID(),type:"reconcile_publication_unknown",
+        deterministicKey:key,aggregateId:item.id,enterpriseProjectId:item.enterpriseProjectId,payload:{itemId:item.id},availableAt:at,
+      }).onDuplicateKeyUpdate({set:{deterministicKey:sql`${publisherJobs.deterministicKey}`}});
+      await this.db.update(publisherJobs).set({status:"retry_wait",availableAt:at,completedAt:null})
+        .where(and(eq(publisherJobs.deterministicKey,key),eq(publisherJobs.status,"succeeded")));
+    }
   }
 
   async recoverExpiredPublisherSubmissions(at: Date, limit: number) {
@@ -862,7 +879,8 @@ class PublisherWorkerRepository {
           completedAt: input.observedAt,
           result: "submission_unknown",
           responseRedacted: jsonRecord(input.providerRaw),
-          errorCode: truncate(input.reason, 64),
+          errorCode: submissionFailureCode(input.providerRaw, input.reason),
+          httpStatus: submissionFailureHttpStatus(input.providerRaw),
         })
         .where(eq(publisherSubmissionAttempts.id, input.attemptId));
       await tx
@@ -877,6 +895,13 @@ class PublisherWorkerRepository {
         settlement: "frozen",
         settledAt: input.observedAt,
         reason: "Provider submission outcome is unknown",
+      });
+      await core.audit(tx, {
+        id: randomUUID(), actorId: null, actorRole: null,
+        action: "publisher.reconciliation_required", targetType: "publication_item",
+        targetIdHash: hashJson(input.itemId), ownerId: item.ownerId,
+        metadata: { itemId: item.id, batchId: item.batchId, attemptNumber: item.attemptCount,
+          observedAt: input.observedAt.toISOString(), failure: jsonRecord(input.providerRaw).failure ?? null },
       });
       await enqueueJob(tx, {
         type: "reconcile_publication_unknown",
@@ -896,12 +921,14 @@ class PublisherWorkerRepository {
     attemptId: string;
     status: "auth_blocked" | "action_required";
     reason: string;
+    providerRaw?: unknown;
     observedAt: Date;
   }) {
     await this.finishKnownSubmission({
       itemId: input.itemId,
       attemptId: input.attemptId,
       reason: input.reason,
+      providerRaw: input.providerRaw,
       settledAt: input.observedAt,
       status: input.status,
       result: "auth_blocked",
@@ -2455,6 +2482,78 @@ class PublisherWorkerRepository {
       });
   }
 
+  async completePublisherConnectionCheck(input: {
+    jobId: string; workerId: string; checkedAt: Date;
+    credentialStatus: "healthy" | "auth_blocked" | "unknown";
+  }) {
+    await this.db.transaction(async tx => {
+      const [job] = await tx.select().from(publisherJobs)
+        .where(leasedPublisherJob(input.jobId, input.workerId)).for("update").limit(1);
+      if (!job) return;
+      if (job.type !== "sync_kol_catalog" || job.payload.purpose !== "credential_check") {
+        throw new RepositoryError("INVALID_STATE", "发布连接检查任务不匹配");
+      }
+      const healthy = input.credentialStatus === "healthy";
+      const health = healthy
+        ? { credentialStatus: input.credentialStatus, credentialVerifiedAt: input.checkedAt, credentialFailedAt: null }
+        : { credentialStatus: input.credentialStatus, credentialFailedAt: input.checkedAt };
+      await tx.insert(publisherRuntimeState).values({ id: "kol", ...health })
+        .onDuplicateKeyUpdate({ set: health });
+      await tx.update(publisherJobs).set({
+        payload: { ...job.payload, connectionCheck: { status: healthy ? "healthy" : "failed", checkedAt: input.checkedAt.toISOString() } },
+        status: "succeeded", completedAt: input.checkedAt, leaseOwner: null, leaseExpiresAt: null,
+        lastErrorCode: healthy ? null : "CREDENTIAL_CHECK_FAILED",
+        lastErrorMessage: healthy ? null : "发布连接检查未通过，请联系管理员或稍后重试。",
+      }).where(eq(publisherJobs.id, job.id));
+    });
+  }
+
+  async completePublisherMediaRulesCollection(input: {
+    jobId: string; workerId: string; checkedAt: Date;
+    credentialStatus: "healthy" | "auth_blocked" | "unknown";
+    result?: { resources: ReadonlyArray<{ id: number; remark?: string; titleLimit?: number }>; pagination: KolPagination };
+  }) {
+    await this.db.transaction(async tx => {
+      const [job] = await tx.select().from(publisherJobs)
+        .where(leasedPublisherJob(input.jobId, input.workerId)).for("update").limit(1);
+      if (!job) return;
+      if (job.type !== "sync_kol_catalog" || job.payload.purpose !== "media_rules_collect") {
+        throw new RepositoryError("INVALID_STATE", "媒体要求采集任务不匹配");
+      }
+      const healthy = input.credentialStatus === "healthy" && Boolean(input.result);
+      const health = healthy
+        ? { credentialStatus: "healthy" as const, credentialVerifiedAt: input.checkedAt, credentialFailedAt: null }
+        : { credentialStatus: input.credentialStatus === "auth_blocked" ? "auth_blocked" as const : "unknown" as const, credentialFailedAt: input.checkedAt };
+      let matched = 0;
+      if (healthy && input.result) {
+        for (const resource of input.result.resources) {
+          const [row] = await tx.select().from(publisherMediaResources)
+            .where(eq(publisherMediaResources.externalResourceId, String(resource.id))).for("update").limit(1);
+          if (!row) continue;
+          matched += 1;
+          const snapshot = { rawRemark: resource.remark ?? "", collectedAt: input.checkedAt.toISOString(),
+            source: "/api/news_resource_2/data", apiTitleLimit: resource.titleLimit ?? null };
+          const payload = jsonRecord(row.rawPayload);
+          if (stableJson(payload.frontmindMediaRules ?? null) !== stableJson(snapshot)) {
+            await tx.update(publisherMediaResources).set({
+              rawPayload: { ...payload, frontmindMediaRules: snapshot },
+              catalogRevision: hashJson({ previous: row.catalogRevision, snapshot }),
+            }).where(eq(publisherMediaResources.id, row.id));
+          }
+        }
+      }
+      await tx.insert(publisherRuntimeState).values({ id: "kol", ...health }).onDuplicateKeyUpdate({ set: health });
+      await tx.update(publisherJobs).set({
+        payload: { ...job.payload, mediaRulesCollection: healthy && input.result
+          ? { status: "succeeded", checkedAt: input.checkedAt.toISOString(), collected: input.result.resources.length, matched, pagination: input.result.pagination }
+          : { status: "failed", checkedAt: input.checkedAt.toISOString() } },
+        status: "succeeded", completedAt: input.checkedAt, leaseOwner: null, leaseExpiresAt: null,
+        lastErrorCode: healthy ? null : "MEDIA_RULES_COLLECTION_FAILED",
+        lastErrorMessage: healthy ? null : "媒体要求采集未通过，请稍后重试或联系管理员。",
+      }).where(eq(publisherJobs.id, job.id));
+    });
+  }
+
   async leasePublisherDocxImportImages(input: {
     importId: string;
     ownerId: string;
@@ -2725,11 +2824,32 @@ class PublisherWorkerRepository {
       .where(eq(publisherDocxImports.id, record.id));
   }
 
+  async getPublisherReconciliationContext(itemId: string) {
+    const [item] = await this.db.select().from(publisherItems).where(eq(publisherItems.id, itemId)).limit(1);
+    if (!item || item.status !== "submission_unknown" || item.externalOrderId) return undefined;
+    const [attempt] = await this.db.select().from(publisherSubmissionAttempts)
+      .where(and(eq(publisherSubmissionAttempts.itemId, item.id), eq(publisherSubmissionAttempts.attemptNumber, item.attemptCount))).limit(1);
+    const resourceId = Number(item.externalResourceId);
+    if (!Number.isSafeInteger(resourceId) || resourceId <= 0) return undefined;
+    return { attemptNumber:item.attemptCount, startedAt: attempt?.startedAt ?? item.createdAt, resourceId, title: item.submissionTitle };
+  }
+
   async recordPublisherReconciliationCandidates(input: {
     itemId: string;
+    expectedAttemptNumber: number;
     orders: readonly KolOrderInput[];
     observedAt: Date;
+    scan?: { pagesFetched: number; reportedLastPage?: number; complete: boolean; ordersSeen: number; since: string };
   }) {
+    await this.db.transaction(async tx => {
+    const [item] = await tx.select().from(publisherItems).where(eq(publisherItems.id, input.itemId)).for("update").limit(1);
+    if (!item || item.status !== "submission_unknown" || item.externalOrderId || item.attemptCount !== input.expectedAttemptNumber) return;
+    const [attempt] = await tx.select().from(publisherSubmissionAttempts)
+      .where(and(eq(publisherSubmissionAttempts.itemId, item.id), eq(publisherSubmissionAttempts.attemptNumber, item.attemptCount)))
+      .for("update").limit(1);
+    if (attempt && input.scan) await tx.update(publisherSubmissionAttempts).set({ responseRedacted: {
+      ...jsonRecord(attempt.responseRedacted), reconciliation: { ...input.scan, observedAt: input.observedAt.toISOString() },
+    } }).where(eq(publisherSubmissionAttempts.id, attempt.id));
     for (const order of input.orders) {
       const evidence = jsonRecord({
         observedAt: input.observedAt,
@@ -2741,7 +2861,7 @@ class PublisherWorkerRepository {
         publishedUrl: order.publishedUrl,
         failureReason: order.failureReason,
       });
-      await this.db
+      await tx
         .insert(publisherReconciliationCandidates)
         .values({
           id: randomUUID(),
@@ -2752,6 +2872,7 @@ class PublisherWorkerRepository {
         })
         .onDuplicateKeyUpdate({ set: { evidence } });
     }
+    });
   }
 
   async getPublisherAssetPurgeCandidate(assetId: string) {
@@ -2816,7 +2937,8 @@ class PublisherWorkerRepository {
           completedAt: input.settledAt,
           result: input.result,
           responseRedacted: jsonRecord(input.providerRaw),
-          errorCode: truncate(input.reason, 64),
+          errorCode: submissionFailureCode(input.providerRaw, input.reason),
+          httpStatus: submissionFailureHttpStatus(input.providerRaw),
         })
         .where(eq(publisherSubmissionAttempts.id, input.attemptId));
       await tx
@@ -3527,6 +3649,16 @@ function jsonRecord(value: unknown): Record<string, unknown> {
     !Array.isArray(normalized)
     ? (normalized as Record<string, unknown>)
     : { value: normalized };
+}
+
+function submissionFailureCode(value: unknown, fallback: string) {
+  const failure = jsonRecord(jsonRecord(value).failure);
+  return typeof failure.code === "string" ? failure.code.slice(0, 64) : truncate(fallback, 64);
+}
+
+function submissionFailureHttpStatus(value: unknown) {
+  const status = jsonRecord(jsonRecord(value).failure).httpStatus;
+  return typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
 }
 
 function hashJson(value: unknown) {

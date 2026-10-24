@@ -237,6 +237,17 @@ export function createServerBackedPublisherGateway(
   }
 
   return {
+    requestConnectionCheck() {
+      captureOperation();
+      return translateGatewayErrors(() => client.publisher.provider.requestConnectionCheck.mutate());
+    },
+    getConnectionCheck(checkId, signal) {
+      captureOperation();
+      return translateGatewayErrors(async () => {
+        const result = await client.publisher.provider.connectionCheck.query({ checkId }, { signal });
+        return { ...result, ...(result.checkedAt ? { checkedAt: toIso(result.checkedAt) } : {}) };
+      });
+    },
     getDashboard(signal) {
       captureOperation();
       return translateGatewayErrors(async () => {

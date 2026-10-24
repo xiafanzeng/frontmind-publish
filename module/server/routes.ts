@@ -152,6 +152,15 @@ const publisherRouter = t.router({
   // Module-owned extension namespace. Status describes configuration only;
   // it neither calls the provider nor claims a successful live connection.
   provider: t.router({
+    requestConnectionCheck: publisherCustomerProcedure
+      .output(z.object({ checkId: idSchema }))
+      .mutation(({ ctx }) => translateRepositoryErrors(() =>
+        ctx.publishingRepository.requestPublisherConnectionCheck(ctx.user.id))),
+    connectionCheck: publisherCustomerProcedure
+      .input(z.object({ checkId: idSchema }))
+      .output(z.object({ status: z.enum(["pending", "healthy", "failed"]), checkedAt: z.date().optional(), message: z.string().optional() }))
+      .query(({ ctx, input }) => translateRepositoryErrors(() =>
+        ctx.publishingRepository.getPublisherConnectionCheck(input.checkId))),
     status: publisherCustomerProcedure
       .output(z.object({ enabled: z.boolean(), mode: z.enum(["mock", "test", "live"]),
         configured: z.boolean(), realPublicationEnabled: z.boolean() }))
@@ -600,6 +609,19 @@ const publisherRouter = t.router({
 });
 const publisherAdminRouter = t.router({
 
+  attentionSummary: publisherAdminProcedure
+    .output(z.object({ count: z.number().int().nonnegative(), frozenTenThousandths: z.string().regex(/^\d+$/u) }))
+    .query(({ctx}) => ctx.publishingRepository.getPublisherAttentionSummary()),
+
+  resolveNoOrder: publisherAdminProcedure
+    .input(z.object({ itemId: idSchema, expectedAttemptNumber: z.number().int().positive(),
+      reason: z.string().trim().min(3).max(2000), evidenceReference: z.string().trim().min(3).max(2000) }))
+    .output(booleanResultOutputSchemas.updated)
+    .mutation(async ({ctx,input}) => {
+      await translateRepositoryErrors(() => ctx.publishingRepository.resolvePublisherNoOrder({...input,actorId:ctx.user.id}));
+      return {updated:true};
+    }),
+
   runtime: publisherAdminProcedure
     .output(publisherRuntimeOutputSchema)
     .query(({ ctx }) => publicPublisherRuntime(ctx)),
@@ -758,7 +780,11 @@ const publisherAdminRouter = t.router({
 
   unknownItems: publisherAdminProcedure
     .input(listInputSchema.optional())
-    .output(z.array(publisherAdminUnknownItemOutputSchema))
+    .output(z.array(publisherAdminUnknownItemOutputSchema.extend({
+      attemptNumber: z.number().int().nonnegative(),
+      reconciliation: z.object({ observedAt:z.string(),pagesFetched:z.number(),reportedLastPage:z.number().optional(),
+        complete:z.boolean(),ordersSeen:z.number(),since:z.string() }).optional(),
+    })))
     .query(async ({ ctx, input }) => {
       const rows = await ctx.publishingRepository.listPublisherUnknownItems(
         input?.limit ?? 100,
@@ -766,6 +792,8 @@ const publisherAdminRouter = t.router({
       return Promise.all(
         rows.map(async ({ item, price, username }) => ({
           itemId: item.id,
+          attemptNumber: item.attemptCount,
+          reconciliation: await ctx.publishingRepository.getPublisherReconciliationScan(item.id,item.attemptCount),
           batchId: item.batchId,
           ownerUsername: username,
           mediaName: item.mediaNameSnapshot,
