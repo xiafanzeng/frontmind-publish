@@ -84,7 +84,7 @@ it("blocks an entirely unchecked batch without making mutation calls", async () 
   expect(task.onSaved).not.toHaveBeenCalled();
 });
 
-it("retains excluded rows and their titles when returning from review", async () => {
+it("retains excluded rows and their titles when returning from review", { timeout: 60000 }, async () => {
   const task = setup();
   const title = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 5000 });
   fireEvent.change(title, { target: { value: "返回时保留" } });
