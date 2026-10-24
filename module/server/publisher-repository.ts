@@ -1,10 +1,10 @@
+import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
 import { mediaRulesTitleLimit, mediaRulesEvidence } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
 import type {
   PublicationMode,
   PublisherBatchListInput,
-  PublisherMediaListInput,
   PublisherPreflightOutput,
   PublisherRefreshDraftMediaInput,
   PublisherSaveDraftInput,
@@ -877,8 +877,8 @@ class PublishingRepository {
     });
   }
 
-  async listPublisherMedia(input: Partial<PublisherMediaListInput> = {}) {
-    const conditions = [isNotNull(publisherMediaResources.mediaKind)];
+  mediaConditions(input: Partial<MediaCatalogListInput>) {
+    const conditions = [inArray(publisherMediaResources.mediaKind, ["news", "self_media"])];
     if (!input.includeInactive) {
       conditions.push(eq(publisherMediaResources.isActive, true));
     }
@@ -956,7 +956,7 @@ class PublishingRepository {
     }
     if (input.minimumPriceTenThousandths !== undefined) {
       conditions.push(
-        gte(
+        (input.minimumPriceExclusive ? gt : gte)(
           publisherMediaResources.priceTenThousandths,
           publisherMoneyFromApiString(input.minimumPriceTenThousandths),
         ),
@@ -986,6 +986,66 @@ class PublishingRepository {
           input.festivalPublishable,
         ),
       );
+    if (input.nameQuery?.trim())
+      conditions.push(like(publisherMediaResources.name, `%${escapeLike(input.nameQuery.trim())}%`));
+    if (input.nameBatchQuery?.length) {
+      const names = [...new Set(input.nameBatchQuery.map((name) => name.trim()).filter(Boolean))];
+      if (names.length) conditions.push(or(...names.map((name) =>
+        like(publisherMediaResources.name, `%${escapeLike(name)}%`),
+      ))!);
+    }
+    if (input.mediaIds !== undefined) {
+      const ids = [...new Set(input.mediaIds)];
+      conditions.push(ids.length ? inArray(publisherMediaResources.id, ids) : sql`FALSE`);
+    }
+    if (input.recommendationTag)
+      conditions.push(sql`JSON_TYPE(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')) = 'ARRAY' AND JSON_CONTAINS(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags'), JSON_QUOTE(${input.recommendationTag}))`);
+    if (input.minimumMobileWeight !== undefined)
+      conditions.push(gte(publisherMediaResources.mobileWeight, input.minimumMobileWeight));
+    return conditions;
+  }
+
+  async listPublisherMedia(input: Partial<MediaCatalogListInput> = {}) {
+    // List rows, filtered total and all three inventory counts see one DB snapshot.
+    return this.db.transaction(
+      (tx) => this.loadPublisherMedia(input, tx),
+      { isolationLevel: "repeatable read", accessMode: "read only", withConsistentSnapshot: true },
+    );
+  }
+
+  async loadPublisherCatalogSnapshot(database: Database | Transaction) {
+    const [runtime] = await database.select().from(publisherRuntimeState)
+      .where(eq(publisherRuntimeState.id, "kol")).limit(1);
+    const [counts] = await database.select({
+      news: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'news' THEN 1 ELSE 0 END), 0)`,
+      selfMedia: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'self_media' THEN 1 ELSE 0 END), 0)`,
+    }).from(publisherMediaResources).where(and(
+      eq(publisherMediaResources.isActive, true),
+      inArray(publisherMediaResources.mediaKind, ["news", "self_media"]),
+    ));
+    const news = Number(counts?.news);
+    const selfMedia = Number(counts?.selfMedia);
+    if (!counts || !Number.isSafeInteger(news) || news < 0 ||
+        !Number.isSafeInteger(selfMedia) || selfMedia < 0 || !Number.isSafeInteger(news + selfMedia)) {
+      throw new RepositoryError("INVALID_STATE", "Media inventory counts are unavailable");
+    }
+    const available = runtime?.catalogKindComplete === true && Boolean(runtime.activeCatalogRevision) && Boolean(runtime.catalogSyncedAt);
+    const catalogSyncedAt = runtime?.catalogSyncedAt ?? null;
+    return {
+      catalogCounts: available ? { all: news + selfMedia, news, selfMedia } : null,
+      // Compatibility observation only: callers must honor kindComplete before
+      // treating these as complete inventory. Never manufacture zero on missing sync.
+      kindCounts: { news, selfMedia },
+      catalogCountStatus: available ? "available" as const : "unavailable" as const,
+      catalogRevision: runtime?.activeCatalogRevision ?? null,
+      catalogSyncedAt,
+      catalogStale: !catalogSyncedAt || Date.now() - catalogSyncedAt.getTime() > CATALOG_STALE_MS,
+      kindComplete: runtime?.catalogKindComplete ?? false,
+    };
+  }
+
+  async loadPublisherMedia(input: Partial<MediaCatalogListInput>, database: Database | Transaction) {
+    const conditions = this.mediaConditions(input);
     const pageSize = Math.min(
       Math.max(input.pageSize ?? input.limit ?? 20, 1),
       100,
@@ -993,7 +1053,7 @@ class PublishingRepository {
     const page = Math.max(input.page ?? 1, 1);
     const legacyCursorMode =
       input.page === undefined && input.pageSize === undefined;
-    const [{ total = 0 } = { total: 0 }] = await this.db
+    const [{ total = 0 } = { total: 0 }] = await database
       .select({ total: count() })
       .from(publisherMediaResources)
       .leftJoin(
@@ -1010,7 +1070,7 @@ class PublishingRepository {
     const ordering = legacyCursorMode
       ? ([asc(publisherMediaResources.id)] as const)
       : publisherMediaOrdering(input.sort);
-    const rows = await this.db
+    const rows = await database
       .select({
         resource: publisherMediaResources,
         imageSupport: publisherMediaCapabilities.imageSupport,
@@ -1028,7 +1088,9 @@ class PublishingRepository {
       .limit(legacyCursorMode ? pageSize + 1 : pageSize)
       .offset(legacyCursorMode ? 0 : (page - 1) * pageSize);
     const pageRows = rows.slice(0, pageSize);
+    const catalog = await this.loadPublisherCatalogSnapshot(database);
     return {
+      ...catalog,
       items: pageRows.map(({ resource, imageSupport }) =>
         customerMediaDto(resource, imageSupport ?? "unknown"),
       ),
@@ -1042,17 +1104,20 @@ class PublishingRepository {
     };
   }
 
-  async getPublisherMediaFacets(input: Partial<PublisherMediaListInput> = {}) {
+  async getPublisherMediaFacets(input: Partial<MediaCatalogListInput> = {}) {
     const runtime = await this.getPublisherRuntimeState();
     const key = JSON.stringify([
       runtime?.activeCatalogRevision,
       runtime?.catalogSyncedAt,
-      input.kind ?? "all",
+      input,
     ]);
     const cached = this.mediaFacetsCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     if (this.mediaFacetsCache.size >= 3) this.mediaFacetsCache.clear();
-    const value = this.loadPublisherMediaFacets(input);
+    const value = this.db.transaction(
+      (tx) => this.loadPublisherMediaFacets(input, tx),
+      { isolationLevel: "repeatable read", accessMode: "read only", withConsistentSnapshot: true },
+    );
     const entry = { expiresAt: Date.now() + 60_000, value };
     this.mediaFacetsCache.set(key, entry);
     try {
@@ -1065,114 +1130,10 @@ class PublishingRepository {
   }
 
   async loadPublisherMediaFacets(
-    input: Partial<PublisherMediaListInput> = {},
+    input: Partial<MediaCatalogListInput> = {},
+    database: Database | Transaction = this.db,
   ) {
-    const conditions = [
-      input.includeInactive
-        ? isNotNull(publisherMediaResources.mediaKind)
-        : eq(publisherMediaResources.isActive, true),
-      isNotNull(publisherMediaResources.mediaKind),
-    ];
-    if (input.kind)
-      conditions.push(eq(publisherMediaResources.mediaKind, input.kind));
-    if (input.query) {
-      conditions.push(
-        or(
-          like(publisherMediaResources.name, `%${escapeLike(input.query)}%`),
-          like(
-            publisherMediaResources.externalResourceId,
-            `%${escapeLike(input.query)}%`,
-          ),
-          like(
-            publisherMediaResources.platform,
-            `%${escapeLike(input.query)}%`,
-          ),
-        )!,
-      );
-    }
-    if (input.batchQuery?.length) {
-      const terms = [...new Set(input.batchQuery.map((term) => term.trim()))];
-      conditions.push(
-        or(
-          ...terms.flatMap((term) => [
-            eq(publisherMediaResources.externalResourceId, term),
-            like(publisherMediaResources.name, `%${escapeLike(term)}%`),
-          ]),
-        )!,
-      );
-    }
-    if (input.platform)
-      conditions.push(eq(publisherMediaResources.platform, input.platform));
-    if (input.taxonomy)
-      conditions.push(eq(publisherMediaResources.taxonomy, input.taxonomy));
-    if (input.mediaType)
-      conditions.push(eq(publisherMediaResources.mediaType, input.mediaType));
-    if (input.area)
-      conditions.push(eq(publisherMediaResources.area, input.area));
-    if (input.recommended !== undefined)
-      conditions.push(
-        eq(publisherMediaResources.recommended, input.recommended),
-      );
-    if (input.includeType)
-      conditions.push(
-        eq(publisherMediaResources.includeType, input.includeType),
-      );
-    if (input.publishSpeed)
-      conditions.push(
-        eq(publisherMediaResources.publishSpeed, input.publishSpeed),
-      );
-    const entryLevel = input.entryLevel ?? input.entryType;
-    if (entryLevel)
-      conditions.push(eq(publisherMediaResources.entryLevel, entryLevel));
-    if (input.linkType)
-      conditions.push(eq(publisherMediaResources.linkType, input.linkType));
-    if (input.minimumPcWeight !== undefined)
-      conditions.push(
-        gte(publisherMediaResources.pcWeight, input.minimumPcWeight),
-      );
-    if (input.minimumIncludeRate !== undefined)
-      conditions.push(
-        gte(
-          publisherMediaResources.includeRateBasisPoints,
-          Math.round(input.minimumIncludeRate * 100),
-        ),
-      );
-    if (input.minimumSuccessRate !== undefined)
-      conditions.push(
-        gte(
-          publisherMediaResources.successRateBasisPoints,
-          Math.round(input.minimumSuccessRate * 100),
-        ),
-      );
-    if (input.minimumPriceTenThousandths !== undefined)
-      conditions.push(
-        gte(
-          publisherMediaResources.priceTenThousandths,
-          publisherMoneyFromApiString(input.minimumPriceTenThousandths),
-        ),
-      );
-    if (input.maximumPriceTenThousandths !== undefined)
-      conditions.push(
-        lte(
-          publisherMediaResources.priceTenThousandths,
-          publisherMoneyFromApiString(input.maximumPriceTenThousandths),
-        ),
-      );
-    if (input.imageSupport)
-      conditions.push(
-        eq(publisherMediaCapabilities.imageSupport, input.imageSupport),
-      );
-    if (input.authenticated !== undefined)
-      conditions.push(
-        eq(publisherMediaResources.authenticated, input.authenticated),
-      );
-    if (input.festivalPublishable !== undefined)
-      conditions.push(
-        eq(
-          publisherMediaResources.festivalPublishable,
-          input.festivalPublishable,
-        ),
-      );
+    const conditions = this.mediaConditions(input);
     const where = and(...conditions);
     const facet = async (
       column:
@@ -1185,9 +1146,10 @@ class PublishingRepository {
         | typeof publisherMediaResources.entryLevel
         | typeof publisherMediaResources.linkType,
     ) => {
-      const rows = await this.db
+      const rows = await database
         .select({ value: column, total: count() })
         .from(publisherMediaResources)
+        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
         .where(and(where, isNotNull(column)))
         .groupBy(column)
         .orderBy(desc(count()), asc(column));
@@ -1198,8 +1160,8 @@ class PublishingRepository {
         .map((row) => ({ value: row.value, count: Number(row.total) }));
     };
     const imageSupportValue = sql<string>`COALESCE(${publisherMediaCapabilities.imageSupport}, 'unknown')`;
+    const recommendationTagsValue = sql<unknown>`JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')`;
     const [
-      kindRows,
       priceRows,
       platforms,
       taxonomies,
@@ -1211,18 +1173,9 @@ class PublishingRepository {
       linkTypes,
       imageSupportRows,
       advancedCountRows,
+      recommendationTagRows,
     ] = await Promise.all([
-      this.db
-        .select({ value: publisherMediaResources.mediaKind, total: count() })
-        .from(publisherMediaResources)
-        .where(
-          and(
-            eq(publisherMediaResources.isActive, true),
-            isNotNull(publisherMediaResources.mediaKind),
-          ),
-        )
-        .groupBy(publisherMediaResources.mediaKind),
-      this.db
+      database
         .select({
           minimum: sql<
             bigint | null
@@ -1232,6 +1185,7 @@ class PublishingRepository {
           >`MAX(${publisherMediaResources.priceTenThousandths})`,
         })
         .from(publisherMediaResources)
+        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
         .where(where),
       facet(publisherMediaResources.platform),
       facet(publisherMediaResources.taxonomy),
@@ -1241,7 +1195,7 @@ class PublishingRepository {
       facet(publisherMediaResources.publishSpeed),
       facet(publisherMediaResources.entryLevel),
       facet(publisherMediaResources.linkType),
-      this.db
+      database
         .select({ value: imageSupportValue, total: count() })
         .from(publisherMediaResources)
         .leftJoin(
@@ -1254,13 +1208,18 @@ class PublishingRepository {
         .where(where)
         .groupBy(imageSupportValue)
         .orderBy(asc(imageSupportValue)),
-      this.db
+      database
         .select({
           pcWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
           pcWeight2: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 2 THEN 1 ELSE 0 END), 0)`,
           pcWeight3: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 3 THEN 1 ELSE 0 END), 0)`,
           pcWeight4: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 4 THEN 1 ELSE 0 END), 0)`,
           pcWeight5: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 5 THEN 1 ELSE 0 END), 0)`,
+          mobileWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mobileWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
+          mobileWeight2: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mobileWeight} >= 2 THEN 1 ELSE 0 END), 0)`,
+          mobileWeight3: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mobileWeight} >= 3 THEN 1 ELSE 0 END), 0)`,
+          mobileWeight4: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mobileWeight} >= 4 THEN 1 ELSE 0 END), 0)`,
+          mobileWeight5: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mobileWeight} >= 5 THEN 1 ELSE 0 END), 0)`,
           includeRate60: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.includeRateBasisPoints} >= 6000 THEN 1 ELSE 0 END), 0)`,
           includeRate70: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.includeRateBasisPoints} >= 7000 THEN 1 ELSE 0 END), 0)`,
           includeRate80: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.includeRateBasisPoints} >= 8000 THEN 1 ELSE 0 END), 0)`,
@@ -1277,13 +1236,31 @@ class PublishingRepository {
           festivalFalse: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = FALSE THEN 1 ELSE 0 END), 0)`,
         })
         .from(publisherMediaResources)
+        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
         .where(where),
+      // Group complete stored tag arrays in SQL; no provider calls or client page scan.
+      database.select({ tags: recommendationTagsValue, total: count() })
+        .from(publisherMediaResources)
+        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        .where(and(where, sql`JSON_TYPE(${recommendationTagsValue}) = 'ARRAY'`))
+        .groupBy(recommendationTagsValue),
     ]);
-    const countByKind = new Map(
-      kindRows.map((row) => [row.value, Number(row.total)]),
-    );
+    const catalog = await this.loadPublisherCatalogSnapshot(database);
     const prices = priceRows[0];
     const advancedCounts = advancedCountRows[0];
+    const tagCounts = new Map<string, number>();
+    for (const row of recommendationTagRows) {
+      let tags: unknown = row.tags;
+      if (typeof tags === "string") {
+        try { tags = JSON.parse(tags); } catch { continue; }
+      }
+      if (!Array.isArray(tags)) continue;
+      // Only normalized, exact labels can be selected. No splitting or keyword inference.
+      const exactTags = new Set(tags.filter((tag): tag is string =>
+        typeof tag === "string" && tag.length > 0 && tag.length <= 120 && tag.trim() === tag,
+      ));
+      for (const tag of exactTags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + Number(row.total));
+    }
     const countedOptions = (
       values: ReadonlyArray<readonly [string, unknown]>,
     ) =>
@@ -1291,10 +1268,7 @@ class PublishingRepository {
         .map(([value, total]) => ({ value, count: Number(total ?? 0) }))
         .filter(({ count: total }) => total > 0);
     return {
-      kindCounts: {
-        news: countByKind.get("news") ?? 0,
-        selfMedia: countByKind.get("self_media") ?? 0,
-      },
+      ...catalog,
       platforms,
       taxonomies,
       mediaTypes,
@@ -1304,6 +1278,8 @@ class PublishingRepository {
       entryTypes: entryLevels,
       entryLevels,
       linkTypes,
+      recommendationTags: [...tagCounts].map(([value, count]) => ({ value, count }))
+        .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
       imageSupports: imageSupportRows.map((row) => ({
         value: row.value,
         count: Number(row.total),
@@ -1314,6 +1290,13 @@ class PublishingRepository {
         ["3", advancedCounts?.pcWeight3],
         ["4", advancedCounts?.pcWeight4],
         ["5", advancedCounts?.pcWeight5],
+      ]),
+      mobileWeightThresholds: countedOptions([
+        ["1", advancedCounts?.mobileWeight1],
+        ["2", advancedCounts?.mobileWeight2],
+        ["3", advancedCounts?.mobileWeight3],
+        ["4", advancedCounts?.mobileWeight4],
+        ["5", advancedCounts?.mobileWeight5],
       ]),
       includeRateThresholds: countedOptions([
         ["60", advancedCounts?.includeRate60],

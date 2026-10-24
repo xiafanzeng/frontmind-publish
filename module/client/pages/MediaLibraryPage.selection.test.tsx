@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React, { type ReactNode } from "react";
 import { webcrypto } from "node:crypto";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -11,7 +11,7 @@ import { PublishingGatewayProvider } from "../PublishingContext";
 import { PublishingFlowProvider, type PublishingFlow } from "../PublishingFlowContext";
 import { configurePublishingHost } from "../host";
 import type { PublisherGateway } from "../gateway";
-import type { ArticleDetail, MediaFacets, MediaResource, PublicationDraft } from "../types";
+import type { ArticleDetail, CatalogFreshness, MediaFacets, MediaResource, PublicationDraft } from "../types";
 
 // Keep the real page, route state, query lifecycle and flow context. Only replace
 // presentation and the separate media-rules API; these tests never use a network.
@@ -442,5 +442,144 @@ describe("media selection context and persistence", () => {
     fireEvent.click(choice("1"));
     await waitFor(() => expect(count()).toBe("19"));
     expect(choice("21").disabled).toBe(false);
+  });
+});
+
+// These are synthetic gateway fixtures for source-only handoff regression coverage.
+// They exercise the real page/query/route lifecycle; they are not live supplier evidence.
+function catalogueFixture(options: { catalog?: CatalogFreshness; withDraft?: boolean } = {}) {
+  const inventory: CatalogFreshness = {
+    activeRevision: "catalog-1", mediaCount: 30, newsCount: 10, selfMediaCount: 20,
+    countStatus: "available", kindComplete: true, lastSyncedAt: timestamp, stale: false,
+  };
+  const news = Array.from({ length: 10 }, (_, index) => media(`news-${index}`, { taxonomy: "IT科技" }));
+  const selfMedia = Array.from({ length: 20 }, (_, index) => media(`self-${index}`, { kind: "self_media", taxonomy: "生活消费" }));
+  const items = [...news, ...selfMedia];
+  const fixture = gatewayFixture(items, article(), options.withDraft ? draft([news[0]!, selfMedia[0]!]) : undefined);
+  const listMedia = vi.fn<PublisherGateway["listMedia"]>(async (filters) => {
+    const matches = items.filter(item =>
+      (!filters.kind || item.kind === filters.kind) &&
+      (!filters.query || item.name.includes(filters.query)) &&
+      (!filters.taxonomy || item.taxonomy === filters.taxonomy) &&
+      (filters.mediaIds === undefined || filters.mediaIds.includes(item.id)),
+    );
+    const start = (filters.page - 1) * filters.pageSize;
+    return { items: matches.slice(start, start + filters.pageSize), total: matches.length,
+      page: filters.page, pageSize: filters.pageSize, catalog: options.catalog ?? inventory };
+  });
+  const getMediaFacets = vi.fn<PublisherGateway["getMediaFacets"]>(async () => ({
+    // Deliberately different from inventory: facet buckets must not become tab totals.
+    kinds: { news: 1, self_media: 2 },
+    platforms: [], taxonomies: [{ value: "IT科技", label: "IT科技", count: 10 }, { value: "生活消费", label: "生活消费", count: 20 }],
+    mediaTypes: [], areas: [], includeTypes: [], publishSpeeds: [], entryTypes: [], linkTypes: [], imageSupports: [],
+    pcWeightThresholds: [], mobileWeightThresholds: [], includeRateThresholds: [], successRateThresholds: [],
+    recommendedOptions: [], recommendationTags: [], authenticatedOptions: [], festivalPublishableOptions: [], catalog: inventory,
+  }));
+  fixture.gateway.listMedia = listMedia;
+  fixture.gateway.getMediaFacets = getMediaFacets;
+  return { ...fixture, listMedia, getMediaFacets, inventory };
+}
+
+function categoryButton(label: string) {
+  return within(screen.getByRole("group", { name: "媒体分类" })).getByRole("button", { name: new RegExp(`^${label}`) });
+}
+function expectInventoryThirty() {
+  expect(categoryButton("全部媒体").textContent).toContain("（30）");
+  expect(categoryButton("门户媒体").textContent).toContain("（10）");
+  expect(categoryButton("第三方自媒体").textContent).toContain("（20）");
+  expect(screen.getByRole("button", { name: /^全部\s*30$/ }).textContent).toContain("30");
+}
+function expectResultCount(total: number) {
+  expect(document.getElementById("y-result-count")?.textContent).toContain(`为您找到 ${total} 条媒体资源`);
+}
+
+describe("media catalogue inventory, filters and cart integration", () => {
+  it("keeps 10 + 20 = 30 inventory across kind switches and name search while current totals change", async () => {
+    const fixture = catalogueFixture();
+    const currentFlow = flow();
+    const view = harness(fixture.gateway, "/publishing/media/third?articleVersion=version-1&mode=multi&workbenchTask=task-1&matrixTask=matrix-1&enterpriseProjectId=project-1&operatorOwnerId=9", currentFlow);
+    await waitFor(() => { expectInventoryThirty(); expectResultCount(30); });
+
+    fireEvent.click(categoryButton("门户媒体"));
+    await waitFor(() => { expectInventoryThirty(); expectResultCount(10); });
+    expect(categoryButton("门户媒体").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(categoryButton("第三方自媒体"));
+    await waitFor(() => { expectInventoryThirty(); expectResultCount(20); });
+    expect(categoryButton("第三方自媒体").getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "媒体搜索" }), { target: { value: "  媒体 self-3  " } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    await waitFor(() => { expectInventoryThirty(); expectResultCount(1); });
+    expect(fixture.listMedia).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: "self_media", query: "媒体 self-3", searchScope: "name", page: 1,
+    }), expect.any(AbortSignal));
+    await waitFor(() => expect(choice("self-3").disabled).toBe(false));
+
+    // Filtering preserves the exact frozen version, mode, both tasks and owner/project context.
+    const target = new URL(view.location.history.at(-1)!, window.location.origin);
+    for (const [key, value] of Object.entries({ articleVersion: "version-1", mode: "multi", workbenchTask: "task-1", matrixTask: "matrix-1", enterpriseProjectId: "project-1", operatorOwnerId: "9" })) {
+      expect(target.searchParams.get(key)).toBe(value);
+    }
+    fireEvent.click(choice("self-3"));
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith("version-1", ["self-3"], expect.any(String), "per_media"));
+    expect(fixture.getArticle).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "unavailable", counts: { mediaCount: undefined, newsCount: undefined, selfMediaCount: undefined, countStatus: "unavailable" as const } },
+    { label: "mismatched", counts: { mediaCount: 999, newsCount: 10, selfMediaCount: 20, countStatus: "available" as const } },
+  ])("does not substitute result totals or another response's counts for $label inventory", async ({ counts }) => {
+    const fixture = catalogueFixture({ catalog: {
+      activeRevision: "catalog-1", kindComplete: true, lastSyncedAt: timestamp, stale: false, ...counts,
+    } });
+    harness(fixture.gateway, "/publishing/media/third?query=self-3");
+    await waitFor(() => {
+      expectResultCount(1);
+      for (const label of ["全部媒体", "门户媒体", "第三方自媒体"]) {
+        expect(categoryButton(label).textContent).toContain("（待确认）");
+      }
+    });
+    expect(screen.getByRole("button", { name: /^全部\s*待确认$/ }).textContent).toContain("待确认");
+    expect(screen.getByText("媒体库存统计尚未确认，分类数量暂不展示。")).not.toBeNull();
+    expect(fixture.getMediaFacets).toHaveBeenCalled();
+  });
+
+  it("queries only selected IDs in cart scope and keeps facets global across filter changes", async () => {
+    const fixture = catalogueFixture({ withDraft: true });
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?articleVersion=version-1");
+    await waitFor(() => { expect(choice("news-0").checked).toBe(true); expect(choice("self-0").checked).toBe(true); expectInventoryThirty(); });
+    fireEvent.click(screen.getByRole("button", { name: /^购物车\s*2$/ }));
+    await waitFor(() => {
+      expectResultCount(2);
+      expect(fixture.listMedia).toHaveBeenLastCalledWith(expect.objectContaining({ mediaIds: ["news-0", "self-0"], page: 1 }), expect.any(AbortSignal));
+    });
+    const facetCalls = fixture.getMediaFacets.mock.calls.length;
+    expect(fixture.getMediaFacets).toHaveBeenLastCalledWith(expect.objectContaining({ kind: undefined, query: "", taxonomy: "", searchScope: "name" }), expect.any(AbortSignal));
+
+    fireEvent.click(within(screen.getByRole("group", { name: "频道类型" })).getByRole("button", { name: "IT科技" }));
+    await waitFor(() => {
+      expectResultCount(1);
+      expect(fixture.listMedia).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "IT科技", mediaIds: ["news-0", "self-0"], page: 1 }), expect.any(AbortSignal));
+      expectInventoryThirty();
+    });
+    expect(fixture.getMediaFacets).toHaveBeenCalledTimes(facetCalls);
+    expect(count()).toBe("2");
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+    expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
+    expect(fixture.listMedia.mock.calls.every(([filters]) => filters.pageSize <= 100)).toBe(true);
+  });
+
+  it("sends an explicit empty ID scope for an empty cart instead of querying the whole catalogue", async () => {
+    const fixture = catalogueFixture();
+    harness(fixture.gateway, "/publishing/media/third");
+    await waitFor(() => { expectInventoryThirty(); expectResultCount(30); });
+    fireEvent.click(screen.getByRole("button", { name: /^购物车\s*0$/ }));
+    await waitFor(() => {
+      expectResultCount(0);
+      expect(fixture.listMedia).toHaveBeenLastCalledWith(expect.objectContaining({ mediaIds: [] }), expect.any(AbortSignal));
+      expectInventoryThirty();
+    });
+    expect(screen.queryByRole("checkbox", { name: "选择 媒体 news-0" })).toBeNull();
+    expect(count()).toBe("0");
   });
 });
