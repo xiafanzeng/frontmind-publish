@@ -64,3 +64,17 @@ it.each([
     expect(destination.searchParams.get(key)).toBe(value);
   }
 });
+
+it.each([
+  ['sources', 'analysis'], ['industry', 'analysis'], ['matrix', 'matrix'], ['report', 'matrix'],
+])('maps legacy draft %s into the current tab and preserves context', async (alias, tab) => {
+  const location = open(`/publishing/drafts/d1/media/${alias}?matrixTask=m1&articleVersion=v1&smModel=model-a`);
+  expect(await screen.findByRole('heading', {name:'信源矩阵入口'})).toBeTruthy();
+  const destination = new URL(location.history.at(-1)!, 'https://workspace.invalid');
+  expect(destination.pathname).toBe('/publishing/source-matrix');
+  expect(destination.searchParams.get('tab')).toBe(tab);
+  expect(destination.searchParams.get('draftId')).toBe('d1');
+  expect(destination.searchParams.get('task')).toBe('m1');
+  expect(destination.searchParams.get('articleVersion')).toBe('v1');
+  expect(destination.searchParams.get('smModel')).toBe('model-a');
+});

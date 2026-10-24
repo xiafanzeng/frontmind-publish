@@ -1,0 +1,32 @@
+/* Workbook research view. ReferenceScope owns palette and type; no global styles. */
+.fm-media .sm-sample{min-width:0}
+.fm-media .sm-sample-context{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 18px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:18px}
+.fm-media .sm-sample-context strong{color:var(--plum)}
+.fm-media .sm-sample-context span{color:var(--muted);font-size:13px}
+.fm-media .sm-sample-columns{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:20px;align-items:start}
+.fm-media .sm-sample-matrix{min-width:0;display:grid;gap:12px}
+.fm-media .sm-sample-matrix h2,.fm-media .sm-sample-budget h2{font-size:19px;color:var(--plum)}
+.fm-media .sm-sample-layer{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:18px;align-items:center;padding:16px 18px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.fm-media .sm-sample-layer h3{font-size:15px;color:var(--plum)}
+.fm-media .sm-sample-layer p,.fm-media .sm-sample-layer>span{font-size:12px;color:var(--muted);line-height:1.7}
+.fm-media .sm-sample-research{margin-top:10px;min-width:0}
+.fm-media .sm-sample-research-head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:14px;margin-bottom:14px}
+.fm-media .sm-sample-search{display:grid;gap:6px;font-size:12px;color:var(--muted);max-width:100%}
+.fm-media .sm-sample-search>div{display:flex;align-items:center;gap:8px}
+.fm-media .sm-sample-search input{min-width:0;width:210px;max-width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.fm-media .sm-sample-search button{color:var(--brand);font-size:12px;white-space:nowrap}
+.fm-media .sm-sample-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.fm-media .sm-sample-source{display:grid;align-content:start;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px;overflow-wrap:anywhere}
+.fm-media .sm-sample-source h3{font-size:15px;color:var(--plum)}
+.fm-media .sm-sample-source .link{justify-self:start;text-align:left}
+.fm-media .sm-sample-pagination{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:16px;font-size:12px;color:var(--muted)}
+.fm-media .sm-sample-budget{display:grid;gap:16px;min-width:0;margin:0;position:sticky;top:80px}
+.fm-media .sm-sample-budget p{line-height:1.8}
+.fm-media .sm-sample-budget dl,.fm-media .sm-sample-evidence dl{display:grid;grid-template-columns:minmax(100px,auto) minmax(0,1fr);gap:10px;margin:0;font-size:13px}
+.fm-media .sm-sample-budget dt,.fm-media .sm-sample-evidence dt{color:var(--muted)}
+.fm-media .sm-sample-budget dd,.fm-media .sm-sample-evidence dd{margin:0;overflow-wrap:anywhere}
+.fm-media .sm-sample-evidence{display:grid;gap:16px}
+.fm-media .sm-sample-evidence .table-wrap{max-height:50dvh;overflow:auto}
+.fm-media .sm-sample-evidence td{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1050px){.fm-media .sm-sample-columns{grid-template-columns:minmax(0,1fr)}.fm-media .sm-sample-budget{position:static}}
+@media(max-width:650px){.fm-media .sm-sample-cards{grid-template-columns:minmax(0,1fr)}.fm-media .sm-sample-layer{grid-template-columns:minmax(0,1fr);gap:8px}.fm-media .sm-sample-pagination .button{padding:7px 11px}}

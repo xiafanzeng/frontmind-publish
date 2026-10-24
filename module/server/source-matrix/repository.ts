@@ -2,9 +2,15 @@ import { and,eq } from 'drizzle-orm';
 import type { MySql2Database } from 'drizzle-orm/mysql2';
 import { sourceMatrixIndustries as industries,sourceMatrixTasks as tasks,sourceMatrixSnapshots as snapshots } from '../../schema/source-matrix.js';
 import { clone,type Row } from './common.js';
+import { DISTRIBUTION_LIMITS,readSourceDistribution } from './distribution.js';
 export class MatrixRepository {
  constructor(private db:MySql2Database<any>,readonly tenantId:string){}
  async industries(){return this.db.select({id:industries.industryId,name:industries.name}).from(industries).where(eq(industries.tenantId,this.tenantId));}
+ /** Independent of planner tasks. Projection is the only path from trusted datasets to the public analysis view. */
+ async sourceDistribution(){
+  const configured=await this.db.select({industryId:industries.industryId,name:industries.name,dataset:industries.dataset}).from(industries).where(eq(industries.tenantId,this.tenantId)).limit(DISTRIBUTION_LIMITS.industries+1);
+  return readSourceDistribution(configured,this.tenantId);
+ }
  async industry(id:string){return (await this.db.select().from(industries).where(and(eq(industries.tenantId,this.tenantId),eq(industries.industryId,id))).limit(1))[0];}
  async create(taskId:string,industryId:string,brandId:string,task:Row){await this.db.insert(tasks).values({tenantId:this.tenantId,taskId,industryId,brandId,task,state:'running'});}
  async get(taskId:string){return (await this.db.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1))[0];}

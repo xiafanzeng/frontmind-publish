@@ -133,6 +133,8 @@ export function businessLeafHref(id: string, path: string, search = ""): string 
     params.delete("task");
     params.delete("matrixTask");
     if (matrixTask) params.set(id === "source-matrix" ? "task" : "matrixTask", matrixTask);
+    // A fresh sidebar entry opens distribution. Within this module retain the current tab.
+    if (id === "source-matrix") params.set("tab", fromMatrix && (current.get("tab")==="matrix" || (current.get("tab")!=='analysis'&&/\/media\/(matrix|report)$|\/source-report$/.test(path))) ? "matrix" : "analysis");
     if (draft) destination = `/publishing/drafts/${draft}/media${id === "media-home" ? "" : id === "third-media" ? "/third" : "/matrix"}`;
   }
   return destination + (params.size ? `?${params}` : "");
@@ -143,15 +145,17 @@ export function publishingBreadcrumbs(path: string, search = ""): PublishingCrum
   search = search || path.split("?")[1] || "";
   path = path.split("?")[0]!.replace(/\/$/, "");
   const leaf = activeBusinessLeaf(path, search);
+  const tab=new URLSearchParams(search).get('tab');
+  const matrixDetail=leaf==='source-matrix'
+    ? (tab==='matrix'||(tab!=='analysis'&&/\/media\/(matrix|report)$|\/source-report$/.test(path))?'信源矩阵推荐':'行业信源分布')
+    : undefined;
   const items: PublishingCrumb[] = [
     { label: "媒体发布", href: businessLeafHref("workbench", path, search) },
   ];
   const detail = /\/titles$/.test(path) ? "配置发布标题"
     : /\/review(?:\/[^/]+)?$/.test(path) ? "预检与发布"
     : /\/media\/cart$/.test(path) ? "购物车"
-    : /\/source-analysis$|\/media\/sources$/.test(path) ? "引用信源分析"
-    : /\/source-report$|\/media\/report$/.test(path) ? "信源方案报告"
-    : /\/source-industry$|\/media\/industry$/.test(path) ? "行业信源分析"
+    : matrixDetail ? matrixDetail
     : /\/articles\/new\/import$/.test(path) ? "导入稿件"
     : /\/record\/[^/]+$|\/publications\/[^/]+$/.test(path) ? "发布详情"
     : undefined;

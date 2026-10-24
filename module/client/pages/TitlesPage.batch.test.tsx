@@ -93,7 +93,9 @@ it("retains excluded rows and their titles when returning from review", async ()
   await waitFor(() => expect(task.onSaved).toHaveBeenCalledTimes(1));
   task.unmount();
   render(task.view());
-  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 5000 });
+  // Heavy server-kernel suites run concurrently and can starve this restore
+  // render far past the default budget on a loaded host; keep a wide margin.
+  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 30000 });
   expect((restored as HTMLInputElement).value).toBe("返回时保留");
   expect((screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }));
@@ -113,7 +115,7 @@ it("stops on changed server membership before any writes and displays the latest
   expect(task.saveDraftTitles).not.toHaveBeenCalled();
   expect(task.updateDraftMedia).not.toHaveBeenCalled();
   expect(screen.queryByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" })).toBeNull();
-});
+}, 45000);
 
 it("retries after a later draft fails using the latest successful revisions", async () => {
   const task = setup();

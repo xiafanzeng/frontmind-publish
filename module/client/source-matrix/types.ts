@@ -23,3 +23,12 @@ export interface MatrixResult {
  source_analysis:Analysis;budget_plans:BudgetPlan[];limitations:string[];warnings:Issue[];errors:Issue[];minimum_known_cost:Json;
 }
 export interface TaskResponse {task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}
+/** Server-verified binding recorded inside result.scope.task.binding. */
+export interface ServerBinding {draft_id:string|null;article_version_id:string;article_id:string;version_number:number;content_hash:string;article_title:string;fingerprint:string;bound_at?:string}
+export interface ApplyPlanDiff {
+ status:'ok';task_id:string;plan_index:number;draft:{id:string;revision:number};
+ additions:Array<{mediaResourceId:string;name:string;externalResourceId:string;priceTenThousandths:string;offerId:string|null;publicationSpec:Json;purpose:string|null;reason:string|null}>;
+ alreadySelected:Array<{mediaResourceId:string;name:string;reason:string}>;
+ skipped:Array<{key:string;reason:string}>;
+ overLimit:boolean;mergedCount:number;knownTotalTenThousandths:string|null;pendingPriced:number;
+}
