@@ -5,6 +5,7 @@ import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
 import { PublishingLoading } from "./components/PublishingUi";
+import { ArticleContentLayout } from "./components/ArticleContentLayout";
 import "./publishing.tokens.css";
 import "./publishing.core.css";
 import "./publishing.workflow.css";
@@ -13,6 +14,7 @@ import "./publishing.records.css";
 import "./publishing.admin.css";
 import "./publishing.conversation.css";
 import "./publishing.market.css";
+import "./publishing.articles.css";
 
 const SourceMatrixPage = lazy(() => import("./source-matrix/SourceMatrixPage"));
 const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
@@ -43,6 +45,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const matrixDraftHref=(draftId:string)=>{const params=new URLSearchParams(search);params.set("draftId",draftId);return projectWorkspaceUrl("/publishing/source-matrix?"+params.toString());};
   return (
     <PublishingGatewayProvider gateway={gateway}>
+      <ArticleContentLayout>
       <Suspense
           fallback={
             <div className="publishing-page publishing-page-loading">
@@ -133,6 +136,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           </Switch>
           </>
         </Suspense>
+      </ArticleContentLayout>
     </PublishingGatewayProvider>
   );
 }
