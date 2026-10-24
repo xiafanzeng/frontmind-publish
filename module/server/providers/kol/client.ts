@@ -406,11 +406,13 @@ export class KolClient implements KolProviderPort {
     },
     signal?: AbortSignal,
   ): Promise<unknown> {
+    let rejectedToken: string | undefined;
     for (let authAttempt = 0; authAttempt < 2; authAttempt += 1) {
       let token: string;
       try {
         token = await this.tokenCache.getToken({
           forceRefresh: authAttempt === 1,
+          rejectedToken,
           signal,
         });
       } catch (error) {
@@ -448,7 +450,8 @@ export class KolClient implements KolProviderPort {
             authenticationStatus(response.status, status) === 401))
       ) {
         this.accessTokenRejected = true;
-        this.tokenCache.invalidate();
+        rejectedToken = token;
+        this.tokenCache.invalidate(token);
         continue;
       }
       if (authenticationRejected) {
