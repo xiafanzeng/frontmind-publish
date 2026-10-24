@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
 } from "../mediaShortlist";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
+import { useMediaSelectionTask } from "../useMediaSelectionTask";
 import {
   usePublishingChoice,
 } from "../components/PublishingConversation";
@@ -86,12 +88,26 @@ export default function PublishingMediaLibraryPage({
     return carryMediaContext(writeMediaRouteFilters(path,next,version));
   };
   const pageHref=(path:string)=>writeMediaRouteState(path,filters,articleVersionId);
-  const sourceHref=(path:string)=>{const params=new URLSearchParams();if(draftId)params.set('draftId',draftId);if(matrixTask)params.set('task',matrixTask);return path+(params.size?'?'+params.toString():'');};
+  const sourceHref = (path: string) => {
+    const [pathname, query] = carryMediaContext(path).split('?');
+    const params = new URLSearchParams(query);
+    if (draftId) params.set('draftId', draftId);
+    if (articleVersionId) params.set('articleVersion', articleVersionId);
+    params.delete('matrixTask');
+    if (matrixTask) params.set('task', matrixTask);
+    return projectWorkspaceUrl(pathname + (params.size ? '?' + params.toString() : ''));
+  };
   const workspaceKey = usePublishingWorkspaceKey();
   const accountShortlistKey = mediaShortlistKey(workspaceKey, search);
+  const taskContextVersion = new URLSearchParams(search).get('articleVersion');
+  const taskContextRouteTask = new URLSearchParams(search).get('workbenchTask');
+  const taskContextMode = new URLSearchParams(search).get('mode');
+  const taskContext = useMemo(() => ({ gateway, workspaceKey, accountShortlistKey, routeDraftId, taskContextVersion, taskContextRouteTask, taskContextMode, matrixTask, flowScope: flow?.scopeKey, agent: flow?.agentId }),
+    [gateway, workspaceKey, accountShortlistKey, routeDraftId, taskContextVersion, taskContextRouteTask, taskContextMode, matrixTask, flow?.scopeKey, flow?.agentId]);
+  const selectionTask = useMediaSelectionTask(flow, taskContext);
   const shortlistKey =
     flow && accountShortlistKey
-      ? `${accountShortlistKey}:task:${flow.taskId ?? "new"}`
+      ? `${accountShortlistKey}:task:${selectionTask.scopeKey}`
       : accountShortlistKey;
   const pathname = location || "/publishing/media";
   const routeState = useMemo(() => readMediaRouteState(search), [search]);
@@ -134,9 +150,23 @@ export default function PublishingMediaLibraryPage({
       return [];
     }
   }, [confirmedMediaJson]);
-  const flowTaskId = flow?.taskId;
+  const flowTaskId = selectionTask.scopeKey;
   const routeTaskId = new URLSearchParams(search).get('workbenchTask');
   const routeMode = new URLSearchParams(search).get('mode');
+  // Registering the newly saved draft changes flow.resources. It is an adoption
+  // of this operation's result, not a user navigation. Check the actual route
+  // separately before navigating after that asynchronous registration.
+  const routeOwner = useMemo(
+    () => ({ gateway, accountShortlistKey, pathname, search, flowTaskId }),
+    [gateway, accountShortlistKey, pathname, search, flowTaskId],
+  );
+  const currentRouteOwner = useRef(routeOwner);
+  currentRouteOwner.current = routeOwner;
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const selectionScope = useMemo(
     () => ({ gateway, shortlistKey, draftId, articleVersionId, flowTaskId, routeTaskId, routeMode, matrixTask }),
     [gateway, shortlistKey, draftId, articleVersionId, flowTaskId, routeTaskId, routeMode, matrixTask],
@@ -173,6 +203,15 @@ export default function PublishingMediaLibraryPage({
     [selectionScope],
   );
   const [selectionError, setSelectionError] = useState("");
+  const [registrationIssue, setRegistrationIssue] = useState<{
+    gateway: typeof gateway;
+    accountShortlistKey: typeof accountShortlistKey;
+    taskId: typeof flowTaskId;
+    draftId: string;
+    articleVersionId: string;
+    message?: string;
+    acknowledged?: boolean;
+  }>();
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mediaStep, chooseMediaStep, acceptMediaStep] =
@@ -212,7 +251,7 @@ export default function PublishingMediaLibraryPage({
       : undefined;
   const selectionInFlight = useRef(false);
   const selectionGeneration = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     selectionGeneration.current += 1;
     selectionInFlight.current = false;
     setSelectionBusy(false);
@@ -391,7 +430,7 @@ export default function PublishingMediaLibraryPage({
   const selectedTotal = useMemo(
     () =>
       selectedValues
-        .reduce((sum, media) => sum + BigInt(media.priceTenThousandths), 0n)
+        .reduce((sum, media) => sum + (/^\d+$/.test(media.priceTenThousandths) && BigInt(media.priceTenThousandths) > 0n ? BigInt(media.priceTenThousandths) : 0n), 0n)
         .toString(),
     [selectedValues],
   );
@@ -408,8 +447,14 @@ export default function PublishingMediaLibraryPage({
     next: MediaFilters,
     nextPath = pathname,
     nextVersion = articleVersionId,
+    nextTaskId?: string,
   ) => {
-    navigate(writeMediaRouteState(nextPath, next, nextVersion));
+    const target = writeMediaRouteState(nextPath, next, nextVersion);
+    if (nextTaskId) {
+      const url = new URL(target, window.location.origin);
+      url.searchParams.set('workbenchTask', nextTaskId);
+      navigate(url.pathname + url.search + url.hash);
+    } else navigate(target);
     void flow?.saveSelections({ mediaFilters: { ...next, kind: next.kind ?? "all" } }).catch(() => undefined);
   };
   const updateFilter = <K extends keyof MediaFilters>(
@@ -487,7 +532,7 @@ export default function PublishingMediaLibraryPage({
           new Map(saved.items.map((item) => [item.media.id, item.media])),
         );
       } else {
-        const taskId = flow ? await flow.ensureTask() : undefined;
+        const taskId = await selectionTask.ensureTask();
         const requestKey = taskId
           ? await publishingDraftRequestKey(taskId, articleVersionId!, mediaIds)
           : undefined;
@@ -504,11 +549,30 @@ export default function PublishingMediaLibraryPage({
         setSelected(
           new Map(saved.items.map((item) => [item.media.id, item.media])),
         );
-        navigateFilters(
-          filters,
-          `/publishing/drafts/${saved.id}/media`,
-          articleVersionId,
-        );
+        // Keep the current subpage after the first click. The bare media route
+        // belongs to the overview, not to an implicit third-party-list default.
+        const savedPath = `/publishing/drafts/${encodeURIComponent(saved.id)}/media${view === 'home' ? '' : '/' + view}`;
+        let registrationError = '';
+        try {
+          await flow?.record({
+            id: `media-draft:${saved.id}`,
+            label: '已保存媒体选择',
+            resources: [
+              { kind: 'article_version', id: saved.articleVersionId },
+              { kind: 'publication_draft', id: saved.id },
+            ],
+          });
+        } catch (reason) {
+          // The server draft already exists. Retain that exact ID; never roll
+          // back into an unbound page that would create a replacement draft.
+          registrationError = '媒体已保存，但任务关联未完成：' + (reason instanceof Error ? reason.message : '请重试');
+        }
+        if (!mounted.current || currentRouteOwner.current !== routeOwner) return;
+        if (registrationError) setRegistrationIssue({
+          gateway, accountShortlistKey, taskId: flowTaskId,
+          draftId: saved.id, articleVersionId: saved.articleVersionId, message: registrationError,
+        });
+        navigateFilters(filters, savedPath, articleVersionId, taskId);
       }
     } catch (reason) {
       if (generation !== selectionGeneration.current) return;
@@ -518,7 +582,9 @@ export default function PublishingMediaLibraryPage({
         );
       else setSelected(previousSelection);
       setSelectionError(
-        reason instanceof Error ? reason.message : "所选媒体未能保存",
+        reason instanceof Error && reason.message.includes('Media title is invalid')
+          ? '所选媒体的提交标题不符合要求，媒体选择未保存。请核对媒体标题字数限制，并返回稿件编辑调整标题后重新确认；已有投放草稿可返回标题配置调整。'
+          : reason instanceof Error ? reason.message : "所选媒体未能保存",
       );
     } finally {
       if (generation === selectionGeneration.current) {
@@ -860,9 +926,49 @@ export default function PublishingMediaLibraryPage({
   };
   const base=draftId?`/publishing/drafts/${encodeURIComponent(draftId)}/media`:'/publishing/media';
   const task=boundDraft??draft;
+  const currentArticleTitle = task?.articleTitle ?? selectedArticle?.title ?? (articleVersionId ? '已确认稿件' : undefined);
+  const currentArticleVersion = task?.articleVersion ?? frozenVersion?.version;
+  const currentArticleId = task?.articleId ?? selectedArticle?.id;
+  const currentArticleNote = currentArticleVersion !== undefined
+    ? `稿件：已确认 v${currentArticleVersion}`
+    : articleVersionId ? `冻结版本：${articleVersionId}` : undefined;
+  const registrationMatches = Boolean(registrationIssue && registrationIssue.gateway === gateway &&
+    registrationIssue.accountShortlistKey === accountShortlistKey && registrationIssue.taskId === flowTaskId &&
+    registrationIssue.draftId === draft?.id && registrationIssue.articleVersionId === draft?.articleVersionId);
+  const draftRegistered = Boolean(draft && flow && flow.records?.some(record => record.id === `media-draft:${draft.id}` && record.status === 'completed') &&
+    flow.resources?.some(resource => resource.kind === 'publication_draft' && resource.id === draft.id) &&
+    flow.resources?.some(resource => resource.kind === 'article_version' && resource.id === draft.articleVersionId));
+  // Reconstruct this recoverable state from the verified draft and current
+  // task after route remounts. Never retain a prior workspace's draft object.
+  const registrationPending = Boolean(flow && draft && draft.id === draftId && !contextReadIssue && !draftRegistered &&
+    !(registrationMatches && registrationIssue?.acknowledged));
+  const registrationMessage = registrationMatches && registrationIssue?.message
+    ? registrationIssue.message : '当前媒体选择已保存，但尚未关联到当前任务。请重试关联后再返回稿件入口。';
+  const retryRegistration = async () => {
+    if (!flow || !registrationPending || !draft || contextReadIssue || selectionBusy) return;
+    const saved = draft;
+    const owner = routeOwner;
+    try {
+      await flow.record({ id: `media-draft:${saved.id}`, label: '已保存媒体选择', resources: [
+        { kind: 'article_version', id: saved.articleVersionId },
+        { kind: 'publication_draft', id: saved.id },
+      ] });
+      if (mounted.current && currentRouteOwner.current === owner) setRegistrationIssue({
+        gateway, accountShortlistKey, taskId: flowTaskId,
+        draftId: saved.id, articleVersionId: saved.articleVersionId, acknowledged: true,
+      });
+    } catch (reason) {
+      if (mounted.current && currentRouteOwner.current === owner)
+        setRegistrationIssue({
+          gateway, accountShortlistKey, taskId: flowTaskId,
+          draftId: saved.id, articleVersionId: saved.articleVersionId,
+          message: '媒体已保存，但任务关联未完成：' + (reason instanceof Error ? reason.message : '请重试'),
+        });
+    }
+  };
   // 统一流程条：以草稿 titleMode 为准；建稿前沿用编辑器带来的模式参数；独立浏览默认 4 步初始展示。
   const flowModeParam=new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
-  const flowMode:FlowStageMode=task?.titleMode==="single"?"single":task?.titleMode==="per_media"?"per_media":flowModeParam==="single"?"single":flowModeParam==="multi"?"multi":flowModeParam==="batch"?"batch":"default";
+  const flowMode:FlowStageMode=task?.titleMode==="single"?"single":task?.titleMode==="per_media"?"per_media":flowModeParam==="single"?"single":flowModeParam==="per_media"?"per_media":flowModeParam==="multi"?"multi":flowModeParam==="batch"?"batch":"default";
   const hasArticleContext=Boolean(task||articleVersionId||draftId);
   const flowSteps=<PublishingFlowSteps stages={flowStagesForMode(flowMode)} doneCount={hasArticleContext?1:0} activeIndex={hasArticleContext?1:0}/>;
   const next=()=>{if(!hasArticleContext||contextReadIssue||selectionBusy||!selected.size)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
@@ -878,13 +984,14 @@ export default function PublishingMediaLibraryPage({
   const nextLabel=flowMode==="single"?"预检发布":"配置标题";
   const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext||!!contextReadIssue||selectionBusy||!selected.size} nextHint={!hasArticleContext?"您还未选择稿件":contextReadIssue||(selectionBusy?'正在保存媒体选择…':!selected.size?'请先选择媒体':undefined)} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} onRemove={media=>toggle(media)}/>;
   useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
-  return <MediaShell steps={flowSteps} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&task?<span className="x-task-pill" title={task.articleTitle}>任务：{task.articleTitle} · 稿件 v{task.articleVersion}</span>:undefined} taskbar={<MediaTaskbar note={task?`稿件：单篇发布 · 1 篇 · 已确认 v${task.articleVersion}`:undefined} saveStatus={selectionBusy?'正在保存…':task?'已读取投放草稿':''} title={task?(view==='home'?'当前任务：':'')+task.articleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={task&&<><button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button><Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(task.articleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={draftId?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{draftId&&<option value="current">{draft?.articleTitle??'已确认稿件'}</option>}</select></MediaTaskbar>}>
+  return <MediaShell steps={flowSteps} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&currentArticleTitle?<span className="x-task-pill" title={currentArticleTitle}>稿件：{currentArticleTitle}{currentArticleVersion !== undefined ? ` · v${currentArticleVersion}` : ''}</span>:undefined} taskbar={<MediaTaskbar note={currentArticleNote} saveStatus={selectionBusy?'正在保存…':contextReadIssue || (task?'已读取投放草稿':frozenVersion?'已读取冻结稿件':'')} title={currentArticleTitle?(view==='home'?'当前稿件：':'')+currentArticleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={currentArticleId&&<>{task&&<button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button>}<Link className="link small" href={projectWorkspaceUrl('/publishing/articles/'+encodeURIComponent(currentArticleId)+'/edit')}>返回编辑</Link></>}><select aria-label="当前投放任务" value={hasArticleContext?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{hasArticleContext&&<option value="current">{currentArticleTitle??'正在读取稿件'}</option>}</select></MediaTaskbar>}>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}
     {draftId ? <button className="link" disabled={draftQuery.loading||draftQuery.refreshing} onClick={()=>draftQuery.reload()}>重试读取草稿</button>
       : <button className="link" disabled={versionQuery.loading} onClick={()=>versionQuery.reload()}>重试读取稿件</button>}
     <Link className="link" href={projectWorkspaceUrl('/publishing/articles')}>返回稿件</Link>
   </div>}
+  {registrationPending && <div className="notice warn" role="alert">{registrationMessage}<button className="link" disabled={selectionBusy} onClick={()=>void retryRegistration()}>重试关联任务</button></div>}
   {view==='home'?<>
   <div className="x-duo-grid">
     <section className="panel x-duo-card">
@@ -909,7 +1016,7 @@ export default function PublishingMediaLibraryPage({
   </div>
   <section className="panel x-cart-summary">
     <div className="grow"><h2>共用购物车</h2><p className="small muted">矩阵组合与手选媒体统一汇总，生成本身不入车。</p></div>
-    <div className="x-cart-metrics"><strong>{selected.size} 家 · {formatPublishingMoney(selectedTotal)}</strong><span className="small muted">已确认选择 · {pending} 项费用待确认</span></div>
+    <div className="x-cart-metrics">{draftReadIssue?<strong>{draftQuery.loading||draftQuery.refreshing?'正在读取购物车…':'购物车暂不可用，请重试读取草稿'}</strong>:<><strong>{selected.size} 家 · {pending?'已知报价合计 ':''}{formatPublishingMoney(selectedTotal)}</strong><span className="small muted">{selected.size?`已确认选择 · ${pending} 项费用待确认`:'尚未选择媒体'}</span></>}</div>
     <Link className="button secondary" href={projectWorkspaceUrl(pageHref(base+'/cart'))}>查看购物车 →</Link>
   </section>
   <p className="footer-note">媒体、报价与发布要求来自已配置的供应商接口；不保证收录或 AI 引用。</p>

@@ -440,7 +440,7 @@ export default function PublishingArticleEditorPage({
     if (article?.currentVersionId) {
       performApprovedWorkspaceNavigation(() =>
         navigate(
-          publishingTaskUrl(`/publishing/media/third?articleVersion=${encodeURIComponent(article.currentVersionId!)}&mode=${editorMode}`),
+          publishingTaskUrl(`/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId!)}&mode=${editorMode}`),
         ),
       );
       return;
@@ -512,16 +512,16 @@ export default function PublishingArticleEditorPage({
           className="publishing-button publishing-button-primary"
           onClick={goToMediaSelection}
           disabled={isNew || embedded || saving || freezing || flow?.outcomePending}
-          title={article?.currentVersionId ? "进入第三方媒体选择" : "先冻结当前版本，再进入第三方媒体选择"}
+          title={article?.currentVersionId ? "进入媒体选择首页" : "先冻结当前版本，再进入媒体选择首页"}
         >
           选择媒体
         </button>
         <span className="publishing-editor-inline-note">
           {article?.currentVersionId
-            ? "当前版本已冻结，可直接进入第三方媒体选择并按媒体配置标题"
+            ? "当前版本已冻结，可进入媒体选择首页，再选择适合的选媒方式"
             : isNew
               ? "新稿件可直接撰写标题与正文；首次保存后即可选择媒体"
-              : "尚未冻结版本：点击后自动保存并冻结，再进入第三方媒体选择"}
+              : "尚未冻结版本：点击后自动保存并冻结，再进入媒体选择首页"}
         </span>
       </div>
       <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
@@ -612,7 +612,7 @@ export default function PublishingArticleEditorPage({
         <section className="publishing-panel publishing-editor-card">
           {editorMode === "multi" ? (
             <p className="publishing-editor-inline-note publishing-multi-title-note">
-              多标题模式：不填写统一标题；正文保存后经“选择媒体”进入第三方媒体选择，
+              多标题模式：不填写统一标题；正文保存后经“选择媒体”进入媒体选择首页，
               逐个媒体确认并配置标题后提交订单。
             </p>
           ) : (
@@ -876,7 +876,7 @@ export default function PublishingArticleEditorPage({
                   >
                     选择媒体
                   </button>
-                  进入第三方媒体选择，逐个媒体确认并配置标题后提交订单。
+                  进入媒体选择首页，完成选媒后逐个媒体确认并配置标题。
                 </p>
               ) : (
                 <label className="publishing-title-field">

@@ -120,7 +120,7 @@ function harness(gateway: PublisherGateway, initialPath: string, initialFlow = f
   function RoutedPage() {
     const [path] = useLocation();
     const draftId = /^\/publishing\/drafts\/([^/]+)\/media/.exec(path)?.[1];
-    const view = path.endsWith("/cart") ? "cart" : path.endsWith("/third") || draftId ? "third" : "home";
+    const view = path.endsWith("/cart") ? "cart" : path.endsWith("/third") ? "third" : "home";
     return <MediaLibraryPage draftId={draftId} view={view} />;
   }
   const tree = () => (
@@ -150,6 +150,118 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it("carries every business reference from the home to matrix without treating matrix task as workbench task", async () => {
+    const fixture = gatewayFixture();
+    harness(fixture.gateway, "/publishing/media?articleVersion=version-1&mode=multi&workbenchTask=task-1&matrixTask=matrix-1&enterpriseProjectId=project-1&operatorOwnerId=9");
+    const target = new URL(screen.getByRole('link', { name: '进入信源矩阵 →' }).getAttribute('href')!, window.location.origin);
+    expect(target.pathname).toBe('/publishing/source-matrix');
+    for (const [key, value] of Object.entries({ articleVersion: 'version-1', mode: 'multi', workbenchTask: 'task-1', task: 'matrix-1', enterpriseProjectId: 'project-1', operatorOwnerId: '9' }))
+      expect(target.searchParams.get(key)).toBe(value);
+    expect(target.searchParams.has('matrixTask')).toBe(false);
+    await waitFor(() => expect((screen.getByRole('combobox', { name: '当前投放任务' }) as HTMLSelectElement).value).toBe('current'));
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("registers the exact newly saved draft and keeps the list open for the next choice", async () => {
+    const fixture = gatewayFixture();
+    const currentFlow = flow();
+    const view = harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1', currentFlow);
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(currentFlow.record).toHaveBeenCalledWith({
+      id: 'media-draft:draft-1', label: '已保存媒体选择', resources: [
+        { kind: 'article_version', id: 'version-1' }, { kind: 'publication_draft', id: 'draft-1' },
+      ],
+    }));
+    await waitFor(() => expect(view.location.history.at(-1)).toContain('/publishing/drafts/draft-1/media/third?'));
+    await waitFor(() => expect(choice('b').disabled).toBe(false));
+    fireEvent.click(choice('b'));
+    await waitFor(() => expect(fixture.updateDraftMedia).toHaveBeenCalledWith('draft-1', ['a', 'b'], 1));
+    expect(fixture.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues the first click when the host assigns exactly the task returned by ensureTask", async () => {
+    const fixture = gatewayFixture(), pendingTask = deferred<string>();
+    const ensureTask = vi.fn(() => pendingTask.promise);
+    const original = flow({ taskId: undefined, ensureTask });
+    const view = harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1', original);
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(ensureTask).toHaveBeenCalledTimes(1));
+    view.rerenderFlow({ ...original, taskId: 'created-task' });
+    await act(async () => { pendingTask.resolve('created-task'); });
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith('version-1', ['a'], expect.any(String), 'single'));
+    await waitFor(() => expect(choice('a').checked).toBe(true));
+    expect(new URL(view.location.history.at(-1)!, window.location.origin).searchParams.get('workbenchTask')).toBe('created-task');
+    expect(fixture.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['multi', 'per_media', 'batch'])('keeps the %s mode when creating the first selection draft', async mode => {
+    const fixture = gatewayFixture();
+    harness(fixture.gateway, `/publishing/media/third?articleVersion=version-1&mode=${mode}`);
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith('version-1', ['a'], expect.any(String), 'per_media'));
+  });
+
+  it("does not save a first click to a different task assigned while ensureTask is pending", async () => {
+    const fixture = gatewayFixture(), pendingTask = deferred<string>();
+    const ensureTask = vi.fn(() => pendingTask.promise);
+    const original = flow({ taskId: undefined, ensureTask });
+    const view = harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1', original);
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(ensureTask).toHaveBeenCalledTimes(1));
+    view.rerenderFlow({ ...original, taskId: 'another-task' });
+    await act(async () => { pendingTask.resolve('created-task'); });
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+    expect(choice('a').checked).toBe(false);
+    expect(count()).toBe('0');
+  });
+
+  it("retains the server draft and exposes registration retry when task registration fails", async () => {
+    const fixture = gatewayFixture();
+    const record = vi.fn<PublishingFlow['record']>().mockRejectedValueOnce(new Error('任务写入失败')).mockResolvedValue(undefined);
+    const view = harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1', flow({ record }));
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(view.location.history.at(-1)).toContain('/publishing/drafts/draft-1/media/third?'));
+    await waitFor(() => expect(choice('a').checked).toBe(true));
+    fireEvent.click(await screen.findByRole('button', { name: '重试关联任务' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '重试关联任务' })).toBeNull());
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(fixture.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not present a failed home cart read as a confirmed empty cart", async () => {
+    const fixture = gatewayFixture();
+    fixture.getDraft.mockRejectedValue(new Error('读取失败'));
+    harness(fixture.gateway, '/publishing/drafts/draft-1/media');
+    expect(await screen.findByText('购物车暂不可用，请重试读取草稿')).toBeTruthy();
+    expect(screen.queryByText('尚未选择媒体')).toBeNull();
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("shows pending quotes separately from the known total on the shared home cart", async () => {
+    const fixture = gatewayFixture();
+    harness(fixture.gateway, '/publishing/media', flow({ selections: { mediaSelection: [media('a'), media('unknown', { priceTenThousandths: '' })] } }));
+    expect(await screen.findByText('已确认选择 · 1 项费用待确认')).toBeTruthy();
+    expect(screen.getByText(/2 家 · 已知报价合计/).textContent).toContain('100.00');
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("explains the server title restriction without bypassing the failed save", async () => {
+    const fixture = gatewayFixture();
+    fixture.createDraft.mockRejectedValueOnce(new Error('Media title is invalid'));
+    harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1');
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    expect(await screen.findByText(/所选媒体的提交标题不符合要求/)).toBeTruthy();
+    expect(choice('a').checked).toBe(false);
+    expect(count()).toBe('0');
+    expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
+  });
+
   it("carries the frozen article, mode, task and workspace from home into media selection", async () => {
     configurePublishingHost({ workspaceUrl: (path) => {
       const url = new URL(path, window.location.origin);
