@@ -1007,9 +1007,10 @@ class PublishingRepository {
 
   async listPublisherMedia(input: Partial<MediaCatalogListInput> = {}) {
     // List rows, filtered total and all three inventory counts see one DB snapshot.
+    // No accessMode here: drizzle 0.45 joins snapshot+read-only without the comma MySQL requires.
     return this.db.transaction(
       (tx) => this.loadPublisherMedia(input, tx),
-      { isolationLevel: "repeatable read", accessMode: "read only", withConsistentSnapshot: true },
+      { isolationLevel: "repeatable read", withConsistentSnapshot: true },
     );
   }
 
@@ -1116,7 +1117,7 @@ class PublishingRepository {
     if (this.mediaFacetsCache.size >= 3) this.mediaFacetsCache.clear();
     const value = this.db.transaction(
       (tx) => this.loadPublisherMediaFacets(input, tx),
-      { isolationLevel: "repeatable read", accessMode: "read only", withConsistentSnapshot: true },
+      { isolationLevel: "repeatable read", withConsistentSnapshot: true },
     );
     const entry = { expiresAt: Date.now() + 60_000, value };
     this.mediaFacetsCache.set(key, entry);
