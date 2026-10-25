@@ -9,7 +9,7 @@ import {
 import { Link, useLocation, useSearch } from "wouter";
 import { createPortal } from "react-dom";
 import { MarketRow, RowHead, MediaDialog, MediaShell, MediaCartFooter, MediaDetails, useMarketRules, exportRows } from "../source-matrix/MediaMarket";
-import { titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
+import PublishingFlowSteps, { flowStagesForMode, titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
 import "../publishing.market.css";
 import MediaCatalogueFilters from "../components/MediaCatalogueFilters";
 import { catalogueInventory, chooseCatalogueSnapshot } from "../mediaCatalogue";
@@ -1249,6 +1249,7 @@ export default function PublishingMediaLibraryPage({
     ? batchTitleStage === 'review' ? 'single' : batchTitleStage === 'titles' ? 'per_media' : requestedTitleMode ?? (flowModeParam === 'single' ? 'single' : flowModeParam === 'batch' ? 'batch' : 'default')
     : requestedTitleMode ?? task?.titleMode ?? (flowModeParam === 'single' || flowModeParam === 'per_media' || flowModeParam === 'multi' ? flowModeParam : 'default');
   const hasArticleContext=Boolean(isBatch||task||articleVersionId||draftId);
+  const flowSteps=<PublishingFlowSteps stages={flowStagesForMode(flowMode)} doneCount={hasArticleContext?1:0} activeIndex={hasArticleContext?1:0}/>;
   const next=()=>{if(!hasArticleContext||contextReadIssue||selectionBusy||!selected.size)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
   const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
   useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,selectedIdsKey]);
@@ -1277,7 +1278,7 @@ export default function PublishingMediaLibraryPage({
         : frozenVersion
           ? [{ id: articleVersionId ?? "version", title: currentArticleTitle ?? "已确认稿件", version: frozenVersion.version }]
           : [];
-  return <MediaShell title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} note={view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':view==='home'?undefined:'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined}>
+  return <MediaShell steps={flowSteps} title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} note={view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':view==='home'?undefined:'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined}>
   <CurrentArticlesMenu rows={articleMenuRows}/>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}
@@ -1285,10 +1286,6 @@ export default function PublishingMediaLibraryPage({
       : draftId ? <button className="link" disabled={draftQuery.loading||draftQuery.refreshing} onClick={()=>draftQuery.reload()}>重试读取草稿</button>
       : <button className="link" disabled={versionQuery.loading} onClick={()=>versionQuery.reload()}>重试读取稿件</button>}
     <Link className="link" href={projectWorkspaceUrl('/publishing/articles')}>返回稿件</Link>
-  </div>}
-  {isBatch && <div className="notice" style={{marginBottom:14}}>
-    共 {batchQuery.data?.versions.length ?? batchVersionIds.length} 篇稿件。新增媒体应用于全部稿件；已有稿件各自的媒体分配会保留，移除媒体则从本批次所有稿件中移除。
-    {batchDrafts.length > 0 && <ul>{batchDrafts.map(item => <li key={item.id}>{item.articleTitle} · v{item.articleVersion} · {item.items.length} 家媒体</li>)}</ul>}
   </div>}
   {registrationPending && <div className="notice warn" role="alert">{registrationMessage}<button className="link" disabled={selectionBusy} onClick={()=>void retryRegistration()}>重试关联任务</button></div>}
   {view==='home'?<>
