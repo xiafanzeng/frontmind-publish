@@ -213,7 +213,7 @@ it("ignores an old request after the route's frozen selection changes", async ()
   expect(gateway.submitDraft).not.toHaveBeenCalled();
 });
 
-it("shows a single manuscript group and opens only its checked frozen body", async () => {
+it("shows a single manuscript group and opens its checked frozen body in a dialog without rechecking", async () => {
   const gateway=gatewayWith();
   const path="/publishing/drafts/a/review";
   const location=memoryLocation({path,record:true});
@@ -221,9 +221,95 @@ it("shows a single manuscript group and opens only its checked frozen body", asy
   const group=await screen.findByRole("region",{name:"稿件 1：稿件 a"});
   expect(within(group).getByText("版本 v1")).toBeTruthy();
   await startPreflight();await finishPreflight();
-  fireEvent.click(within(group).getByRole("button",{name:"查看冻结正文"}));
-  expect(within(group).getByText("a 的冻结正文")).toBeTruthy();
+  const trigger=within(group).getByRole("button",{name:"查看冻结正文"});
+  trigger.focus();
+  fireEvent.click(trigger);
+  const dialog=await screen.findByRole("dialog");
+  expect(within(dialog).getByRole("heading",{name:"稿件 a"})).toBeTruthy();
+  expect(within(dialog).getByText("a 的冻结正文")).toBeTruthy();
+  expect(within(group).queryByText("a 的冻结正文")).toBeNull();
+  expect(group.querySelector(".publishing-frozen-preview")).toBeNull();
+  expect(screen.queryByRole("button",{name:"收起冻结正文"})).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button",{name:"关闭冻结正文"}));
+  await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(()=>expect(document.activeElement).toBe(trigger));
   expect(gateway.preflightDraft).toHaveBeenCalledTimes(1);
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it("keeps five separate fields with the true media kind and no logo or media ID", async () => {
+  const gateway=gatewayWith({getDraft:vi.fn<PublisherGateway["getDraft"]>(async id=>{
+    const value=draft(id);
+    value.items[0]!.media.kind=id==="a"?"self_media":"unknown";
+    return value;
+  })});
+  const view=openReview(gateway);
+  const first=await screen.findByRole("region",{name:"稿件 1：稿件 a"});
+  const second=await screen.findByRole("region",{name:"稿件 2：稿件 b"});
+  const labels=["媒体名称","媒体类型","发布标题","内容检查","状态"];
+  expect(Array.from(view.container.querySelector(".publishing-review-head")!.children,cell=>cell.textContent)).toEqual(labels);
+  for(const [group,type] of [[first,"自媒体"],[second,"媒体类型待核验"]] as const) {
+    const row=group.querySelector(".publishing-review-row")!;
+    expect(Array.from(row.children,cell=>cell.getAttribute("data-label"))).toEqual(labels);
+    expect(row.children[1]!.textContent).toBe(type);
+    expect(row.children[0]!.textContent).toBe("两稿共同选择的媒体");
+    expect(row.querySelector('img, [role="img"], .publishing-media-mark')).toBeNull();
+    expect(row.textContent).not.toContain("shared-media");
+    expect(row.textContent).not.toContain("FrontMind 媒体号");
+  }
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+});
+
+it("keeps same-title manuscripts and frozen versions separate in the dialog while retaining confirmation", async () => {
+  const checked=(id:string)=>{
+    const value=snapshot(id);value.article.title="同名稿件";
+    if(id==="b") {value.article.version=2;value.article.versionId="version-b-2";value.article.hash="hash-b-2";}
+    return value;
+  };
+  const gateway=gatewayWith({
+    getDraft:vi.fn<PublisherGateway["getDraft"]>(async id=>{
+      const value=draft(id),article=checked(id).article;
+      return {...value,articleTitle:article.title,articleVersion:article.version,articleVersionId:article.versionId,articleVersionHash:article.hash};
+    }),
+    preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>checked(id)),
+  });
+  openReview(gateway, "", taskFlow());
+  const first=await screen.findByRole("region",{name:"稿件 1：同名稿件"});
+  const second=await screen.findByRole("region",{name:"稿件 2：同名稿件"});
+  await startPreflight();await finishPreflight();
+  fireEvent.click(screen.getByRole("checkbox"));
+  for(const [group,id,hash] of [[first,"a","hash-a"],[second,"b","hash-b-2"]] as const) {
+    fireEvent.click(within(group).getByRole("button",{name:"查看冻结正文"}));
+    const dialog=await screen.findByRole("dialog");
+    expect(within(dialog).getByText(id+" 的冻结正文")).toBeTruthy();
+    expect(dialog.textContent).toContain(hash);
+    expect(dialog.textContent).not.toContain(id==="a"?"b 的冻结正文":"a 的冻结正文");
+    fireEvent.click(within(dialog).getByRole("button",{name:"关闭冻结正文"}));
+    await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull());
+  }
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("button",{name:"模拟发布 2 项"}) as HTMLButtonElement).disabled).toBe(false);
+  expect(gateway.preflightDraft).toHaveBeenCalledTimes(2);
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it("closes a frozen preview when restored context invalidates the manual results", async () => {
+  const gateway=gatewayWith();
+  openReview(gateway);
+  const group=await screen.findByRole("region",{name:"稿件 1：稿件 a"});
+  await startPreflight();await finishPreflight();
+  fireEvent.click(within(group).getByRole("button",{name:"查看冻结正文"}));
+  await screen.findByRole("dialog");
+  act(()=>{
+    const event=new Event("pageshow");
+    Object.defineProperty(event,"persisted",{value:true});
+    window.dispatchEvent(event);
+  });
+  await waitFor(()=>expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(()=>expect((within(screen.getByRole("region",{name:"稿件 1：稿件 a"})).getByRole("button",{name:"查看冻结正文"}) as HTMLButtonElement).disabled).toBe(true));
+  expect(screen.queryByText("a 的冻结正文")).toBeNull();
+  expect(gateway.preflightDraft).toHaveBeenCalledTimes(2);
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
 });
 
 it("gets single and mixed mode return paths from actual drafts without preflight", async () => {
