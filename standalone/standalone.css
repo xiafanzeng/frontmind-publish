@@ -16,8 +16,11 @@
 .publish-standalone .publish-sidebar .operator-project-capsule-label small {font-size:11px;}
 .publish-standalone .publish-sidebar .operator-account-identity {padding:6px;}
 .publish-standalone .publish-sidebar .operator-account-identity strong {font-size:13px;}
-.publish-standalone .publish-sidebar .operator-sidebar-footer button {min-height:36px;padding:8px 6px;font-size:12px;}
-.publish-standalone .publish-sidebar .operator-sidebar-footer svg {width:17px;height:17px;}
+/* The account row now ends with the sidebar toggle; the old bottom collapse row is gone. */
+.publish-standalone .publish-sidebar .operator-sidebar-bottom :is(button):focus-visible {outline:3px solid #cf77a2;outline-offset:2px;}
+/* Keep the toggle visible and operable in the collapsed rail; the account entry returns on expand. */
+.publish-standalone .publish-sidebar[data-collapsed=true] .operator-account-settings {display:grid;}
+.publish-standalone .publish-sidebar[data-collapsed=true] .operator-account-identity {display:none;}
 .publish-standalone .publish-sidebar button:disabled {cursor:not-allowed;}
 .publish-standalone .user-brand-dashboard.operator-mode .publish-shell-main {min-width:0;scroll-padding-top:80px;}
 .publish-standalone .publish-shell-content {flex:1;min-width:0;width:100%;}

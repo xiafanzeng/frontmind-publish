@@ -1,5 +1,5 @@
 /* Module-owned navigation/topbar tokens. These classes never restyle business page controls. */
-.publish-navigation,.publish-topbar,.publish-help-dialog {
+.publish-navigation,.publish-topbar,.publish-help-dialog,.publish-account-menu {
   --publish-nav-brand:#b33467;--publish-nav-plum:#4c1467;--publish-nav-selected:#f9eff5;
   --publish-nav-line:#e6e8f1;--publish-nav-ink:#202134;--publish-nav-muted:#737991;
   font-family:'Microsoft YaHei','PingFang SC',system-ui,Arial,sans-serif;
@@ -14,12 +14,9 @@
 .publish-navigation .publish-nav-child {min-height:32px;padding:7px 10px;font-size:12px;line-height:18px;font-weight:400;margin-left:27px;border-radius:7px;}
 .publish-nav-children {display:flex;flex-direction:column;gap:3px;margin-top:3px;}
 .publish-nav-children[hidden] {display:none;}
-.publish-navigation a:hover,.publish-navigation .publish-nav-disclosure:hover {background:#faf4f8;color:var(--publish-nav-brand);}
+.publish-navigation a:hover {background:#faf4f8;color:var(--publish-nav-brand);}
 .publish-navigation a.is-current {background:var(--publish-nav-selected);color:var(--publish-nav-brand);}
 .publish-navigation a.is-current::before {content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:4px;background:var(--publish-nav-plum);}
-.publish-navigation .publish-nav-disclosure {display:grid;place-items:center;flex:0 0 26px;min-height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--publish-nav-muted);cursor:pointer;}
-.publish-nav-disclosure svg {transform:rotate(-90deg);}
-.publish-nav-disclosure svg.is-open {transform:none;}
 .publish-navigation[data-compact=true] .publish-nav-link {justify-content:center;padding:8px;}
 .publish-navigation[data-compact=true] .publish-nav-link>span {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
 .publish-navigation :is(a,button):focus-visible,.publish-topbar :is(a,button,input):focus-visible {outline:3px solid #cf77a2;outline-offset:2px;}
@@ -57,3 +54,13 @@
 @media(max-width:850px) {.publish-topbar{flex-wrap:wrap;gap:8px;padding-top:10px;padding-bottom:10px;}.publish-topbar-actions{flex-basis:100%;max-width:none;}.publish-search-results{max-height:50dvh;}}
 @media(max-width:650px) {.publish-topbar{min-height:70px;padding:12px 14px 10px;}.publish-topbar-breadcrumbs{flex-basis:100%;padding-left:40px;}.publish-topbar-breadcrumbs ol{font-size:11px;gap:7px;}.publish-topbar-actions{gap:9px;}.publish-search-field{height:34px;}.publish-search-field kbd{display:none;}.publish-topbar .publish-help-button{font-size:11px;}}
 @media(forced-colors:active){.publish-navigation a.is-current{outline:1px solid Highlight;}.publish-search-result[aria-selected=true]{outline:1px solid Highlight;}}
+/* Sidebar account menu rendered through the shared operator portal; colors come from the portal theme. */
+.operator-account-menu.publish-account-menu {min-width:220px;}
+.publish-account-header {display:flex;align-items:center;gap:9px;padding:7px 8px;}
+.publish-account-avatar {display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:#491060;color:#fff;font-size:13px;}
+.publish-account-id {display:flex;flex-direction:column;min-width:0;}
+.publish-account-id strong {font-size:13px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.publish-account-id small {font-size:11px;line-height:16px;opacity:.72;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.publish-account-separator {height:1px;margin:4px 6px;background:#e6e8f1;}
+.publish-account-item {display:flex;align-items:center;gap:8px;min-height:34px;padding:6px 8px;font-size:13px;}
+.publish-account-item svg {color:var(--publish-nav-muted);}

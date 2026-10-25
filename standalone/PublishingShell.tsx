@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
 import { DashboardFrame } from "@frontmind/module-ui/dashboard/DashboardFrame";
-import { StandaloneWorkspaceFooter } from "@frontmind/module-ui/dashboard/OperatorModuleNavigation";
 import { ModulePresentationProvider } from "@frontmind/module-ui/dashboard/module-presentation";
 import { OperatorThemeProvider } from "@frontmind/module-ui/components/ui/operator-theme";
 import PublishingNavigation from "../module/client/navigation/PublishingNavigation";
 import PublishingTopbar from "../module/client/navigation/PublishingTopbar";
+import WorkspaceSidebarFooter from "../module/client/navigation/WorkspaceSidebarFooter";
 import { requestWorkspaceNavigation } from "../module/client/host";
 import type { PublisherGateway } from "../module/client/gateway";
 import { PUBLISH_MODULE_LABEL } from "../module/client/module-label";
@@ -15,8 +15,8 @@ const SIDEBAR_KEY = "frontmind.operator.sidebarCollapsed";
 const logo = new URL("../vendor/module-ui/src/assets/frontmind-wordmark.svg",import.meta.url).href;
 
 /** Standalone assembly of public shared primitives; Dashboard keeps its own host composition. */
-export default function PublishingShell({gateway,preview,children}: {
-  gateway: PublisherGateway | null; preview: boolean; children: ReactNode;
+export default function PublishingShell({gateway,preview,ownerUserId,children}: {
+  gateway: PublisherGateway | null; preview: boolean; ownerUserId?: string | number; children: ReactNode;
 }) {
   const [path,navigate] = useLocation();
   const search = useSearch();
@@ -80,7 +80,7 @@ export default function PublishingShell({gateway,preview,children}: {
             <div className="publish-shell-logo"><img src={logo} alt="FrontMind"/></div>
             <PublishingNavigation path={path} search={search} collapsed={collapsed} onNavigate={navigateGuarded}/>
             <div className="operator-sidebar-bottom">
-              <StandaloneWorkspaceFooter collapsed={collapsed} onCollapse={collapse} workspaceLabel="FrontMind 开发工作区" accountLabel="FrontMind"/>
+              <WorkspaceSidebarFooter collapsed={collapsed} onCollapse={collapse} ownerUserId={ownerUserId}/>
             </div>
           </aside>
           <main ref={main} className="dashboard-main workbench-main publish-shell-main">
