@@ -82,3 +82,22 @@
 @media(max-width:1200px){.fm-media .sm-industry-distributions{grid-template-columns:1fr}.fm-media .sm-industry-chart{min-height:220px}.fm-media .sm-industry-legend{max-width:480px}}
 @media(max-width:850px){.fm-media .sm-industry-sources{grid-template-columns:1fr}.fm-media .sm-industry-ranking{border-right:0;border-bottom:1px solid var(--line,#e6e8f1)}.fm-media .sm-industry-ranking ol{max-height:280px}.fm-media .sm-industry-summary>div{padding:14px}.fm-media .sm-industry-summary strong{font-size:24px}}
 @media(max-width:650px){.fm-media .sm-industry-filters{padding:14px;gap:10px}.fm-media .sm-industry-filters label{flex:1 1 135px}.fm-media .sm-industry-filters select,.fm-media .sm-industry-filters input{width:100%}.fm-media .sm-industry-summary{gap:8px;grid-template-columns:1fr}.fm-media .sm-industry-summary>div{padding:12px 16px;display:grid;grid-template-columns:1fr auto;align-items:center}.fm-media .sm-industry-summary span{grid-column:1/-1}.fm-media .sm-industry-card-heading{padding:16px}.fm-media .sm-industry-content{padding:14px}.fm-media .sm-industry-chart{flex-direction:column;gap:12px}.fm-media .sm-industry-legend{width:100%}.fm-media .sm-industry-chart-note{padding:0 16px 16px}.fm-media .sm-industry-pagination .button{padding:6px 10px}}
+
+/* 图2 复合日期下拉：标签在左，单触发器 + 弹层内按日/按周/按月 */
+.sm-industry-filters .sm-date-select { display: flex; align-items: center; gap: 8px; position: relative; }
+.sm-date-label { font-size: 13px; font-weight: 600; color: var(--ink,#202134); }
+.sm-date-trigger { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border: 1px solid var(--line,#e6e8f1); border-radius: 18px; background: var(--surface,#fff); font-size: 13px; font-weight: 600; color: var(--ink,#202134); }
+.sm-date-trigger[aria-expanded='true'] { border-color: var(--brand,#b33467); color: var(--brand,#b33467); }
+.sm-date-popover { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: 320px; max-height: 340px; overflow: auto; background: var(--surface,#fff); border: 1px solid var(--line,#e6e8f1); border-radius: 12px; box-shadow: 0 12px 32px rgba(32,33,52,.14); padding: 10px; }
+.sm-date-granularity { display: flex; gap: 6px; margin-bottom: 8px; }
+.sm-date-granularity button { flex: 1; min-height: 30px; border-radius: 15px; border: 1px solid var(--line,#e6e8f1); background: var(--canvas,#f5f6fa); font-size: 13px; }
+.sm-date-granularity button.active { background: var(--brand,#b33467); border-color: var(--brand,#b33467); color: #fff; }
+.sm-date-popover ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.sm-date-popover li button { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.sm-date-popover li button:hover { background: var(--selected,#f9eff5); }
+.sm-date-popover li button.active { background: var(--selected,#f9eff5); color: var(--brand,#b33467); font-weight: 700; }
+.sm-date-option-range,.sm-date-option-count { color: var(--muted,#737991); font-size: 12px; }
+.sm-date-check { color: var(--brand,#b33467); }
+.sm-date-empty { padding: 12px; color: var(--muted,#737991); font-size: 13px; }
+.sm-date-note { margin: 8px 2px 0; color: var(--muted,#737991); font-size: 12px; line-height: 1.6; }
+@media (max-width: 720px) { .sm-industry-filters { flex-wrap: wrap; } .sm-date-popover { width: min(320px, 84vw); } }

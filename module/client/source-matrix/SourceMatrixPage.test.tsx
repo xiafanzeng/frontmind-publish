@@ -32,7 +32,7 @@ it('keeps configuration details out of permanent layout and offers a local indus
  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({status:'configuration_required',industries:[],message:'信源规划存储尚未配置，请联系管理员完成模块迁移'})})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
- expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.queryByLabelText('期望发布时效（小时）')).toBeNull();
+ expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
 });
 it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?task=task&tab=matrix');
@@ -43,7 +43,7 @@ it('renders structured stale results without replacing or reading nonexistent ma
 
 const media:MediaResource={id:'media-1',externalResourceId:'external-1',name:'可投媒体',shortName:'可投',kind:'news',platform:'新闻',taxonomy:'',mediaType:'',channel:'',region:'',titleLimit:200,priceTenThousandths:'1000000',turnaround:'',active:true,capability:'image',catalogRevision:'catalog-1',logoSource:'generated_fallback',logoResolutionStatus:'missing'};
 function draft(id='draft-1',revision=1,items:MediaResource[]=[]):PublicationDraft{return {id,revision,articleId:'article-1',articleVersionId:'version-1',articleTitle:'当前稿件',articleVersion:1,articleVersionHash:'hash-1',articleContainsImages:false,titleMode:'per_media',items:items.map(media=>({media,title:'当前稿件'})),updatedAt:'2026-10-24T00:00:00Z'};}
-const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:null,auxiliary_roles:[],selection:'',matched_questions:[],channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
+const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:'industry',auxiliary_roles:[],selection:'recommended',matched_questions:[],reason_summary:'已核验行业相关',channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[{role:'industry',display_name:'行业核心',status:'populated',candidate_ids:['candidate-1'],auxiliary_candidate_ids:[]}],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
 function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
@@ -281,6 +281,8 @@ it('shows the current independent research cart read-only and links back to its 
 it('retains the complete matrix across budget-only responses and invalidates plans after a budget edit',async()=>{
  liveDirectory();
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
+ // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   if(String(input).endsWith('/budget'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],reason_summary:'不得覆盖原矩阵的预算理由'}]},budget_plans:[offerPlan]}})};
@@ -288,9 +290,9 @@ it('retains the complete matrix across budget-only responses and invalidates pla
  });
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
- await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
- fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await screen.findByRole('heading',{name:'保守覆盖'});
  expect(screen.queryByText('不得覆盖原矩阵的预算理由')).toBeNull();
  expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
@@ -305,8 +307,8 @@ it('ignores a budget response when the user changed its budget while the request
  fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/budget')?new Promise(resolve=>{finish=resolve;}):base(input,init));
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
- await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
- fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'300'}});
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],attributes:{source_name:'过期响应媒体'}}]}}})}));
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
@@ -331,13 +333,13 @@ it('keeps a persisted matrix plan version when an in-flight budget ACK becomes o
   return base(input,init);
  });
  openMatrix('draftId=draft-1&articleVersion=version-1');await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
- await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
- fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await waitFor(()=>expect(typeof finish).toBe('function'));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'300'}});
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-new-budget-version'}})}));
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
- fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await waitFor(()=>expect(sentVersions).toEqual(['plan-version-1','plan-version-1']));
 });
 
@@ -373,6 +375,8 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
  const applyDiff={status:'ok',task_id:'matrix-1',plan_index:0,draft:{id:'draft-1',revision:2},additions:[{mediaResourceId:'media-1',name:'可投媒体',externalResourceId:'external-1',priceTenThousandths:'1000000',offerId:'quote-1',publicationSpec:null,purpose:'standard',reason:'命中目标问题'}],alreadySelected:[],skipped:[],overLimit:false,mergedCount:1,knownTotalTenThousandths:'1000000',pendingPriced:0};
  const applyBodies:unknown[]=[];
+ // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
@@ -384,9 +388,9 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  mediaGateway.getDraft.mockResolvedValueOnce(draft('draft-1',1)).mockResolvedValueOnce(draft('draft-1',2,[media]));
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
- await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
- fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  const apply=await screen.findByRole('button',{name:'加入本组合'});
  fireEvent.click(apply);
  await screen.findByText('新增 · ¥100.00');
@@ -402,6 +406,8 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
 it('keeps the cart untouched and surfaces guidance when the server reports a stale binding during apply',async()=>{
  liveDirectory();
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
+ // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
@@ -411,11 +417,38 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  });
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
- await waitFor(()=>expect((screen.getByRole('button',{name:'生成 / 更新组合'}) as HTMLButtonElement).disabled).toBe(false));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
- fireEvent.click(screen.getByRole('button',{name:'生成 / 更新组合'}));
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  fireEvent.click(await screen.findByRole('button',{name:'加入本组合'}));
  await screen.findByText('绑定稿件、冻结版本或已选媒体已变化，请重新生成矩阵和组合');
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(mediaGateway.getDraft).toHaveBeenCalledTimes(2);
+});
+
+it('one click generates the matrix then automatically the budget combination with the editable demo budget',async()=>{
+ liveDirectory();
+ const budgetBodies:unknown[]=[];
+ const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'3000.00',total_remaining:'2900.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
+ // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-1',name:'软件测试'}],brand_data_batches:[{id:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',label:'一航软件样本',version:'v1',sourceFile:'一航软件-信源分析-20260913-214944.xlsx',recordCount:502,period:{start:'2026-09-07',end:'2026-09-13'},models:['百度文心-手机版']}]})};
+  if(url.endsWith('/matrix/generate')){const body=JSON.parse(String(init?.body));expect(body.brand_data).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');return {ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:echoedTask})};}
+  if(url.endsWith('/budget')){budgetBodies.push(JSON.parse(String(init?.body)));return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...echoedTask,budget_plans:[offerPlan]}})};}
+  if(url.includes('/classify/matrix-1'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:echoedTask})};
+  return base(input,init);
+ });
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&articleVersion=version-1');
+ render(<div className="monitoring-module"><SourceMatrixPage view="matrix"/></div>);
+ fireEvent.change(await screen.findByLabelText('目标行业 *'),{target:{value:'industry-1'}});
+ fireEvent.change(await screen.findByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ // 一次点击后自动串联：预算请求以同一矩阵快照和可编辑示例预算 3000 发出
+ await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1));
+ expect(budgetBodies[0]).toMatchObject({plan_id:'plan-1',plan_version:'plan-version-1',budget:{total_cap:'3000',currency:'CNY'}});
+ await screen.findByRole('heading',{name:'保守覆盖'});
+ expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });

@@ -164,3 +164,23 @@ it('surfaces revision conflicts instead of overwriting a concurrently changed ca
 const response=await postApply(url,{...applyBody,preview:false});
  expect(response.status).toBe(409);expect((await response.json()).status).toBe('revision_conflict');
 });
+
+it('feeds the selected brand batch and demand constraints into the planner request',async()=>{
+ const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-10-25T00:00:00Z',hours:'48',requirements:['链接'],brand_data:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',sample_platforms:['通义千问-手机版']})});
+ expect(response.status).toBe(202);
+ const task=create.mock.calls[0]![3] as any;
+ expect(task.hours).toBe('48');
+ expect(task.requirements).toEqual({links:true});
+ expect(task.brand).toMatchObject({platforms:['通义千问-手机版']});
+ const body=await response.json();
+ // 平台过滤后的 49 条样本观察进入推荐输入；缺回答 ID 按契约记为 incomplete 观察，
+ // 不冒充有效 detail 计数（known_detail_count 保持 0，原始观察保留在 unknown/actual_sources）
+ expect(body.result.source_analysis.unknown_records).toHaveLength(49);
+ expect(body.result.source_analysis.known_detail_count).toBe(0);
+ expect(body.result.source_analysis.status).toBe('incomplete');
+ expect(body.result.source_analysis.actual_sources.length).toBeGreaterThan(0);
+ expect(body.result.scope.task.brand.batch_id).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');
+});

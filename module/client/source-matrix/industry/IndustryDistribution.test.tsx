@@ -38,10 +38,19 @@ describe('source distribution interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: '返回全部媒体' }));
     expect(screen.queryByRole('button', { name: '返回全部媒体' })).toBeNull();
   });
-  it('renders empty filters and keeps chart percentages undefined instead of NaN', () => {
+  it('renders empty filters and keeps chart percentages undefined instead of NaN', async () => {
     render(<div className="fm-media"><IndustryDistribution batches={[YIHANG_SOURCE_BATCH]}/></div>);
-    fireEvent.change(screen.getByLabelText('月份'), { target: { value: '2026-10' } });
-    expect(screen.getByText('当前筛选暂无导出记录')).toBeTruthy();
+    // 图2：日期为单一复合下拉，弹层内切换粒度并选择周期
+    fireEvent.click(screen.getByRole('button', { name: /按月 · 2026-09/ }));
+    expect(screen.getByRole('dialog', { name: '选择日期周期' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '按日' }));
+    fireEvent.click(screen.getByRole('tab', { name: '按日' }));
+    fireEvent.click(screen.getAllByRole('button', { name: /2026-09-12/ })[0]!);
+    expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent?.includes('媒体 46 · 内容 80 · 引用 262 条记录') === true)).toBeTruthy();
+    // 空状态：URL 恢复一个不存在的模型值（也覆盖筛选参数的刷新恢复路径）
+    window.history.replaceState({}, '', '/publishing/source-matrix?smModel=不存在的模型&smGranularity=day&smPeriod=2026-09-12');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(await screen.findByText('当前筛选暂无导出记录')).toBeTruthy();
     expect(document.body.textContent).not.toContain('NaN');
     expect(screen.getByRole('img', { name: '内容发布时间分布，无数据' })).toBeTruthy();
   });

@@ -92,6 +92,13 @@ matrix 阶段按用户显式时间处理，不自动填充证据时间；预算�
 
 测试文件覆盖金额、证据分组、身份、角色/模型字段、报价、范围价、套餐、双预算、锁定、快照复用与版本等关键回归。测试源码已提供但本轮未执行；并非宣称完整 Python 测试集逐例等价或运行通过。
 
+## 2026-10-25 修订：两类数据链与真实模型适配器
+
+- **行业分布链**：GET /source-distribution 保持唯一上游（运营维护 dataset.source_distribution.batches），前端图2三筛选（行业/模型/日期复合下拉，弹层按日/按周/按月，周期由数据引用日期归纳、按周为周一至周日本地规则），三张总量卡删除；失败/空不回退任何样本。
+- **品牌样本链（推荐输入）**：module/server/source-matrix/brand-data.ts 从 module/shared? 否——从 module/client/.../yihang-data.json（离线转换产物，含指纹/行号）读取批次；generate 接受 brand_data（批次 id）+ sample_platforms（模型过滤，保留原值四项）+ hours + requirements（图片/表格/链接 → task.requirements.images/tables/links），映射为 planner citations（data_kind=detail、缺 answer_record_id → 契约记 incomplete 观察，不冒充有效 detail/回答ID）；task.brand 持久化批次与平台，budget 阶段重建同一 citations。/industries 响应新增 brand_data_batches（id/label/version/sourceFile/recordCount/period/models）。
+- **真实模型适配器**：decisions.ts 的 createEnvDecisionAdapter(core.environment) —— 服务端环境变量 FRONTMIND_SOURCE_MATRIX_LLM_API_KEY（必需）、_BASE_URL（默认 bigmodel chat completions）、_MODEL（默认 glm-4.6），OpenAI 兼容 json_object 输出；宿主注入 core.sourceMatrixDecisions 优先。无密钥→needs_ai_decisions（不模拟）。模型输出一律经内核 validateDecisions/verifyPlan 复核。
+- 客户端：删除模拟模式开关与“尚未分层的样本来源”区（未决定候选不再渲染，追溯在推荐理由内）；投放要求恢复时效/素材/平台/品牌批次字段并实际入 schema；一次点击“生成推荐矩阵”串两阶段（水合渲染后自动按当前预算生成组合）；演示预算默认 CNY 3000（标注示例、可改）。
+
 ## 当前 UI 与业务交接边界（2026-10-24，ZCode 合并轮更新）
 
 - 新页面复用上述真实服务和两阶段内核，未调用 Python，也未改动矩阵/预算算法。预算运行中的202响应是尚未归档的预处理结果，前端保留先前可复用快照，仅在当前条件一致且任务终态返回后采用新plan版本。

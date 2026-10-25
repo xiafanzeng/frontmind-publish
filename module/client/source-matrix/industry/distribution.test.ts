@@ -1,7 +1,7 @@
 // Regression source only. Not executed in this source-only delivery.
 import { describe, expect, it } from 'vitest';
 import type { SourceDistributionBatch, SourceDistributionRecord } from '../../../contracts/source-distribution';
-import { EMPTY_FILTER, UNKNOWN, contentGroups, defaultFilter, filterRecords, mediaKey, mediaRanking, percentageText, periodEnd, publicationDistribution, typeDistribution, uniqueBatches, validDay } from './distribution';
+import { EMPTY_FILTER, UNKNOWN, contentGroups, defaultFilter, filterRecords, mediaKey, mediaRanking, percentageText, periodEnd, periodsFor, periodRange, publicationDistribution, typeDistribution, uniqueBatches, validDay } from './distribution';
 import { YIHANG_SOURCE_BATCH, YIHANG_SOURCE_PROVENANCE } from './yihang';
 
 describe('offline source-distribution export and aggregation', () => {
@@ -24,14 +24,29 @@ describe('offline source-distribution export and aggregation', () => {
     expect(all.filter(record => record.mediaName === null).every(record => record.mediaUrl?.includes('m.tiantianshoumi.com'))).toBe(true);
   });
   it('filters exact model labels, citation date and unclassified industry together', () => {
-    expect(defaultFilter([YIHANG_SOURCE_BATCH]).month).toBe('2026-09');
+    expect(defaultFilter([YIHANG_SOURCE_BATCH])).toMatchObject({ granularity: 'month', period: '2026-09' });
     const cases = [['百度文心-手机版', 118], ['百度文心-网页版', 282], ['通义千问-网页版', 53], ['通义千问-手机版', 49]] as const;
     for (const [model, count] of cases) expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, model })).toHaveLength(count);
-    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, dateMode: 'range', start: '2026-09-12', end: '2026-09-12' })).toHaveLength(262);
-    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, dateMode: 'range', start: '2026-09-13', end: '2026-09-13' })).toHaveLength(240);
-    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, industry: UNKNOWN, model: '百度文心-手机版', month: '2026-09' })).toHaveLength(118);
-    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, month: '2026-10' })).toHaveLength(0);
+    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, granularity: 'day', period: '2026-09-12' })).toHaveLength(262);
+    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, granularity: 'day', period: '2026-09-13' })).toHaveLength(240);
+    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, industry: UNKNOWN, model: '百度文心-手机版', granularity: 'month', period: '2026-09' })).toHaveLength(118);
+    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, granularity: 'month', period: '2026-10' })).toHaveLength(0);
     expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, industry: 'not-imported' })).toHaveLength(0);
+  });
+  it('derives day/week/month periods from the imported data with Monday-start weeks, latest first', () => {
+    const days = periodsFor([YIHANG_SOURCE_BATCH], 'day');
+    expect(days.map(option => option.value)).toEqual(['2026-09-13', '2026-09-12']);
+    expect(days.every(option => option.start === option.value && option.end === option.value)).toBe(true);
+    const weeks = periodsFor([YIHANG_SOURCE_BATCH], 'week');
+    // 2026-09-07 is a Monday; 09-12/09-13 fall in the Mon–Sun week starting 09-07.
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0]).toMatchObject({ value: '2026-09-07', start: '2026-09-07', end: '2026-09-13', count: 502 });
+    expect(filterRecords([YIHANG_SOURCE_BATCH], { ...EMPTY_FILTER, granularity: 'week', period: '2026-09-07' })).toHaveLength(502);
+    const months = periodsFor([YIHANG_SOURCE_BATCH], 'month');
+    expect(months.map(option => option.value)).toEqual(['2026-09']);
+    expect(periodRange({ ...EMPTY_FILTER, granularity: 'month', period: '2026-09' })).toEqual({ start: '2026-09-01', end: '2026-09-30' });
+    expect(periodRange({ ...EMPTY_FILTER, granularity: 'week', period: '2026-09-09' })).toBeNull(); // not a Monday
+    expect(periodRange({ ...EMPTY_FILTER, granularity: 'day', period: '2026-02-30' })).toBeNull();
   });
   it('keeps current-filter denominator after a media click', () => {
     const rank = mediaRanking(all), selected = all.filter(r => mediaKey(r) === rank[0]?.key);
@@ -70,8 +85,8 @@ describe('publication age boundaries and missing identities', () => {
     const contents = contentGroups(filterRecords([batch(records)], EMPTY_FILTER));
     expect(publicationDistribution(contents, '2026-09-13').map(s => s.count)).toEqual([2, 2, 2, 2, 2, 1, 2]);
     expect(publicationDistribution(contents, '2026-09-13').reduce((sum, s) => sum + s.count, 0)).toBe(13);
-    expect(periodEnd([batch(records)], { ...EMPTY_FILTER, month: '2026-09' })).toBe('2026-09-30');
-    expect(periodEnd([batch(records)], { ...EMPTY_FILTER, dateMode: 'range', end: '2026-09-13' })).toBe('2026-09-13');
+    expect(periodEnd([batch(records)], { ...EMPTY_FILTER, granularity: 'month', period: '2026-09' })).toBe('2026-09-30');
+    expect(periodEnd([batch(records)], { ...EMPTY_FILTER, granularity: 'day', period: '2026-09-13' })).toBe('2026-09-13');
     expect(validDay('2026-02-30')).toBeNull();
   });
   it('never collapses absent URL rows into one invented content identity', () => {

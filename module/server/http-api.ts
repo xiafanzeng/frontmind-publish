@@ -1,6 +1,7 @@
 import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
 import { createSourceMatrixRouter } from "./source-matrix/http.js";
+import { createEnvDecisionAdapter } from "./source-matrix/decisions.js";
 import type { SourceMatrixDecisionAdapter } from "./source-matrix/adapter.js";
 import type { MySql2Database } from "drizzle-orm/mysql2";
 
@@ -16,6 +17,9 @@ export interface ModuleHttpCore {
 
 /** Add new module-owned APIs here. Mounted in both Dashboard and the development subdomain. */
 export function createModuleHttpApi(core:ModuleHttpCore):Router {
+ // Formal extension points: a host-injected adapter wins; otherwise the module's
+ // own env-gated adapter (server-side key only) enables real model decisions.
+ const decisions=core.sourceMatrixDecisions??createEnvDecisionAdapter(core.environment);
  const router=Router();
  router.use("/media-requirements", createMediaRequirementsApi(core));
  router.get("/capabilities",(req,res)=>{
@@ -24,6 +28,6 @@ export function createModuleHttpApi(core:ModuleHttpCore):Router {
   res.json({module:"publish",apiVersion:1,workspaceId:context.enterpriseProjectId,
    features:["articles", "media", "quotes", "orders", "results"]});
  });
- router.use(createSourceMatrixRouter(core));
+ router.use(createSourceMatrixRouter({...core,sourceMatrixDecisions:decisions}));
  return router;
 }

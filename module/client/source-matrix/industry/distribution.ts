@@ -1,12 +1,16 @@
 import type { SourceDistributionBatch, SourceDistributionRecord } from '../../../contracts/source-distribution';
 
 export const UNKNOWN = '__unknown__';
-export type DistributionFilter = { industry: string; model: string; month: string; start: string; end: string; dateMode: 'month' | 'range' };
+/** Single composite date filter: one granularity plus one period from the upstream data.
+ * Week grouping is Monday–Sunday over the record dates (a local grouping rule,
+ * stated in the UI; the upstream contract defines no week convention). */
+export type PeriodGranularity = 'day' | 'week' | 'month';
+export type DistributionFilter = { industry: string; model: string; granularity: PeriodGranularity; period: string };
 export type DistributionRow = SourceDistributionRecord & { batchId: string; sourceFile: string | null; sourceSha256: string };
 export type MediaGroup = { key: string; name: string | null; mediaUrl: string | null; domain: string; count: number; share: number | null };
 export type ContentGroup = { key: string; url: string | null; title: string; media: string; type: string; status: string; count: number; share: number | null; records: DistributionRow[]; publishedAt: string | null };
 export type DistributionSlice = { key: string; label: string; count: number; share: number | null };
-export const EMPTY_FILTER: DistributionFilter = { industry: '', model: '', month: '', start: '', end: '', dateMode: 'month' };
+export const EMPTY_FILTER: DistributionFilter = { industry: '', model: '', granularity: 'month', period: '' };
 
 /** Ignore a repeated file, not repeated records inside a file. No record-level deduplication. */
 export function uniqueBatches(batches: SourceDistributionBatch[]): SourceDistributionBatch[] {
@@ -40,17 +44,72 @@ export function mediaDomain(value: string | null): string {
 /** Preserve the original name + URL pair, even when separate pairs share a domain. */
 export function mediaKey(record: SourceDistributionRecord): string { return JSON.stringify([record.mediaName, record.mediaUrl]); }
 
+/** Latest available month by default; never a hardcoded demo month. */
 export function defaultFilter(batches: SourceDistributionBatch[]): DistributionFilter {
-  const days = uniqueBatches(batches).flatMap(b => b.records.map(r => validDay(r.citedAt))).filter((v): v is string => !!v).sort();
-  return { ...EMPTY_FILTER, month: days.at(-1)?.slice(0, 7) ?? '' };
+  const months = periodsFor(batches, 'month');
+  return { ...EMPTY_FILTER, granularity: 'month', period: months[0]?.value ?? '' };
+}
+
+export type PeriodOption = { value: string; label: string; start: string; end: string; count: number };
+
+function isoWeekStart(day: string): string {
+  const date = new Date(day + 'T00:00:00Z');
+  const weekday = (date.getUTCDay() + 6) % 7; // Monday = 0
+  date.setUTCDate(date.getUTCDate() - weekday);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(day: string, days: number): string {
+  const date = new Date(day + 'T00:00:00Z');
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function shortRange(start: string, end: string): string {
+  return start.slice(0, 4) === end.slice(0, 4) ? `${start} ~ ${end.slice(5)}` : `${start} ~ ${end}`;
+}
+
+/** Enumerate available periods from the upstream records themselves, latest first. */
+export function periodsFor(batches: SourceDistributionBatch[], granularity: PeriodGranularity, industry = ''): PeriodOption[] {
+  const days = uniqueBatches(batches).filter(b => !industry || (b.industryId ?? UNKNOWN) === industry)
+    .flatMap(b => b.records.map(r => validDay(r.citedAt))).filter((v): v is string => !!v).sort();
+  const counts = new Map<string, number>();
+  for (const day of days) {
+    const value = granularity === 'day' ? day : granularity === 'week' ? isoWeekStart(day) : day.slice(0, 7);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([value, count]) => {
+    const start = granularity === 'day' ? value : granularity === 'week' ? value : `${value}-01`;
+    const end = granularity === 'day' ? value : granularity === 'week' ? addDays(value, 6) : new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5)), 0)).toISOString().slice(0, 10);
+    const label = granularity === 'day' ? value : granularity === 'week' ? `周（${shortRange(start, end)}）` : value;
+    return { value, label, start, end, count };
+  });
+}
+
+export function periodRange(filter: DistributionFilter): { start: string; end: string } | null {
+  if (!filter.period) return null;
+  const resolver = filter.granularity === 'day' ? dayRange : filter.granularity === 'week' ? weekRange : monthRange;
+  return resolver(filter.period);
+}
+
+function dayRange(value: string): { start: string; end: string } | null { return validDay(value) ? { start: value, end: value } : null; }
+function weekRange(value: string): { start: string; end: string } | null {
+  const start = validDay(value);
+  return start && start === isoWeekStart(start) ? { start, end: addDays(start, 6) } : null;
+}
+function monthRange(value: string): { start: string; end: string } | null {
+  if (!/^\d{4}-\d{2}$/.test(value)) return null;
+  const year = Number(value.slice(0, 4)), month = Number(value.slice(5));
+  if (month < 1 || month > 12) return null;
+  return { start: `${value}-01`, end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10) };
 }
 
 export function filterRecords(batches: SourceDistributionBatch[], filter: DistributionFilter): DistributionRow[] {
+  const range = periodRange(filter);
   return uniqueBatches(batches).filter(b => !filter.industry || (b.industryId ?? UNKNOWN) === filter.industry).flatMap(batch => batch.records.filter(record => {
     if (filter.model && (record.model ?? UNKNOWN) !== filter.model) return false;
     const day = validDay(record.citedAt);
-    if (filter.dateMode === 'month' && filter.month && (!day || day.slice(0, 7) !== filter.month)) return false;
-    if (filter.dateMode === 'range' && (filter.start || filter.end) && (!day || (filter.start && day < filter.start) || (filter.end && day > filter.end))) return false;
+    if (range && (!day || day < range.start || day > range.end)) return false;
     return true;
   }).map(record => ({ ...record, batchId: batch.id, sourceFile: batch.sourceFile, sourceSha256: batch.sourceSha256 })));
 }
@@ -95,12 +154,7 @@ export const PUBLICATION_BUCKETS = [
 ] as const;
 
 export function periodEnd(batches: SourceDistributionBatch[], filter: DistributionFilter): string | null {
-  if (filter.dateMode === 'range' && filter.end) return validDay(filter.end);
-  if (filter.dateMode === 'month' && /^\d{4}-\d{2}$/.test(filter.month)) {
-    const year = Number(filter.month.slice(0, 4)), month = Number(filter.month.slice(5));
-    if (month >= 1 && month <= 12) return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-  }
-  return uniqueBatches(batches).filter(b => !filter.industry || (b.industryId ?? UNKNOWN) === filter.industry).flatMap(b => [validDay(b.period.end), ...b.records.map(r => validDay(r.citedAt))]).filter((v): v is string => !!v).sort().at(-1) ?? null;
+  return periodRange(filter)?.end ?? uniqueBatches(batches).filter(b => !filter.industry || (b.industryId ?? UNKNOWN) === filter.industry).flatMap(b => [validDay(b.period.end), ...b.records.map(r => validDay(r.citedAt))]).filter((v): v is string => !!v).sort().at(-1) ?? null;
 }
 
 export function publicationDistribution(contents: ContentGroup[], end: string | null): DistributionSlice[] {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useContext, useEffect,useLayoutEffect,useMemo,useRef,useState,type FormEvent } from 'react';
+import { useEffect,useLayoutEffect,useMemo,useRef,useState,type FormEvent } from 'react';
 import { Link,useLocation,useSearch } from 'wouter';
 import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard } from '../host';
 import { matrixApi,downloadUrl } from './api';
@@ -14,48 +14,39 @@ import {uniqueBatchIds} from '../batchMediaSelection';
 import {titleModeForFlowMode,type FlowStageMode} from '../components/PublishingFlowSteps';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
 import {formatPublishingMoney,type ArticleVersion,type MediaResource,type PublicationDraft} from '../types';
-import { SourceMatrixPreviewContext } from './simulation/mode';
-import { referenceScopeStyle } from './ReferenceScope';
-import './simulation/simulation.css';
 import './source-matrix.css';
-const SimulationPage=lazy(()=>import('./simulation/SimulationPage'));
+export interface BrandDataBatchOption { id:string; label:string; version:string; sourceFile:string; recordCount:number; period:{start:string|null;end:string|null}; models?:string[] }
 type MatrixView='matrix'|'analysis'|'report'|'industry';
 export default function SourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
- const [path,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
- const preview=useContext(SourceMatrixPreviewContext),params=new URLSearchParams(search);
- const simulation=params.get('simulation')==='1'||(!params.has('simulation')&&preview);
+ // Two data lanes share one page: the industry distribution always reads the
+ // upstream industry service; brand samples feed only the recommendation lane.
+ const search=useSearch(),params=new URLSearchParams(search);
  const activeView=params.get('tab')==='matrix'?'matrix':params.get('tab')==='analysis'?'analysis':view==='matrix'||view==='report'?'matrix':'analysis';
- const changeMode=(enabled:boolean)=>{
-  const next=new URLSearchParams(search);next.set('simulation',enabled?'1':'0');
-  // Neither a real task nor a draft binding crosses the mode boundary.
-  next.delete('task');next.delete('draftId');next.delete('matrixTask');next.delete('articleVersion');next.delete('workbenchTask');
-  next.delete('batchDraft');next.delete('batchArticleVersion');next.delete('batchArticle');next.delete('excludedDraft');
-  navigate(projectWorkspaceUrl(path+'?'+next.toString())+(typeof window!=='undefined'?window.location.hash:''));
- };
- return <><div className="fm-media sm-sim-mode" style={referenceScopeStyle}>
-  <div className="sm-sim-mode-control"><label><input type="checkbox" role="switch" checked={simulation} onChange={e=>changeMode(e.target.checked)}/>一航软件样本</label><span>{simulation?'样本分析 · 独立研究，不用于真实采购':'真实模式 · 使用已接入的行业数据'}</span></div>
- </div>{simulation?<Suspense fallback={<p role="status">正在准备一航软件样本…</p>}><SimulationPage key={'simulated:'+workspace} view={activeView}/></Suspense>:<LiveSourceMatrixPage key={'real:'+workspace} view={activeView}/>}</>;
+ return <LiveSourceMatrixPage view={activeView}/>;
 }
 function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [path,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
  const params=new URLSearchParams(search),taskId=params.get('task')??params.get('matrixTask')??'';
  const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]),[industry,setIndustry]=useState(''),[questions,setQuestions]=useState(''),[product,setProduct]=useState(''),[audience,setAudience]=useState(''),[regions,setRegions]=useState('');
+ const [hours,setHours]=useState(''),[assetKind,setAssetKind]=useState(''),[samplePlatform,setSamplePlatform]=useState(''),[brandBatches,setBrandBatches]=useState<BrandDataBatchOption[]>([]),[brandData,setBrandData]=useState('');
  const [modelOpen,setModelOpen]=useState(false),[confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0),[showReport,setShowReport]=useState(false);
  const [result,setResult]=useState<MatrixResult|null>(null),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[industryUnavailable,setIndustryUnavailable]=useState(false),[industryAttempt,setIndustryAttempt]=useState(0),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
  const [matrixInput,setMatrixInput]=useState<string|null>(null),[matrixBinding,setMatrixBinding]=useState<string|null>(null),[serverStale,setServerStale]=useState(false),[budgetPending,setBudgetPending]=useState(false);
  const [applyPreview,setApplyPreview]=useState<{scope:string;data:ApplyPlanDiff}|null>(null),[applyBusy,setApplyBusy]=useState(false);
- const [currency,setCurrency]=useState('CNY'),[total,setTotal]=useState(''),[exploration,setExploration]=useState(''),[enabled,setEnabled]=useState(false),[min,setMin]=useState(''),[max,setMax]=useState(''),[fieldError,setFieldError]=useState(''),[errorStage,setErrorStage]=useState<'matrix'|'budget'>('matrix'),[failedOperation,setFailedOperation]=useState<'load'|'matrix'|'budget'>('load');
+ const [currency,setCurrency]=useState('CNY'),[total,setTotal]=useState('3000'),[exploration,setExploration]=useState(''),[enabled,setEnabled]=useState(false),[min,setMin]=useState(''),[max,setMax]=useState(''),[fieldError,setFieldError]=useState(''),[errorStage,setErrorStage]=useState<'matrix'|'budget'>('matrix'),[failedOperation,setFailedOperation]=useState<'load'|'matrix'|'budget'>('load');
  const appliedBudget=useRef('');
  const reasonTrigger=useRef<HTMLElement|null>(null);
  const openReason=(candidate:MatrixResult['matrix']['candidates'][number])=>{reasonTrigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setReasonCandidate(candidate);};
  const latestInput=useRef(''),latestBudget=useRef(''),latestRecommendationContext=useRef(''),pendingBudget=useRef<{key:string;matrix:MatrixResult}|null>(null);
- const inputKey=JSON.stringify([industry,product.trim(),audience.trim(),regions.split('、').map(value=>value.trim()).filter(Boolean),questions.split('\n').map(value=>value.trim()).filter(Boolean)]);latestInput.current=inputKey;
+ const inputKey=JSON.stringify([industry,product.trim(),audience.trim(),regions.split('、').map(value=>value.trim()).filter(Boolean),questions.split('\n').map(value=>value.trim()).filter(Boolean),hours,assetKind,samplePlatform,brandData]);latestInput.current=inputKey;
  const submissionLock=useRef(false);
+ // One-click chain: matrix first, then the budget stage follows automatically on the hydrated render.
+ const followUpBudget=useRef(false);
  const request=useRef<AbortController|null>(null),pollRequest=useRef<AbortController|null>(null),cancelRequest=useRef<AbortController|null>(null),sequence=useRef(0),formRef=useRef<HTMLElement>(null);
  useWorkspaceDraftGuard({dirty:!!questions&&(!result&&!taskId||matrixInput!==null&&matrixInput!==inputKey),label:'信源矩阵输入'});
  const href=(v:string,id=taskId)=>{const params=new URLSearchParams(search);params.set('tab',v==='matrix'||v==='report'?'matrix':'analysis');if(id)params.set('task',id);else params.delete('task');return projectWorkspaceUrl(`/publishing/source-matrix?${params.toString()}`)+(typeof window!=='undefined'?window.location.hash:'');};
  useEffect(()=>{const abort=new AbortController();setLoading(true);
-  void matrixApi<{industries:Array<{id:string;name:string}>;message?:string}>('/industries',abort.signal).then(r=>{if(!abort.signal.aborted){setIndustries(r.industries);setIndustryUnavailable(!r.industries.length);}}).catch(()=>{if(!abort.signal.aborted)setIndustryUnavailable(true);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>{abort.abort();};
+  void matrixApi<{industries:Array<{id:string;name:string}>;brand_data_batches?:BrandDataBatchOption[];message?:string}>('/industries',abort.signal).then(r=>{if(!abort.signal.aborted){setIndustries(r.industries);setIndustryUnavailable(!r.industries.length);const batches=r.brand_data_batches??[];setBrandBatches(batches);setBrandData(current=>current||batches[0]?.id||'');}}).catch(()=>{if(!abort.signal.aborted)setIndustryUnavailable(true);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>{abort.abort();};
  },[workspace,industryAttempt]);
  useEffect(()=>{setResult(null);setMatrixInput(null);setMatrixBinding(null);setServerStale(false);setSelected([]);setBusy(!!taskId);setError(null);setNotice('');setConfirmBudget(null);setConfirmLayer(null);setReasonCandidate(null);setBudgetPending(false);submissionLock.current=false;pendingBudget.current=null;appliedBudget.current='';return()=>{request.current?.abort();cancelRequest.current?.abort();sequence.current++;};},[taskId]);
  const serviceMessage=(value:string)=>/迁移|migration|ER_NO_SUCH_TABLE|凭据|PUBLISHER_/.test(value)?'推荐服务暂不可用，请稍后重试或联系运营。':value;
@@ -84,17 +75,17 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    }catch(e){if(!abort.signal.aborted){setFailedOperation('load');setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);}}};void poll();return()=>{abort.abort();if(timer)clearTimeout(timer);};
  },[taskId,workspace,pollEpoch]);
  async function refresh(){if(!taskId)return;setError(null);setFailedOperation('load');const abort=new AbortController();request.current?.abort();request.current=abort;try{const r=await matrixApi<TaskResponse>('/classify/'+encodeURIComponent(taskId),abort.signal);if(!abort.signal.aborted){receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);}}catch(e){if(!abort.signal.aborted)setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));}}
- async function submit(stage:'matrix'|'budget',e:FormEvent){e.preventDefault();if(busy||submissionLock.current||(e.nativeEvent as Event&{isComposing?:boolean}).isComposing)return;setFieldError('');setErrorStage(stage);
+ async function submit(stage:'matrix'|'budget',e?:FormEvent){e?.preventDefault();if(busy||submissionLock.current||e&&(e.nativeEvent as Event&{isComposing?:boolean}).isComposing)return;setFieldError('');setErrorStage(stage);
   const qs=questions.split('\n').map(q=>q.trim()).filter(Boolean);
   if(stage==='matrix'&&(!industry||!qs.length)){setFieldError('请选择已配置行业，并填写至少一个问题（每行一个）。');formRef.current?.querySelector<HTMLElement>(!industry?'select':'textarea')?.focus();return;}
   if(stage==='budget'&&(!total||!/^\d+(?:\.\d+)?$/.test(total))){setFieldError('请输入非负十进制总预算，勿使用科学计数法。');document.getElementById('z-budget-total')?.focus();return;}
   if(stage==='budget'&&(!result||matrixStale)){setFieldError('请先更新当前需求与稿件对应的矩阵。');return;}
   if(stage==='budget'){pendingBudget.current={key:latestBudget.current,matrix:result!};setBudgetPending(true);appliedBudget.current='';}
-  else {pendingBudget.current=null;setBudgetPending(false);}
+  else {pendingBudget.current=null;setBudgetPending(false);followUpBudget.current=true;}
   const submittedInput=inputKey,submittedContext=latestRecommendationContext.current;submissionLock.current=true;
   const abort=new AbortController(),seq=++sequence.current;request.current?.abort();pollRequest.current?.abort();request.current=abort;setBusy(true);setError(null);setNotice('');
   try{
-   const body=stage==='matrix'?{industry_id:industry,questions:qs,...(product?{product}:{}),...(audience?{audience}:{}),...(regions.trim()?{regions:regions.split('、').map(x=>x.trim()).filter(Boolean)}:{}),as_of:new Date().toISOString(),
+   const body=stage==='matrix'?{industry_id:industry,questions:qs,...(product?{product}:{}),...(audience?{audience}:{}),...(regions.trim()?{regions:regions.split('、').map(x=>x.trim()).filter(Boolean)}:{}),...(hours?{hours}:{}),...(assetKind?{requirements:[assetKind]}:{}),...(brandData?{brand_data:brandData}:{}),...(brandData&&samplePlatform?{sample_platforms:[samplePlatform]}:{}),as_of:new Date().toISOString(),
      // Name the real draft/version; the server re-reads and verifies them.
      ...(serverDraft?{draft_id:serverDraft.id,article_version_id:serverDraft.articleVersionId}:contextDraftId||articleVersionId?{...(contextDraftId?{draft_id:contextDraftId}:{}),...(articleVersionId?{article_version_id:articleVersionId}:{})}:{})}
     :{plan_id:result?.plan_id,plan_version:result?.plan_version,budget:{currency,total_cap:total,exploration_enabled:enabled,...(enabled&&exploration!==''?{exploration_cap:exploration}:{}),...(min!==''?{unit_price_min:min}:{}),...(max!==''?{unit_price_max:max}:{})},selected_candidate_ids:selected,as_of:new Date().toISOString()};
@@ -109,6 +100,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  }
  async function cancel(){
   if(!taskId||cancelRequest.current&&!cancelRequest.current.signal.aborted)return;
+  followUpBudget.current=false;
   const abort=new AbortController(),context=latestRecommendationContext.current,seq=sequence.current;cancelRequest.current=abort;
   const current=()=>mounted.current&&!abort.signal.aborted&&context===latestRecommendationContext.current&&seq===sequence.current;
   try{await matrixApi('/classify/'+encodeURIComponent(taskId)+'/cancel',abort.signal,{});if(!current())return;request.current?.abort();pollRequest.current?.abort();submissionLock.current=false;sequence.current++;setBusy(false);setBudgetPending(false);pendingBudget.current=null;setResult(null);setTaskState('cancelled');setPollEpoch(n=>n+1);}
@@ -259,12 +251,20 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const hydratedTask=useRef('');
  useEffect(()=>{if(!result||!taskId||loading||hydratedTask.current===`${workspace}:${taskId}`)return;hydratedTask.current=`${workspace}:${taskId}`;
   const t=result.scope.task,nextIndustry=industries.find(i=>i.name===t.industry)?.id??'',nextProduct=typeof t.product==='string'?t.product:'',nextAudience=typeof t.audience==='string'?t.audience:'',nextRegions=Array.isArray(t.regions)?t.regions.filter((x):x is string=>typeof x==='string'):[],nextQuestions=Array.isArray(t.questions)?t.questions.map(q=>q&&typeof q==='object'&&!Array.isArray(q)?typeof q.text==='string'?q.text:'':typeof q==='string'?q:'').filter(Boolean):[];
-  setMatrixInput(JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions]));setMatrixBinding(bindingKey);
+  setMatrixInput(JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions,hours,assetKind,samplePlatform,brandData]));setMatrixBinding(bindingKey);
   if(!industry&&!product&&!audience&&!regions&&!questions){setIndustry(nextIndustry);setProduct(nextProduct);setAudience(nextAudience);setRegions(nextRegions.join('、'));setQuestions(nextQuestions.join('\n'));}
   const p=result.budget_plans[0];if(p?.total_cap&&!total)setTotal(p.total_cap);if(p?.currency)setCurrency(p.currency);
   // A restored plan has no verified current-cart preference snapshot; compare it,
   // then regenerate before applying rather than treating it as freshly checked.
  },[taskId,result,workspace,industries,loading]);
+ useEffect(()=>{
+  if(!followUpBudget.current||busy||budgetPending||!result||matrixInput===null||matrixStale)return;
+  followUpBudget.current=false;
+  if(result.matrix.status!=='complete'){setNotice(label(result.status)+'：矩阵候选已生成；'+(result.status==='needs_ai_decisions'?'模型决策服务未接入，配置服务端模型密钥后可重新生成分层。':'模型决定未通过校验，可重试。'));return;}
+  if(!/^\d+(?:\.\d+)?$/.test(total)){setNotice('矩阵已生成。请在右侧填写总预算后点击“更新组合”。');return;}
+  setNotice('矩阵已生成，正在按当前预算生成组合…');
+  void submit('budget');
+ },[result,busy,budgetPending,matrixInput,matrixStale,total]);
  const validPrice=(media:MediaResource)=>/^\d+$/.test(media.priceTenThousandths)&&BigInt(media.priceTenThousandths)>0n;
  const pendingPrices=[...cart.values()].filter(media=>!validPrice(media)).length;
  const moneyTotal=currentBinding?.loading||currentBinding?.error||!currentBinding?undefined:[...cart.values()].reduce((sum,media)=>sum+(validPrice(media)?BigInt(media.priceTenThousandths):0n),0n).toString();
@@ -359,9 +359,9 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    <nav className="x-matrix-nav" aria-label="信源矩阵子板块"><Link className={view==='analysis'?'active':''} aria-current={view==='analysis'?'page':undefined} href={href('analysis')}>行业信源分布</Link><Link className={view==='matrix'?'active':''} aria-current={view==='matrix'?'page':undefined} href={href('matrix')}>信源矩阵推荐</Link></nav>
    {view==='analysis'?<LiveIndustryDistribution/>:<>
     <section className="panel sm-demand" ref={formRef} aria-labelledby="sm-demand-title"><div className="panel-title"><h2 id="sm-demand-title">本次投放要求</h2><span className="small muted">预算独立设置</span></div>
-     <div className="sm-demand-fields"><label>品牌 / 产品<input className="field" value={product} placeholder="输入品牌或产品" onChange={e=>setProduct(e.target.value)}/></label><label>目标行业 *<select value={industry} aria-required="true" onChange={e=>setIndustry(e.target.value)}><option value="">{loading?'正在读取行业…':industries.length?'选择行业':'暂无已接入行业'}</option>{industries.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>覆盖地区<input className="field" value={regions} placeholder="多个地区用顿号分隔" onChange={e=>setRegions(e.target.value)}/></label><label>目标受众<input className="field" value={audience} placeholder="描述内容面向的人群" onChange={e=>setAudience(e.target.value)}/></label><label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-required="true" value={questions} placeholder="每行一个问题；保留问题场景与内容方向" onChange={e=>setQuestions(e.target.value)}/></label></div>
-     <div className="sm-demand-actions"><div><span className="small muted">{taskbarTitle?taskbarTitle+' · '+(taskbarNote||''):'可先研究矩阵，选择媒体前需确认稿件版本。'}</span>{industryUnavailable&&<p className="small" role="status">行业数据暂不可用，请重试或联系运营接入。<button className="link small" disabled={loading} onClick={()=>setIndustryAttempt(value=>value+1)}>重试读取行业</button></p>}</div><div className="actions"><button type="button" className="link small" onClick={()=>setModelOpen(true)}>查看模型输入</button><button className="button primary" disabled={busy||loading} onClick={generate}>{busy&&!budgetPending?'正在生成…':result?'更新矩阵':'生成矩阵'}</button></div></div>
-     <p className="small muted">{serverDraft||articleVersionId?'生成矩阵时将绑定当前稿件冻结版本（服务端核验），预算组合与应用使用同一绑定。':'矩阵按目标需求生成，尚未绑定稿件版本；确认稿件后生成可获得服务端绑定。'}媒体选择后仍需重新报价和预检。</p>
+     <div className="sm-demand-fields"><label>品牌 / 产品<input className="field" value={product} placeholder="输入品牌或产品" onChange={e=>setProduct(e.target.value)}/></label><label>目标行业 *<select value={industry} aria-required="true" onChange={e=>setIndustry(e.target.value)}><option value="">{loading?'正在读取行业…':industries.length?'选择行业':'暂无已接入行业'}</option>{industries.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>覆盖地区<input className="field" value={regions} placeholder="多个地区用顿号分隔" onChange={e=>setRegions(e.target.value)}/></label><label>目标受众<input className="field" value={audience} placeholder="描述内容面向的人群" onChange={e=>setAudience(e.target.value)}/></label><label>期望发布时效（小时）<input className="field" inputMode="numeric" value={hours} placeholder="不限定" onChange={e=>setHours(e.target.value)}/></label><label>素材能力要求<select value={assetKind} onChange={e=>setAssetKind(e.target.value)}><option value="">不限定</option><option value="图片">图片</option><option value="表格">表格</option><option value="链接">链接</option></select></label><label>品牌引用数据<select value={brandData} onChange={e=>{setBrandData(e.target.value);setSamplePlatform('');}}>{brandBatches.length?brandBatches.map(batch=><option key={batch.id} value={batch.id}>{batch.label} · {batch.recordCount} 条</option>):<option value="">暂无可用品牌数据批次</option>}</select></label><label>引用样本平台<select value={samplePlatform} onChange={e=>setSamplePlatform(e.target.value)}><option value="">全部已输入平台</option>{[...new Set(brandBatches.find(batch=>batch.id===brandData)?.models??[])].map(model=><option key={model} value={model}>{model}</option>)}</select></label><label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-required="true" value={questions} placeholder="每行一个问题；保留问题场景与内容方向" onChange={e=>setQuestions(e.target.value)}/></label></div>
+     <div className="sm-demand-actions"><div><span className="small muted">{taskbarTitle?taskbarTitle+' · '+(taskbarNote||''):'可先研究矩阵，选择媒体前需确认稿件版本。'}</span>{industryUnavailable&&<p className="small" role="status">行业数据暂不可用，请重试或联系运营接入。<button className="link small" disabled={loading} onClick={()=>setIndustryAttempt(value=>value+1)}>重试读取行业</button></p>}</div><div className="actions"><button type="button" className="link small" onClick={()=>setModelOpen(true)}>查看模型输入</button><button className="button primary" disabled={busy||loading} onClick={generate}>{busy&&!budgetPending?'正在生成…':result?'重新生成矩阵并组合':'生成推荐矩阵'}</button></div></div>
+     <p className="small muted">{serverDraft||articleVersionId?'生成时绑定当前稿件冻结版本（服务端核验），组合与应用使用同一绑定。':'尚未绑定稿件版本；确认稿件后生成可获得服务端绑定。'}点击一次将先生成完整矩阵，再按右侧预算自动生成组合；品牌引用数据仅用于推荐，不进入行业分布。媒体选择后仍需重新报价和预检。</p>
      {errorStage==='matrix'&&fieldError&&<p className="block-error" role="alert">{fieldError}</p>}
     </section>
     {matrixStale&&<p className="notice warn" role="status">需求、任务或稿件版本已变化，当前矩阵仅供对照。请更新矩阵后生成组合或新增媒体。</p>}
@@ -374,7 +374,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
      {rules.error&&<p className="sm-selection-status" role="status">媒体要求暂不可用，暂不能新增选择。<button className="link" onClick={rules.reload}>重试读取媒体规则</button></p>}
      {result?<><p className="small muted">已核验引用明细 {result.source_analysis.known_detail_count} 条 · 行业依据 {result.source_analysis.external_aggregates.length} 项。{serverBinding?'已服务端绑定稿件：'+(serverBinding.article_title||serverBinding.article_id)+' · v'+serverBinding.version_number+'（指纹 '+serverBinding.fingerprint.slice(0,8)+'）；组合与应用使用同一绑定。':'尚未绑定当前稿件版本；生成时可自动绑定已确认稿件。'}推荐不代表该稿件已被引用或可直接发布。</p><MatrixRecommendation result={result} highlightedPlan={highlightedPlan} mediaFor={mediaFor} isSelected={media=>cart.has(media.id)} issue={candidateIssue} onToggle={id=>void toggleCandidate(id)} onDetails={openReason} onMediaDetails={setDetailMedia} onLayer={items=>prepareLayer(items)}/></>:<div className="x-empty"><strong>{busy?'正在生成完整矩阵':'等待生成矩阵'}</strong><p>推荐基于当前已接入的行业与引用依据；不会用样本或假媒体填充。</p></div>}
     </section><BudgetRecommendations plans={result?.budget_plans??[]} candidates={candidates} selectedIndex={planIndex} onSelect={setPlanIndex} onApply={plan=>{void openApplyPlan(plan);}} onDetails={openReason} disabled={busy||cartBusy} stale={budgetStale} applicationIssue={plan=>plan.items.map(planItemIssue).find(Boolean)}>
-     {!result?<p className="small muted">先生成矩阵；未填写预算也可查看全部候选。</p>:<><div className="sm-budget-fields"><label>总预算（{currency}）<input className="field" id="z-budget-total" inputMode="decimal" value={total} placeholder="输入总预算" onChange={e=>setTotal(e.target.value)}/></label><label className="sm-exploration-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>启用探索投放</label>{enabled&&<label>探索子预算上限<input className="field" inputMode="decimal" value={exploration} placeholder="包含在总预算内" onChange={e=>setExploration(e.target.value)}/></label>}<details><summary>单篇价格条件</summary><label>最低单篇价格<input className="field" inputMode="decimal" value={min} placeholder="不限" onChange={e=>setMin(e.target.value)}/></label><label>最高单篇价格<input className="field" inputMode="decimal" value={max} placeholder="不限" onChange={e=>setMax(e.target.value)}/></label></details><button className="button primary" disabled={busy||matrixStale||result.matrix.status!=='complete'} onClick={e=>void submit('budget',e)}>{budgetPending?'正在生成组合…':'生成 / 更新组合'}</button></div>{errorStage==='budget'&&fieldError&&<p className="block-error" role="alert">{fieldError}</p>}</>}
+     {!result?<p className="small muted">先生成矩阵；未填写预算也可查看全部候选。</p>:<><div className="sm-budget-fields"><label>总预算（{currency}）<input className="field" id="z-budget-total" inputMode="decimal" value={total} placeholder="输入总预算" onChange={e=>setTotal(e.target.value)}/></label><span className="small muted">示例预算，可修改</span><label className="sm-exploration-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>启用探索投放</label>{enabled&&<label>探索子预算上限<input className="field" inputMode="decimal" value={exploration} placeholder="包含在总预算内" onChange={e=>setExploration(e.target.value)}/></label>}<details><summary>单篇价格条件</summary><label>最低单篇价格<input className="field" inputMode="decimal" value={min} placeholder="不限" onChange={e=>setMin(e.target.value)}/></label><label>最高单篇价格<input className="field" inputMode="decimal" value={max} placeholder="不限" onChange={e=>setMax(e.target.value)}/></label></details><button className="button primary" disabled={busy||matrixStale||result.matrix.status!=='complete'} onClick={e=>void submit('budget',e)}>{budgetPending?'正在生成组合…':result?.budget_plans.length?'更新组合':'生成组合'}</button></div>{errorStage==='budget'&&fieldError&&<p className="block-error" role="alert">{fieldError}</p>}</>}
     </BudgetRecommendations></div>
     {showReport&&result&&<div className="sm-report"><div className="actions"><button className="button secondary" disabled={!reportReady} onClick={()=>window.print()}>打印报告</button></div><Report result={result}/></div>}
    </>}
