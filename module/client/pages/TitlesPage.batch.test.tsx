@@ -87,7 +87,8 @@ it("blocks an entirely unchecked batch without making mutation calls", async () 
 
 it("retains excluded rows and their titles when returning from review", { timeout: 120000 }, async () => {
   const task = setup();
-  const title = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 5000 });
+  // Full-suite parallel kernel suites can starve this restore render well past 5s.
+  const title = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 45000 });
   fireEvent.change(title, { target: { value: "返回时保留" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }));
   fireEvent.click(screen.getByRole("button", { name: "预检与发布" }));
