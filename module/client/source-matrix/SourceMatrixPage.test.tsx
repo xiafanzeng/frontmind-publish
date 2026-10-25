@@ -8,6 +8,7 @@ import {downloadUrl} from './api';
 import { PublishingFlowProvider,type PublishingFlow } from '../PublishingFlowContext';
 import type { MediaResource,PublicationDraft } from '../types';
 import type { MatrixResult } from './types';
+import {matrixDemo} from './demo';
 // jsdom does not implement <dialog>; the confirmation dialog needs these stubs.
 HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
 HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
@@ -451,4 +452,109 @@ it('one click generates the matrix then automatically the budget combination wit
  expect(budgetBodies[0]).toMatchObject({plan_id:'plan-1',plan_version:'plan-version-1',budget:{total_cap:'3000',currency:'CNY'}});
  await screen.findByRole('heading',{name:'保守覆盖'});
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('shows the actual saved sample without configured services and never writes a sample into the cart',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ const fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{throw new Error('service unavailable');});vi.stubGlobal('fetch',fetcher);
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('button',{name:'重试读取行业'});
+ expect(screen.getByText('一航软件 · 已生成样本')).toBeTruthy();
+ expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
+ expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
+ expect(screen.getAllByRole('heading',{level:3}).filter(node=>/层$/.test(node.textContent??''))).toHaveLength(5);
+ expect(document.querySelectorAll('[data-source-id]')).toHaveLength(matrixDemo.result.matrix.candidates.length);
+ expect(screen.getAllByRole('button',{name:/^组合 [123]/})).toHaveLength(3);
+ expect(screen.queryByRole('button',{name:'加入本组合'})).toBeNull();
+ expect(screen.queryByRole('checkbox',{name:/^选择 /})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:/^组合 2/}));
+ expect([...document.querySelectorAll('.sm-candidate.is-highlighted')].map(node=>node.getAttribute('data-source-id')).sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
+ expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+ expect(fetcher.mock.calls.some(call=>String(call[0]).includes('/matrix/generate'))).toBe(false);
+});
+
+it('keeps the saved matrix unchanged on budget-only edits and distinguishes semantic edits',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({industries:[]})})));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('button',{name:'重试读取行业'});
+ const original=[...document.querySelectorAll('[data-source-id]')].map(node=>node.getAttribute('data-source-id'));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'5000'}});
+ expect([...document.querySelectorAll('[data-source-id]')].map(node=>node.getAttribute('data-source-id'))).toEqual(original);
+ expect(screen.getByText(/当前要求或预算与保存样本不同/)).toBeTruthy();
+ expect(screen.queryByText(/投放要求已修改，下方保存矩阵/)).toBeNull();
+ expect(screen.getByRole('button',{name:'按当前要求在线生成'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'更新组合'})).toBeNull();
+ fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'新的采购场景'}});
+ expect(screen.getByText(/投放要求已修改，下方保存矩阵/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
+ expect(screen.getByRole('heading',{name:'一航软件信源矩阵与研究组合'})).toBeTruthy();
+ expect(screen.getByText(/保存条件下的历史对照/)).toBeTruthy();
+ expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
+});
+
+it('starts a new genuine task after editing the sample budget and never falls back to the sample on model failure',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ const bodies:Array<{url:string;body:Record<string,unknown>}>=[];
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'configured-industry',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'verified-source',sourceFile:matrixDemo.source.file,recordCount:502,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
+  if(init?.method==='POST'){bodies.push({url,body:JSON.parse(String(init.body))});return {ok:false,json:async()=>({message:'模型尚未配置，请稍后重试'})};}
+  return {ok:true,json:async()=>({})};
+ }));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:matrixDemo.form.industry});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'configured-industry'}});
+ expect(screen.queryByText(/投放要求已修改，下方保存矩阵/)).toBeNull();
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'5000'}});
+ fireEvent.click(screen.getByRole('button',{name:'按当前要求在线生成'}));
+ await screen.findByText('模型尚未配置，请稍后重试');
+ expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
+ expect(bodies[0]!.body).toMatchObject({industry_id:'configured-industry',brand_data:matrixDemo.form.brandDataBatchId});
+ expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
+ expect(screen.queryByText('一航软件 · 已生成样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
+ expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('hydrates a different task instead of mixing its result with the prefilled demo or previous task',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海'],hours:'24',requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?{industries:[{id:'configured-industry',name:'已接入行业'}]}:url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
+ mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByText('一航软件 · 已生成样本');
+ fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
+ for(const id of ['A','B','A']){
+  await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});
+  await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('产品 '+id));
+  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe('问题 '+id);
+  expect((screen.getByLabelText('期望发布时效（小时）') as HTMLInputElement).value).toBe('24');
+  expect((screen.getByLabelText('引用样本平台') as HTMLSelectElement).value).toBe('百度文心-手机版');
+  expect(screen.queryByRole('heading',{name:'一航软件信源矩阵与研究组合'})).toBeNull();
+ }
+ fireEvent.change(screen.getByLabelText('品牌 / 产品'),{target:{value:'未提交编辑'}});
+ fireEvent.click(screen.getByRole('button',{name:'刷新结果'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:'刷新结果'}) as HTMLButtonElement).disabled).toBe(false));
+ expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('未提交编辑');
+});
+
+it('does not send the automatic budget stage to another task after leaving a running generation',async()=>{
+ liveDirectory();window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ const posts:string[]=[],taskResult=(name:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:matrixDemo.form.industry,product:name,questions:[{question_id:'q1',text:'当前问题'}]}}});
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);if(init?.method==='POST')posts.push(url);
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'v1',recordCount:502,sourceFile:matrixDemo.source.file,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
+  if(url.endsWith('/matrix/generate')||url.endsWith('/task-A'))return {ok:true,json:async()=>({task_id:'task-A',state:'running',result:taskResult('正在生成的A')})};
+  if(url.endsWith('/task-B'))return {ok:true,json:async()=>({task_id:'task-B',state:'complete',result:taskResult('已有任务B')})};
+  return {ok:true,json:async()=>({items:[]})};
+ }));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:matrixDemo.form.industry});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('task-A'));
+ await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-B');window.dispatchEvent(new PopStateEvent('popstate'));});
+ await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('已有任务B'));
+ expect(posts.filter(url=>url.endsWith('/budget'))).toEqual([]);
+ expect(posts.filter(url=>url.endsWith('/matrix/generate'))).toHaveLength(1);
 });

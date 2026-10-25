@@ -45,7 +45,7 @@ function MatrixDialog({open,title,children,footer,onClose,width}:{open:boolean;t
  if(!open)return null;
  return <dialog ref={ref} id="dialog" aria-labelledby="dialog-title" onCancel={event=>{event.preventDefault();onClose();}} style={width?{width}:undefined}><header className="dialog-header"><h2 id="dialog-title">{title}</h2><button className="close" aria-label="关闭弹窗" onClick={onClose}><ReferenceIcon name="x"/></button></header><div id="dialog-body" className="dialog-body">{children}</div><footer id="dialog-foot" className="dialog-foot">{footer}</footer></dialog>;
 }
-function downloadMatrixData(filename:string,data:string,type:string){const url=URL.createObjectURL(new Blob([data],{type}));const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),0);}
+export function downloadMatrixData(filename:string,data:string,type:string){const url=URL.createObjectURL(new Blob([data],{type}));const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),0);}
 export function SourceDataDialog({kind,industry,onClose}:{kind:'citations'|'industry'|null;industry:string;onClose:()=>void}) {
  const [mode,setMode]=useState<'paste'|'manual'>('paste'),[text,setText]=useState(''),[error,setError]=useState('');
  const cite=kind!=='industry',file=useRef<HTMLInputElement>(null),unavailable=()=>setError('当前服务未提供引用记录或行业清单的浏览器导入接口；请联系运营通过可信数据通道接入。数据尚未导入。');

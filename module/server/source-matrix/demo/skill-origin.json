@@ -1,0 +1,21 @@
+{
+  "source": "input-package/references/source-matrix-planner",
+  "sourceBaseline": "2cf8f4ea95c1f3b0395b62454bd5f4979e755c68",
+  "policy": "Included executable scripts, references, SKILL.md and requirements.txt are unchanged; examples/tests were not used as sample data or executed.",
+  "sha256": {
+    "references/budget-rules.md": "caaf479ebcf69994d8fb4707aa5928e670cca6413ba810b09b86bcf5b0a309c2",
+    "references/contracts.md": "be7d2141c9d9d510f15b1f06d439c77017a9ee9a868e706afa40d56084d8b6c7",
+    "references/evidence-rules.md": "d363d66be4e916534b23e057d55045fb844b280e374949e068447fa26b03c468",
+    "references/identity-config.json": "cc4a6f74c267706e35391bfcba0e88d98fe5909784f39093a8ba2ff5e54b5efc",
+    "references/matrix-rules.md": "ad8c8e766cd7c07e8520c8da8c1b4b5bdc8e8bb6f86b1f5660916ce02318022b",
+    "requirements.txt": "d819a05cbf0580e1aa36f9e0dfa9c2e6f454057331d4531011f9574c9736a950",
+    "scripts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scripts/budget.py": "875d27277b4f681de96ef55d605bac03ed5ce366b6c38c97ae03c1f5d1af6d8b",
+    "scripts/build_package.py": "b029f7cf2190fd3ab375b5c82e37e71ad0fe6667c73158142acc337ba8fbfba5",
+    "scripts/contracts.py": "ccfc6a1f6538913001203157a9514106c138556d79e524595c910d54952a8bb6",
+    "scripts/evidence.py": "41379a5ff195ea570623d91bf2f044521854459752e885c4854d2f2309920fc8",
+    "scripts/matrix.py": "2f977154d4988c85432913fd67de79afaeaaf34cde716c7d01ab0c351fcaf0ba",
+    "scripts/planner.py": "ac3a63e058f17d1be4346e08fee4aa7dd49c523c2c4a252aba9ab8103f623d5a",
+    "SKILL.md": "06ba8463649ef095fbe2c0b8a5575dd9e55dae75f18e9f43c80d44be7dd17c17"
+  }
+}

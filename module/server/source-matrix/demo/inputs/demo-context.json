@@ -1,0 +1,53 @@
+{
+  "assumptions": [
+    {
+      "field": "product",
+      "label": "演示假设",
+      "value": "一航软件；名称来自用户提供样本，具体产品和品牌资质未核验。"
+    },
+    {
+      "field": "industry",
+      "label": "演示假设",
+      "value": "软件测试服务；依据样本唯一监控问题设置，不代表上游行业分类。"
+    },
+    {
+      "field": "audience",
+      "label": "演示假设",
+      "value": "企业采购、信息化负责人和软件质量负责人。"
+    },
+    {
+      "field": "regions",
+      "label": "演示假设",
+      "value": "全国；未设置局部地域目标。"
+    },
+    {
+      "field": "questions",
+      "label": "演示假设",
+      "value": "三个任务问题由 AI 根据原监控问题细化，并非原始回答问题 ID。"
+    },
+    {
+      "field": "budget",
+      "label": "演示假设",
+      "value": "总预算人民币 3000 元；启用探索，探索上限 600 元包含在总额内，均不是报价。"
+    },
+    {
+      "field": "requirements",
+      "label": "演示假设",
+      "value": "不限定发布时效与素材能力；未提供稿件，不生成稿件身份。"
+    }
+  ],
+  "form": {
+    "product": "一航软件",
+    "industry": "软件测试服务",
+    "region": "全国",
+    "audience": "企业采购、信息化负责人、软件质量负责人",
+    "publicationHours": "",
+    "materialRequirement": "",
+    "brandDataBatchId": "sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d",
+    "platforms": [],
+    "questions": "采购第三方软件测试服务时，应如何核验机构资质与测试报告适用范围？\n软件验收与安全测试服务如何比较技术方法、交付物和服务商能力？\n如何用资质说明、技术案例和常见问题内容帮助企业理解一航软件的服务？",
+    "budget": "3000",
+    "explorationEnabled": true,
+    "explorationCap": "600"
+  }
+}

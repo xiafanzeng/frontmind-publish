@@ -1,0 +1,3 @@
+# Python 3.10+; runtime, tests and build_package.py use the standard library only.
+# No pip dependencies are required. Repository quick_validate.py is an optional
+# development helper requiring PyYAML; it is not part of this distribution.

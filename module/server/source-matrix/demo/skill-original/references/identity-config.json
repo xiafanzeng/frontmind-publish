@@ -1,0 +1,19 @@
+{
+  "tracking_parameters": [],
+  "platform_domains": [
+    "163.com",
+    "sohu.com",
+    "toutiao.com",
+    "qq.com",
+    "ifeng.com",
+    "sina.cn",
+    "sina.com.cn",
+    "sdnews.com.cn",
+    "baijiahao.baidu.com",
+    "myzaker.com",
+    "zaker.cn"
+  ],
+  "independent_domains": [],
+  "confirmed_account_mappings": [],
+  "confirmed_aliases": []
+}

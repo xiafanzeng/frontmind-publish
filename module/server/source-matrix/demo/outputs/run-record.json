@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-25T22:48:59+08:00",
+  "as_of": "2026-10-25T22:48:59+08:00",
+  "python": "3.12.6",
+  "executionScope": "offline_skill_only",
+  "modelDecisionOrigin": "AI assistant read the original workbook titles and Skill rules, then authored saved decisions; no external model API was invoked.",
+  "steps": [
+    {
+      "step": "parse_original_four_sheet_workbook",
+      "command": [
+        "python",
+        "-B",
+        "convert_workbook.py",
+        "C:\\Users\\10539\\OneDrive\\Desktop\\Capstone\\frontmind-publish-demo-20261025-work\\references\\一航软件-信源分析-20260913-214944.xlsx",
+        "inputs/workbook.json"
+      ],
+      "startedAt": "2026-10-25T22:48:59+08:00",
+      "finishedAt": "2026-10-25T22:49:00+08:00",
+      "exitCode": 0,
+      "stdout": "{\n  \"records\": 502,\n  \"contentUrls\": 114,\n  \"mediaGroups\": 61,\n  \"uniqueSevenFieldRows\": 216,\n  \"additionalIdenticalRows\": 286,\n  \"models\": {\n    \"\\u767e\\u5ea6\\u6587\\u5fc3-\\u624b\\u673a\\u7248\": 118,\n    \"\\u767e\\u5ea6\\u6587\\u5fc3-\\u7f51\\u9875\\u7248\": 282,\n    \"\\u901a\\u4e49\\u5343\\u95ee-\\u624b\\u673a\\u7248\": 49,\n    \"\\u901a\\u4e49\\u5343\\u95ee-\\u7f51\\u9875\\u7248\": 53\n  },\n  \"citationDates\": {\n    \"2026-09-12\": 262,\n    \"2026-09-13\": 240\n  },\n  \"mediaSummaryCount\": 502,\n  \"contentSummaryCount\": 502\n}\nsourceSha256=639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d\n",
+      "stderr": ""
+    },
+    {
+      "step": "prepare_nonpurchasable_observation_attributes",
+      "command": [
+        "python",
+        "-B",
+        "prepare_input.py"
+      ],
+      "startedAt": "2026-10-25T22:49:00+08:00",
+      "finishedAt": "2026-10-25T22:49:00+08:00",
+      "exitCode": 0,
+      "stdout": "{\"status\": \"prepared\", \"groups\": 61, \"reconciliation\": {\"records\": 502, \"contentUrls\": 114, \"mediaGroups\": 61, \"uniqueSevenFieldRows\": 216, \"additionalIdenticalRows\": 286, \"models\": {\"百度文心-手机版\": 118, \"百度文心-网页版\": 282, \"通义千问-手机版\": 49, \"通义千问-网页版\": 53}, \"citationDates\": {\"2026-09-12\": 262, \"2026-09-13\": 240}, \"mediaSummaryCount\": 502, \"contentSummaryCount\": 502}}\n",
+      "stderr": ""
+    },
+    {
+      "step": "original_skill_candidate_extraction",
+      "command": [
+        "python",
+        "-B",
+        "skill-original/scripts/planner.py",
+        "--input",
+        "inputs/matrix-input.json",
+        "--stage",
+        "matrix",
+        "--as-of",
+        "2026-10-25T22:48:59+08:00",
+        "--output",
+        "outputs/candidates.json"
+      ],
+      "startedAt": "2026-10-25T22:49:00+08:00",
+      "finishedAt": "2026-10-25T22:49:01+08:00",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "businessStatus": "needs_ai_decisions",
+      "errors": [],
+      "output": "outputs/candidates.json",
+      "outputSha256": "649226a9122d846c54bad2847f1c6efb7ff8dbdfe14caefe9ae65d2dcae2dd05"
+    },
+    {
+      "step": "original_skill_validate_ai_matrix",
+      "command": [
+        "python",
+        "-B",
+        "skill-original/scripts/planner.py",
+        "--input",
+        "inputs/matrix-input.json",
+        "--decisions",
+        "inputs/ai-matrix-decisions.json",
+        "--stage",
+        "matrix",
+        "--as-of",
+        "2026-10-25T22:48:59+08:00",
+        "--output",
+        "outputs/matrix.json"
+      ],
+      "startedAt": "2026-10-25T22:49:01+08:00",
+      "finishedAt": "2026-10-25T22:49:02+08:00",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "businessStatus": "complete",
+      "errors": [],
+      "output": "outputs/matrix.json",
+      "outputSha256": "abcba0ce79e4f503358657b6a3a61fab63ef4aee6543cbd913d0dc64f043d830"
+    },
+    {
+      "step": "original_skill_publication_budget_compatibility",
+      "command": [
+        "python",
+        "-B",
+        "skill-original/scripts/planner.py",
+        "--input",
+        "inputs/budget-input.json",
+        "--decisions",
+        "inputs/formal-budget-decisions.json",
+        "--stage",
+        "budget",
+        "--matrix",
+        "outputs/matrix.json",
+        "--as-of",
+        "2026-10-25T22:48:59+08:00",
+        "--output",
+        "outputs/formal-budget.json"
+      ],
+      "startedAt": "2026-10-25T22:49:02+08:00",
+      "finishedAt": "2026-10-25T22:49:03+08:00",
+      "exitCode": 2,
+      "stdout": "",
+      "stderr": "{\"schema_version\": \"1.0\", \"status\": \"invalid_input\", \"errors\": [{\"code\": \"invalid_structure\", \"path\": \"request\", \"message\": \"Malformed nested input: ValueError\"}], \"budget_plans\": []}\n",
+      "businessStatus": "invalid_input",
+      "errors": [
+        {
+          "code": "invalid_structure",
+          "path": "request",
+          "message": "Malformed nested input: ValueError"
+        }
+      ]
+    },
+    {
+      "step": "validate_ai_research_combinations",
+      "command": [
+        "python",
+        "-B",
+        "research_combinations.py",
+        "--input",
+        "inputs/budget-input.json",
+        "--matrix",
+        "outputs/matrix.json",
+        "--decisions",
+        "inputs/ai-research-combinations.json",
+        "--as-of",
+        "2026-10-25T22:48:59+08:00",
+        "--output",
+        "outputs/research-combinations.json"
+      ],
+      "startedAt": "2026-10-25T22:49:03+08:00",
+      "finishedAt": "2026-10-25T22:49:03+08:00",
+      "exitCode": 0,
+      "stdout": "{\"status\": \"research_complete\", \"errors\": [], \"combinations\": 3}\n",
+      "stderr": "",
+      "businessStatus": "research_complete",
+      "errors": [],
+      "output": "outputs/research-combinations.json",
+      "outputSha256": "1cbe6feaf19acdc1c2c667d1319d80d9e0c869c61c8efb991359403ba45dc4fe"
+    }
+  ],
+  "projectTestsExecuted": false,
+  "applicationBuildExecuted": false,
+  "deployed": false,
+  "originalSkillCheck": {
+    "status": "byte_identical_to_reference",
+    "fileCount": 14
+  },
+  "finishedAt": "2026-10-25T22:49:04+08:00",
+  "status": "offline_sample_generated",
+  "matrixStatus": "complete",
+  "matrixVersion": "matrix-c1b44417d254876ec36191f8",
+  "planId": "plan-253bf61b1bdb2622e3323f44",
+  "planVersion": "plan-version-4658748bbce6dff588d2dad2",
+  "recommendedCandidates": 10,
+  "researchStatus": "research_complete",
+  "researchCombinations": 3,
+  "originalFormalBudgetStatus": "invalid_input",
+  "publicArtifactSha256": "f9884120f65eab145fdfd0f4c45fa36ef3c65141689aa5c3f1851cb0ea69e944",
+  "manifestSha256": "49cb1b7e59ea04f84ac2f2dbe3113c52e37317936528350c458a8b34bcae3ea5"
+}

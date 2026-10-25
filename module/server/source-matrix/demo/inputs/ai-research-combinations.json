@@ -1,0 +1,31 @@
+{
+  "research_combinations": [
+    {
+      "strategy":"资质问答起步",
+      "reason_summary":"先用中国质量检验协会的样本材料建立核验清单，再研究腾讯云与知乎两种问答表达，适合在3000元假设预算下优先询价的小范围内容尝试。",
+      "items":[{"candidate_id":"unverified_offer:58","purpose":"standard","usage":"reference"},{"candidate_id":"unverified_offer:30","purpose":"standard","usage":"publication_research"},{"candidate_id":"unverified_offer:29","purpose":"standard","usage":"publication_research"}],
+      "coverage":["资质和测试报告适用范围","面向采购者的常见问题"],
+      "gaps":["技术交付案例和更宽的行业传播尚未覆盖","协会材料仅作研究参考，不是购买发布位"],
+      "tradeoffs":["优先向腾讯云具体账号与知乎具体账号确认发布方式和完整费用；两者未确认前不安排支付。","如确认总费用超过3000元，先保留与真实稿件最贴合的一种问答渠道，另一项暂缓；不是已证明的预算最优方案。"],
+      "unconfirmed_items":["具体账号、引用权限和可售资源映射","全部报价、必需附加费、时效与稿件审核"]
+    },
+    {
+      "strategy":"技术方案与行业传播",
+      "reason_summary":"以广州软件应用技术研究院材料作为技术比较参考，研究电子技术应用、IT之家与搜狐如何分别承接资质解释、测试价值和采购选型内容。",
+      "items":[{"candidate_id":"unverified_offer:40","purpose":"standard","usage":"reference"},{"candidate_id":"unverified_offer:28","purpose":"standard","usage":"publication_research"},{"candidate_id":"unverified_offer:46","purpose":"standard","usage":"publication_research"},{"candidate_id":"unverified_offer:5","purpose":"standard","usage":"publication_research"}],
+      "coverage":["软件测试能力与交付物比较","资质辨析与采购决策"],
+      "gaps":["没有局部地域目标，未纳入地域覆盖层","没有独立证据证明这些平台曾推荐一航软件"],
+      "tradeoffs":["先确认电子技术应用是否有符合稿件要求的入口；IT之家和搜狐分别询价后决定是否同时采用。","若完整报价超出3000元，保留最贴合技术稿的一项，再从IT之家与搜狐中选一种补充表达；不能按当前未知价格宣称三项可同时购买。"],
+      "unconfirmed_items":["原文主题、具体栏目及商业发布许可","真实稿件、报价、附加费用和发布规则"]
+    },
+    {
+      "strategy":"开发者内容探索",
+      "reason_summary":"围绕技术案例与资质问答，研究腾讯云、CSDN两个社区入口，再以稀土掘金验证技术读者对案例表达的反馈。",
+      "items":[{"candidate_id":"unverified_offer:30","purpose":"standard","usage":"publication_research"},{"candidate_id":"unverified_offer:4","purpose":"standard","usage":"publication_research"},{"candidate_id":"unverified_offer:31","purpose":"exploration","usage":"publication_research"}],
+      "coverage":["开发者视角的测试方法与资质说明","小规模探索技术案例表达"],
+      "gaps":["不承担权威背书或大众门户传播","开发者反馈不能代替采购转化或未来AI引用的证据"],
+      "tradeoffs":["探索额度600元包含在3000元总预算中；稀土掘金的完整报价必须同时满足两条上限才可进入后续真实方案。","若探索报价超过600元或总费用超过3000元，暂停探索并重新核验标准项；不能改为普通用途绕过探索上限。"],
+      "unconfirmed_items":["三处具体作者账号与内容权限","全部报价、附加费与稿件版本","探索验证方式和实际反馈记录"]
+    }
+  ]
+}
