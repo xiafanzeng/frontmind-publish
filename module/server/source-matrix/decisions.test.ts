@@ -61,3 +61,10 @@ it('surfaces model transport failures as errors so the route records decision_ad
   const adapter = createEnvDecisionAdapter({ FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'k' })!;
   await expect(adapter.matrix({ request: { task: {}, catalog: [] }, prepared: {}, as_of: 'x', skill: 's', instructions: 'i' })).rejects.toThrow('llm_http_503');
 });
+
+it('coerces common model shape drift without inventing content', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ matrix_decisions: { items: [{ candidate_id: 'resource:x', primary_role: 'industry', reason_summary: '相关', selection: 'recommended', matched_questions: 'q1', unconfirmed_items: { price: '待询价' }, references: [{ type: 'attribute', path: 'catalog[0].source_name' }] }], fit_order: ['resource:x'] } }) } }] }) })));
+  const adapter = createEnvDecisionAdapter({ FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'k' })!;
+  const decisions = await adapter.matrix({ request: { task: {}, catalog: [] }, prepared: {}, as_of: 'x', skill: 's', instructions: 'i' });
+  expect(decisions).toEqual({ matrix_decisions: { items: [{ candidate_id: 'resource:x', primary_role: 'industry', reason_summary: '相关', selection: 'recommended', matched_questions: ['q1'], unconfirmed_items: ['price: 待询价'], references: [{ type: 'attribute', path: 'catalog[0].source_name' }] }], fit_order: ['resource:x'] } });
+});

@@ -43,6 +43,41 @@ async function chat(env: Record<string, string | undefined>, messages: ChatMessa
   } finally { clearTimeout(timer); }
 }
 
+/** Tolerate common model shape drift (scalar instead of string[], object reason)
+ * without inventing content: arrays of strings are coerced, anything unparsable
+ * is dropped so the kernel validator stays the single authority. */
+function normalizeDecisions(value: unknown): { matrix_decisions: Row } | undefined {
+  const root = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const rawItems = Array.isArray(root.matrix_decisions)
+    ? (root.matrix_decisions as unknown[])[0]
+    : root.matrix_decisions;
+  const source = (rawItems && typeof rawItems === 'object' ? rawItems : {}) as Record<string, unknown>;
+  const items = Array.isArray(source.items) ? source.items : [];
+  const strings = (v: unknown): string[] | undefined => {
+    if (Array.isArray(v)) return v.map(x => String(x)).filter(Boolean);
+    if (v == null) return undefined;
+    if (typeof v === 'string') return v ? [v] : [];
+    if (typeof v === 'object') return Object.entries(v as Record<string, unknown>).map(([k, x]) => `${k}: ${String(x)}`);
+    return [String(v)];
+  };
+  if (!items.length && !Array.isArray(source.fit_order)) return undefined;
+  return {
+    matrix_decisions: {
+      items: items.map(item => {
+        const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const key of ['candidate_id','primary_role','reason_summary','selection','supplemental_value','exploration_hypothesis'])
+          if (row[key] != null) out[key] = String(row[key]);
+        for (const key of ['auxiliary_roles','matched_questions','reason_details','unconfirmed_items','verification_items','supplemental_to'])
+          if (row[key] !== undefined) { const list = strings(row[key]); if (list) out[key] = list; }
+        if (Array.isArray(row.references)) out.references = row.references;
+        return out;
+      }),
+      fit_order: Array.isArray(source.fit_order) ? source.fit_order.map(x => String(x)) : undefined,
+    },
+  };
+}
+
 /** Keep prompts bounded: the model must see the kernel's real candidate ids.
  * candidate_id 值（resource:/observed:/recommendation:）由内核生成，模型只能引用、不能自造。 */
 function compactCandidates(request: Row, prepared: Row): Row[] {
@@ -120,8 +155,7 @@ export function createEnvDecisionAdapter(env: Readonly<Record<string, string | u
           note: 'candidates 是内核真实候选（candidate_id 必须原样引用，不得自造，仅这些可被决定）；observed_sources 是品牌样本原始观察（仅前 30 条示例，域名/名称/证据），仅其 evidence_id 可被 references 引用；attribute path 形如 catalog[catalog_index].字段。观察型来源未列入 candidates，不可被决定。',
         }) },
       ]);
-      const decisions = (payload as { matrix_decisions?: unknown })?.matrix_decisions;
-      return decisions && typeof decisions === 'object' ? { matrix_decisions: decisions as Row } : undefined;
+      return normalizeDecisions(payload);
     },
     async budget(input) {
       const matrixCandidates: Row[] = Array.isArray(input.matrix?.matrix?.candidates) ? input.matrix.matrix.candidates as Row[] : [];
