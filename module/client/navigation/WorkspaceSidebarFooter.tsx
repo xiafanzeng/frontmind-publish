@@ -1,4 +1,4 @@
-import { ChevronDown, CircleHelp, FolderOpen, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleHelp, FolderOpen, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Send, Settings, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Dialog, DialogContent } from "@frontmind/module-ui/components/ui/dialog";
 import {
@@ -16,7 +16,8 @@ export type WorkspaceAccountInfo = { label: string; workspaceLabel: string; owne
  * 工作区侧栏底部：项目总览胶囊（与共享 operator 外壳完全一致）+ 账户入口菜单 + 侧栏显隐开关。
  * 供应商 vendor 组件把“胶囊 + 账户行 + 收起行”捆绑导出且只读，故由本组合层重建底部：
  * 胶囊保持与 vendor 现版相同的 DOM/类名/行为，账户行改为真实交互，原“收起侧边栏”整行移除。
- * 菜单项只渲染有真实数据来源的入口（帮助），不写死演示账号、余额或未提供的平台能力。
+ * 菜单按设计稿完整呈现六项；其中仅“帮助”接真实能力（共享对话框），账户资料/余额/邀请/设置/
+ * 退出登录平台暂无数据来源——项保留但无动作、不写死演示账号、不编造金额数值。
  */
 export default function WorkspaceSidebarFooter({ collapsed, onCollapse, ownerUserId }: {
   collapsed: boolean; onCollapse: () => void; ownerUserId?: string | number;
@@ -55,8 +56,23 @@ export default function WorkspaceSidebarFooter({ collapsed, onCollapse, ownerUse
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="publish-account-separator" />
+          <DropdownMenuItem className="publish-account-item">
+            <Wallet size={16} aria-hidden="true" /><span>剩余金额</span>
+            <ChevronRight size={14} aria-hidden="true" className="publish-account-more"/>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="publish-account-item">
+            <Send size={16} aria-hidden="true" /><span>邀请好友</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="publish-account-item">
+            <Settings size={16} aria-hidden="true" /><span>设置</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="publish-account-separator" />
           <DropdownMenuItem className="publish-account-item" onSelect={() => setHelpOpen(true)}>
             <CircleHelp size={16} aria-hidden="true" /><span>帮助</span>
+            <ChevronRight size={14} aria-hidden="true" className="publish-account-more"/>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="publish-account-item">
+            <LogOut size={16} aria-hidden="true" /><span>退出登录</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

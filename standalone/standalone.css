@@ -14,7 +14,9 @@
 .publish-standalone .publish-sidebar .operator-sidebar-bottom {border-top:1px solid #e6e8f1;padding-top:10px;margin-top:auto;}
 .publish-standalone .publish-sidebar .operator-project-capsule-label strong {font-size:12px;font-weight:500;}
 .publish-standalone .publish-sidebar .operator-project-capsule-label small {font-size:11px;}
-.publish-standalone .publish-sidebar .operator-account-identity {padding:6px;}
+/* operator-workspace.css gives the identity margin 12px top; it pushes the username below
+   the sidebar toggle's centered line, so drop it and let the row center both controls. */
+.publish-standalone .publish-sidebar .operator-account-identity {padding:6px;margin:0;}
 .publish-standalone .publish-sidebar .operator-account-identity strong {font-size:13px;}
 /* The account row now ends with the sidebar toggle; the old bottom collapse row is gone. */
 .publish-standalone .publish-sidebar .operator-sidebar-bottom :is(button):focus-visible {outline:3px solid #cf77a2;outline-offset:2px;}

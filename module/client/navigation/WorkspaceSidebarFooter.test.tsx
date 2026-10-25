@@ -27,7 +27,7 @@ it("the toggle only collapses the sidebar and never opens the account menu", () 
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-it("opens the account menu by keyboard and renders only backed entries", async () => {
+it("opens the account menu by keyboard with the full design entry list and no fabricated data", async () => {
   render(<WorkspaceSidebarFooter collapsed={false} onCollapse={vi.fn()} ownerUserId={42}/>);
   const account = entry();
   account.focus();
@@ -35,10 +35,13 @@ it("opens the account menu by keyboard and renders only backed entries", async (
   fireEvent.keyDown(account, { key: "ArrowDown" });
   expect(await screen.findByRole("menu")).toBeTruthy();
   expect(screen.getByText("FrontMind 开发工作区 · 用户 42")).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: "帮助" })).toBeTruthy();
-  // 无真实数据来源的入口不渲染，也不出现假余额。
-  for (const label of ["剩余金额", "邀请好友", "设置", "退出登录", "Jo Liu", "成员"]) {
-    expect(screen.queryByText(label)).toBeNull();
+  // 菜单结构按设计稿完整呈现六项；除“帮助”外平台暂无数据来源，项保留但不编造数值。
+  for (const label of ["剩余金额", "邀请好友", "设置", "帮助", "退出登录"]) {
+    expect(screen.getByRole("menuitem", { name: label })).toBeTruthy();
+  }
+  // 不出现演示账号与假余额。
+  for (const label of ["Jo Liu", "成员", "¥", "￥"]) {
+    expect(screen.queryByText(new RegExp(label))).toBeNull();
   }
 });
 

@@ -62,5 +62,6 @@
 .publish-account-id strong {font-size:13px;font-weight:500;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .publish-account-id small {font-size:11px;line-height:16px;opacity:.72;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .publish-account-separator {height:1px;margin:4px 6px;background:#e6e8f1;}
-.publish-account-item {display:flex;align-items:center;gap:8px;min-height:34px;padding:6px 8px;font-size:13px;}
+.publish-account-item {display:flex;align-items:center;gap:8px;min-height:36px;padding:7px 10px;font-size:13px;}
 .publish-account-item svg {color:var(--publish-nav-muted);}
+.publish-account-item .publish-account-more {margin-left:auto;color:#b8adbe;}
