@@ -1,5 +1,5 @@
-import { ChevronDown, Database, FileText, Send } from "lucide-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { Database, FileText, Send } from "lucide-react";
+import type { MouseEvent } from "react";
 import { BUSINESS_NAV, activeBusinessLeaf, businessLeafHref, businessModuleOf } from "../businessNav";
 import { projectWorkspaceUrl } from "../host";
 import "./publishing.navigation.css";
@@ -16,14 +16,16 @@ export default function PublishingNavigation({ path, search, collapsed, onNaviga
 }) {
   const active = activeBusinessLeaf(path, search);
   const group = businessModuleOf(active).id;
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ [group]: true });
-  useEffect(() => { setExpanded(value => ({ ...value, [group]: true })); }, [group, path, search]);
+  // 选中板块后自动展开子菜单：展开组只由当前路由推导，两组互斥，无独立展开按钮；
+  // 点击一级导航按默认落地规则跳转后自然展开本组、收起另一组，重复点击当前板块保持展开，
+  // 进入无子菜单板块（发布工作台）时不展开任何组；深链、刷新与前进/后退同样按路由恢复。
+  const expandedGroup = BUSINESS_NAV.find(item => item.id === group && item.views.length > 1)?.id;
   const icons = { publishing: Send, content: FileText, intent: Database };
   return <nav className="publish-navigation" aria-label="媒体发布导航" data-compact={collapsed}>
     {BUSINESS_NAV.map(item => {
       const Icon = icons[item.id];
       const nested = item.views.length > 1;
-      const open = Boolean(expanded[item.id]);
+      const open = expandedGroup === item.id;
       const parent = item.home ?? item.views[0]!;
       const parentIsCurrent = active === parent.id && Boolean(item.home || !nested);
       const href = projectWorkspaceUrl(businessLeafHref(parent.id, path, search)!);
@@ -32,18 +34,9 @@ export default function PublishingNavigation({ path, search, collapsed, onNaviga
           <a href={href} aria-label={item.label} title={collapsed ? item.label : undefined}
             className={`publish-nav-link ${parentIsCurrent ? "is-current" : ""}`}
             aria-current={parentIsCurrent ? "page" : undefined}
-            onClick={event => {
-              if (nested) setExpanded(value => ({ ...value, [item.id]: true }));
-              followPublishingLink(event, href, onNavigate);
-            }}>
+            onClick={event => followPublishingLink(event, href, onNavigate)}>
             <Icon aria-hidden="true" size={17} strokeWidth={1.8}/><span>{item.label}</span>
           </a>
-          {nested && !collapsed && <button type="button" className="publish-nav-disclosure"
-            aria-label={`${open ? "收起" : "展开"}${item.label}子菜单`}
-            aria-expanded={open} aria-controls={`publish-nav-${item.id}`}
-            onClick={() => setExpanded(value => ({ ...value, [item.id]: !open }))}>
-            <ChevronDown size={14} aria-hidden="true" className={open ? "is-open" : ""}/>
-          </button>}
         </div>
         {nested && !collapsed && <div id={`publish-nav-${item.id}`} className="publish-nav-children" hidden={!open}>
           {item.views.map(leaf => {
