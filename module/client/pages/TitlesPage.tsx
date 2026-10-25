@@ -16,6 +16,7 @@ import { readPublishingBatch, withPublishingBatch } from "../batchPublishing";
 import { acceptTitleEditorSave, readTitleEditors, reconcileTitleEditor, sameDraftSelection, titleEditorSignature, type TitleEditor } from "../titleEditors";
 import { publishingTitleStage, saveUpstreamDraftTitles } from "../titleFlow";
 import { hasProtectedReviewDraft } from "../reviewSession";
+import { usePreparationEntryScroll } from "../usePreparationEntryScroll";
 
 // Hosts without task-value persistence still retain edits while moving between steps.
 // Never share private snapshots between authenticated gateway instances.
@@ -146,6 +147,7 @@ export default function PublishingTitlesPage({ draftId, onSaved }: {
   const invalidCount = groups.reduce((sum, editor) => sum + [...(validation[editor.draft.id] ?? new Map<string, { value: string; length: number; limit: number; message: string }>()).values()].filter(item => item.message).length, 0);
   const selectedCount = groups.reduce((sum, editor) => sum + editor.checked.length, 0);
   const ready = groups.length === batch.draftIds.length && !query.loading && !query.refreshing && !query.error && !flow?.pending;
+  const entryRef = usePreparationEntryScroll(`titles:${scopeKey}`, ready || Boolean(query.error));
   const invalidSingleGroups = groups.filter(editor => editor.mode === "single" && [...(validation[editor.draft.id]?.values() ?? [])].some(item => item.message));
   useWorkspaceDraftGuard({
     dirty: Boolean(persistenceError) || groups.some(editor => titleEditorSignature(editor) !== editor.savedSignature),
@@ -280,7 +282,7 @@ export default function PublishingTitlesPage({ draftId, onSaved }: {
   ), flow?.taskId);
   return (
     <PublishingPage title={singleOnly ? "恢复发布准备" : "配置发布标题"} description={singleOnly ? undefined : "按稿件配置各媒体的正式发布标题；取消勾选的投放项不参与本次发布。"} busy={query.loading || busy}>
-      <div className="am-title-config">
+      <div className="am-title-config" ref={entryRef}>
         {!flow && editableGroups.length > 0 && <PublishingFlowSteps stages={flowStagesForMode("per_media")} doneCount={2} activeIndex={2} />}
         {query.loading || (query.refreshing && !groups.length) || flow?.pending ? <PublishingLoading label="正在读取发布草稿…" /> : null}
         {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
