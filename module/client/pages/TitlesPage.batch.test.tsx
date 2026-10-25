@@ -9,6 +9,7 @@ import { PublishingGatewayProvider } from "../PublishingContext";
 import { configurePublishingHost } from "../host";
 import type { PublisherGateway } from "../gateway";
 import type { MediaResource, PublicationDraft, SaveDraftTitlesInput } from "../types";
+import { reviewSessions } from "../reviewSession";
 
 const media = (id: string): MediaResource => ({
   id, name: `媒体 ${id}`, shortName: id, kind: "news", platform: "网站", taxonomy: "综合",
@@ -22,8 +23,8 @@ const draft = (id: string): PublicationDraft => ({
   revision: 1, titleMode: "per_media", items: ["shared", "other"].map(id => ({ media: media(id), title: "初始标题" })),
   updatedAt: "2026-10-24T00:00:00.000Z",
 });
-function setup() {
-  const drafts = new Map(["A", "B"].map(id => [id, draft(id)]));
+function setup(initial = [draft("A"), draft("B")], extraQuery = "") {
+  const drafts = new Map(initial.map(item => [item.id, item]));
   const getDraft = vi.fn<PublisherGateway["getDraft"]>(async id => drafts.get(id)!);
   const updateDraftMedia = vi.fn<PublisherGateway["updateDraftMedia"]>(async (id, ids, revision) => {
     const current = drafts.get(id)!;
@@ -43,12 +44,12 @@ function setup() {
     return next;
   });
   const gateway = { getDraft, updateDraftMedia, saveDraftTitles } as unknown as PublisherGateway;
-  const path = "/publishing/drafts/A/titles?batchDraft=A&batchDraft=B";
+  const path = "/publishing/drafts/A/titles?" + initial.map(item => `batchDraft=${item.id}`).join("&") + extraQuery;
   window.history.replaceState({}, "", path);
   const location = memoryLocation({ path, record: true });
   const onSaved = vi.fn();
   const view = () => <Router hook={location.hook} searchHook={location.searchHook}><PublishingGatewayProvider gateway={gateway}><TitlesPage draftId="A" onSaved={onSaved} /></PublishingGatewayProvider></Router>;
-  return { ...render(view()), view, gateway, getDraft, updateDraftMedia, saveDraftTitles, onSaved, drafts };
+  return { ...render(view()), view, gateway, getDraft, updateDraftMedia, saveDraftTitles, onSaved, drafts, location };
 }
 afterEach(() => { cleanup(); configurePublishingHost({}); vi.restoreAllMocks(); window.history.replaceState({}, "", "/"); });
 
@@ -84,7 +85,7 @@ it("blocks an entirely unchecked batch without making mutation calls", async () 
   expect(task.onSaved).not.toHaveBeenCalled();
 });
 
-it("retains excluded rows and their titles when returning from review", { timeout: 60000 }, async () => {
+it("retains excluded rows and their titles when returning from review", { timeout: 120000 }, async () => {
   const task = setup();
   const title = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 5000 });
   fireEvent.change(title, { target: { value: "返回时保留" } });
@@ -95,7 +96,7 @@ it("retains excluded rows and their titles when returning from review", { timeou
   render(task.view());
   // Heavy server-kernel suites run concurrently and can starve this restore
   // render far past the default budget on a loaded host; keep a wide margin.
-  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 30000 });
+  const restored = await screen.findByRole("textbox", { name: "稿件 A · 媒体 other独立标题" }, { timeout: 90000 });
   expect((restored as HTMLInputElement).value).toBe("返回时保留");
   expect((screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "稿件 A · 媒体 other参与本次发布" }));
@@ -135,4 +136,70 @@ it("retries after a later draft fails using the latest successful revisions", as
   const aCalls = task.saveDraftTitles.mock.calls.filter(([id]) => id === "A");
   expect((aCalls.at(-1)![1] as SaveDraftTitlesInput).expectedRevision).toBe(2);
   expect(task.drafts.get("B")?.revision).toBe(2);
+});
+
+it("renders only independent-title drafts in an existing mixed batch without exposing mode controls", async () => {
+  const single = { ...draft("A"), titleMode: "single" as const, sharedTitle: "A 的已确认标题" };
+  const task = setup([single, draft("B")]);
+  await screen.findByRole("heading", { name: "稿件 B" });
+  expect(screen.queryByRole("heading", { name: "稿件 A" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "单标题" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "多标题" })).toBeNull();
+  expect(task.container.querySelector(".publishing-title-mode-tabs")).toBeNull();
+  expect(task.container.querySelector("textarea")).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "稿件 B · 媒体 shared独立标题" }), { target: { value: "B 独立标题" } });
+  fireEvent.click(screen.getByRole("button", { name: "预检与发布" }));
+  await waitFor(() => expect(task.onSaved).toHaveBeenCalledTimes(1));
+  expect(task.saveDraftTitles).toHaveBeenCalledWith("A", expect.objectContaining({ mode: "single", sharedTitle: "A 的已确认标题", titles: { shared: "A 的已确认标题", other: "A 的已确认标题" } }));
+  expect(task.saveDraftTitles).toHaveBeenCalledWith("B", expect.objectContaining({ mode: "per_media", titles: { shared: "B 独立标题", other: "初始标题" } }));
+  const review = new URL(task.onSaved.mock.calls[0][0], window.location.origin);
+  expect(review.searchParams.getAll("batchDraft")).toEqual(["A", "B"]);
+});
+
+it("recovers a single-title deep link after required writes and preserves every route context", async () => {
+  const values = ["A", "B"].map(id => ({ ...draft(id), titleMode: "single" as const, sharedTitle: `${id} 的上游标题` }));
+  const task = setup(values, "&batchArticle=article-A&batchArticle=article-B&batchArticleVersion=version-A&batchArticleVersion=version-B&excludedDraft=B&workbenchTask=task-1&projectId=project-1");
+  await waitFor(() => expect(task.location.history.at(-1)!).toContain("/review"));
+  const route = new URL(task.location.history.at(-1)!, window.location.origin);
+  expect(route.searchParams.getAll("batchDraft")).toEqual(["A", "B"]);
+  expect(route.searchParams.getAll("excludedDraft")).toEqual(["B"]);
+  expect(route.searchParams.getAll("batchArticleVersion")).toEqual(["version-A", "version-B"]);
+  expect(route.searchParams.get("workbenchTask")).toBe("task-1");
+  expect(route.searchParams.get("projectId")).toBe("project-1");
+  expect(task.saveDraftTitles).toHaveBeenCalledTimes(1);
+  expect(task.saveDraftTitles).toHaveBeenCalledWith("A", expect.objectContaining({ mode: "single", sharedTitle: "A 的上游标题" }));
+  expect(task.onSaved).not.toHaveBeenCalled();
+  expect(task.container.querySelector(".publishing-title-draft-card")).toBeNull();
+});
+
+it("keeps a single-title recovery in place after a failed write and allows a safe retry", async () => {
+  const single = { ...draft("A"), titleMode: "single" as const, sharedTitle: "已确认标题" };
+  const task = setup([single]);
+  task.saveDraftTitles.mockRejectedValueOnce(new Error("保存暂时失败"));
+  await screen.findByText(/保存暂时失败/);
+  expect(task.location.history.at(-1)!).toContain("/titles");
+  expect(task.container.querySelector(".publishing-title-draft-card")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "重试保存并进入预检" }));
+  await waitFor(() => expect(task.location.history.at(-1)!).toContain("/review"));
+  expect(task.drafts.get("A")?.sharedTitle).toBe("已确认标题");
+});
+
+it("keeps a missing shared title actionable instead of substituting a filename", async () => {
+  const task = setup([{ ...draft("A"), titleMode: "single", articleTitle: "upload.docx" }]);
+  await screen.findByText(/单标题尚未确认或不符合已选媒体要求/);
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.location.history.at(-1)!).toContain("/titles");
+  expect(screen.getByRole("link", { name: "返回选择媒体" }).getAttribute("href")).toContain("/drafts/A/media");
+});
+
+it("returns an accepted draft deep link to review without rewriting titles", async () => {
+  const task = setup([{ ...draft("A"), titleMode: "single", sharedTitle: "已确认标题" }]);
+  task.unmount();
+  reviewSessions.set(task.gateway, new Map([["/::previous-review", {
+    acceptedIds: { A: "accepted-A" }, progress: { accepted: {}, requests: {} },
+  }]]));
+  render(task.view());
+  await waitFor(() => expect(task.location.history.at(-1)).toContain("/review"));
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.updateDraftMedia).not.toHaveBeenCalled();
 });

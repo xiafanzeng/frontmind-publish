@@ -1,16 +1,16 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileCheck2, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
-import type { PublisherGateway } from "../gateway";
 import { MediaMark, PublishingConfirmDialog, PublishingError, PublishingLoading, PublishingPage } from "../components/PublishingUi";
 import { usePublishingChoice } from "../components/PublishingConversation";
 import PublishingFlowSteps, { flowStagesForMode } from "../components/PublishingFlowSteps";
-import { formatPublishingMoney, type PublicationBatch, type PublicationDraft, type PublicationPreflight, type PublisherSubmitInput } from "../types";
+import { formatPublishingMoney, type PublicationBatch, type PublicationDraft, type PublicationPreflight } from "../types";
 import { usePublishingFlow, usePublishingSummary, usePublishingOperationScope, publishingTaskUrl } from "../PublishingFlowContext";
 import { readPublishingBatch, withPublishingBatch } from "../batchPublishing";
-import { reviewBatchNeedsAttention, reviewBatchTotals, submitReviewBatch, type ReviewBatchProgress } from "../reviewBatch";
-import { publisherSubmitIdempotencyKey } from "../queryState";
+import { reviewBatchNeedsAttention, reviewBatchTotals, submitReviewBatch } from "../reviewBatch";
+import { clearResolvedReviewRequests, mergeReviewSessionReceipts, restoreReviewSession, reviewSessions } from "../reviewSession";
+import { publishingTitleStage } from "../titleFlow";
 import "../publishing.review-batch.css";
 
 const REFRESHABLE_CATALOG_BLOCKERS = new Set([
@@ -18,35 +18,12 @@ const REFRESHABLE_CATALOG_BLOCKERS = new Set([
   "MEDIA_CAPABILITY_CHANGED", "TITLE_LIMIT_CHANGED",
 ]);
 type ReviewGroup = { draftId: string; excluded: boolean; preflight?: PublicationPreflight; draft?: PublicationDraft; batch?: PublicationBatch; error?: Error };
-type ReviewSession = {
-  progress: ReviewBatchProgress;
-  acceptedIds: Record<string, string>;
-  estimatedBalance?: bigint;
-};
-// Task values persist only IDs and exact outstanding requests, never article HTML.
-// Keep standalone receipts through in-app navigation within the same gateway.
-const sessions = new WeakMap<PublisherGateway, Map<string, ReviewSession>>();
-function restoreSession(saved: string, ids: string[]): ReviewSession {
-  const session: ReviewSession = { progress: { accepted: {}, requests: {} }, acceptedIds: {} };
-  try {
-    const value = JSON.parse(saved) as { acceptedBatchIds?: Record<string, string>; requests?: Record<string, PublisherSubmitInput> };
-    for (const id of ids) {
-      const accepted = value.acceptedBatchIds?.[id];
-      if (typeof accepted === "string" && accepted) session.acceptedIds[id] = accepted;
-      const request = value.requests?.[id];
-      if (!accepted && request?.draftId === id && typeof request.preflightRevision === "string" &&
-        typeof request.quoteFingerprint === "string" && request.acknowledged === true &&
-        request.idempotencyKey === publisherSubmitIdempotencyKey(id, request.quoteFingerprint)) session.progress.requests[id] = request;
-    }
-  } catch { /* A missing presentation value starts a fresh review. */ }
-  return session;
-}
 const groupTitle = (group: ReviewGroup) => group.preflight?.article.title ?? group.draft?.articleTitle ?? group.draftId;
 const refreshable = (value: PublicationPreflight) => [...(value.blockerCodes ?? []), ...value.items.flatMap(item => item.blockerCodes ?? [])].some(code => REFRESHABLE_CATALOG_BLOCKERS.has(code));
 const batchStatus = (batch: PublicationBatch) => ({queued:"排队中", processing:"发布处理中", success:"发布成功", failed:"发布失败", partial_success:"部分发布成功", action_required:"待处理"})[batch.status] ?? "已受理";
 
 export default function PublishingReviewPage(props: {
-  draftId: string; onSubmitted?: (batchId: string) => void; onRevise?: () => void;
+  draftId: string; onSubmitted?: (batchId: string) => void; onRevise?: (href: string) => void;
 }) {
   const search = useSearch();
   const flow = usePublishingFlow();
@@ -54,13 +31,13 @@ export default function PublishingReviewPage(props: {
   const identity = JSON.stringify([batch.draftIds, batch.excludedDraftIds, flow?.scopeKey, flow?.taskId]);
   // Task values arrive after the host mounts its provider. Do not create/cache
   // an empty progress session, or persist over saved receipts, before hydration.
-  if (flow?.pending) return <div className="publishing-review-page"><PublishingPage title="发布预检与确认" description="正在恢复本次投放进度。" busy><PublishingLoading label="正在恢复稿件与已受理批次…" /></PublishingPage></div>;
+  if (flow?.pending) return <div className="publishing-review-page"><PublishingPage title="发布内容检查与费用核验" layout="review" busy><PublishingLoading label="正在恢复稿件与已受理批次…" /></PublishingPage></div>;
   return <ReviewContent key={identity} {...props} {...batch} />;
 }
 
 function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRevise }: {
   draftId: string; draftIds: string[]; excludedDraftIds: string[];
-  onSubmitted?: (batchId: string) => void; onRevise?: () => void;
+  onSubmitted?: (batchId: string) => void; onRevise?: (href: string) => void;
 }) {
   const gateway = usePublisherGateway();
   const flow = usePublishingFlow();
@@ -70,16 +47,19 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const operationScope = usePublishingOperationScope(batchKey);
   const progressKey = "publishingBatchReview:" + draftIds.join(",");
   const [savedProgress, , acceptSavedProgress] = usePublishingChoice(progressKey);
-  const sessionKey = publishingTaskUrl("/", flow?.taskId) + ":" + (flow?.scopeKey ?? "") + ":" + batchKey;
+  const sessionPrefix = publishingTaskUrl("/", flow?.taskId) + ":" + (flow?.scopeKey ?? "") + ":";
+  const sessionKey = sessionPrefix + batchKey;
   const session = useMemo(() => {
-    let cache = sessions.get(gateway);
-    if (!cache) { cache = new Map(); sessions.set(gateway, cache); }
+    let cache = reviewSessions.get(gateway);
+    if (!cache) { cache = new Map(); reviewSessions.set(gateway, cache); }
     let value = cache.get(sessionKey);
-    if (!value) { value = restoreSession(savedProgress, draftIds); cache.set(sessionKey, value); }
+    const restored = restoreReviewSession(gateway, sessionPrefix, draftIds, savedProgress, flow?.selections);
+    if (!value) { value = restored; cache.set(sessionKey, value); }
+    else mergeReviewSessionReceipts(value, restored, draftIds);
     return value;
     // A session owns mutable receipts; later value saves must not reset them.
   }, [gateway, sessionKey]);
-  const activeIds = draftIds.filter(id => !excludedDraftIds.includes(id));
+  const activeIds = draftIds.filter(id => !excludedDraftIds.includes(id) || session.acceptedIds[id] || session.progress.requests[id]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -90,9 +70,11 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const submitLock = useRef(false);
   const currentSession = useRef(session);
   currentSession.current = session;
+  const previousRequestKeys = useRef(Object.fromEntries(Object.entries(session.progress.requests).map(([id, request]) => [id, request.idempotencyKey])));
   const load = useCallback(async (signal: AbortSignal) => {
     const groups = await Promise.all(draftIds.map(async (id): Promise<ReviewGroup> => {
-      const excluded = excludedDraftIds.includes(id);
+      // A URL exclusion cannot cancel an already dispatched request.
+      const excluded = excludedDraftIds.includes(id) && !session.acceptedIds[id] && !session.progress.requests[id];
       try {
       if (session.acceptedIds[id]) {
         const [draft, batch] = await Promise.all([gateway.getDraft(id, signal), gateway.getBatch(session.acceptedIds[id], signal)]);
@@ -100,7 +82,14 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
         return {draftId:id, excluded, draft, batch};
       }
       if (excluded || session.progress.requests[id]) return {draftId:id, excluded, draft:await gateway.getDraft(id, signal)};
-      return {draftId:id, excluded, preflight:await gateway.preflightDraft(id, signal)};
+      const preflight = await gateway.preflightDraft(id, signal);
+      if (preflight.titleMode === "single" || preflight.titleMode === "per_media") return {draftId:id, excluded, preflight};
+      // titleMode is optional in the preflight contract (including Preview).
+      // Recover it from the same immutable version, never from a display URL.
+      const draft = await gateway.getDraft(id, signal);
+      if (draft.id !== id || draft.articleVersionId !== preflight.article.versionId || draft.revision !== preflight.draftRevision)
+        throw new Error("稿件版本或标题已变化，请重新预检后继续。");
+      return {draftId:id, excluded, draft, preflight};
       } catch (reason) {
         return {draftId:id, excluded, batch:session.progress.accepted[id], error:reason instanceof Error ? reason : new Error("本稿预检读取失败，请重试。")};
       }
@@ -128,12 +117,21 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const blockedCount = pendingPreflights.reduce((count, value) => count + value.blockers.length + value.items.filter(item => item.blockers.length).length, 0);
   const persist = async () => {
     for (const [id, batch] of Object.entries(session.progress.accepted)) session.acceptedIds[id] = batch.id;
+    const currentKeys=Object.fromEntries(Object.entries(session.progress.requests).map(([id, request]) => [id, request.idempotencyKey]));
+    const resolved=Object.fromEntries(Object.entries(previousRequestKeys.current).filter(([id, key]) => currentKeys[id] !== key));
+    const relatedUpdates=clearResolvedReviewRequests(gateway,sessionPrefix,resolved,flow?.selections);
     const saved = JSON.stringify({acceptedBatchIds:session.acceptedIds, requests:session.progress.requests});
     if (currentSession.current === session) { acceptSavedProgress(saved); redraw(value => value + 1); }
     await flow?.saveValues?.({
+      ...relatedUpdates,
       [progressKey]:saved, batchDraftIds:draftIds, excludedDraftIds,
+      ...(groups.length ? {publishingDraftTitleModes:Object.fromEntries(groups.flatMap(group => {
+        const mode=group.preflight?.titleMode ?? group.draft?.titleMode;
+        return mode === "single" || mode === "per_media" ? [[group.draftId, mode]] : [];
+      }))} : {}),
       publishingBatchReviewPending:activeIds.some(id => !session.acceptedIds[id] || !session.progress.accepted[id] || reviewBatchNeedsAttention(session.progress.accepted[id])),
     });
+    previousRequestKeys.current=currentKeys;
   };
   const persistRef = useRef(persist);
   persistRef.current = persist;
@@ -209,12 +207,42 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
     finally { if (isCurrent()) setRefreshingCatalog(undefined); }
   };
   const reviseIds = acceptedCount ? activeIds.filter(id => !session.acceptedIds[id]) : draftIds;
+  const reviseResources = reviseIds.map(id => {
+    const group=groups.find(value=>value.draftId===id);
+    return {draftId:id, articleId:group?.preflight?.article.id ?? group?.draft?.articleId,
+      versionId:group?.preflight?.article.versionId ?? group?.draft?.articleVersionId};
+  });
   const contextualPath = (path: string, replacements: Record<string, string> = {}) => {
     const params = new URLSearchParams(routeSearch);
+    // A partial submission returns only the remaining manuscripts. Do not let
+    // old article/version parameters re-add already accepted drafts upstream.
+    if (acceptedCount && reviseResources.length) {
+      params.delete("batchArticle");
+      params.delete("batchArticleVersion");
+      params.delete("articleVersion");
+      params.delete("articleId");
+      params.set("draftId", reviseResources[0]!.draftId);
+      for (const resource of reviseResources) {
+        if (resource.articleId) params.append("batchArticle", resource.articleId);
+        if (resource.versionId) params.append("batchArticleVersion", resource.versionId);
+      }
+      if (reviseResources[0]!.versionId) params.set("articleVersion", reviseResources[0]!.versionId);
+    }
     for (const [name, value] of Object.entries(replacements)) params.set(name, value);
     return path + (params.size ? "?" + params.toString() : "");
   };
-  const reviseHref = publishingTaskUrl(withPublishingBatch(contextualPath("/publishing/drafts/" + encodeURIComponent(reviseIds[0] ?? draftId) + "/titles"), reviseIds, acceptedCount ? [] : excludedDraftIds), flow?.taskId);
+  const reviseModes = reviseIds.map(id => {
+    const group = groups.find(value => value.draftId === id);
+    return {titleMode:group?.preflight?.titleMode ?? group?.draft?.titleMode};
+  });
+  const titleStage = publishingTitleStage(reviseModes);
+  const modesKnown = Boolean(titleStage);
+  const reviseStage = titleStage === "review" ? "media" : titleStage;
+  const reviseHref = reviseStage ? publishingTaskUrl(withPublishingBatch(contextualPath(
+    "/publishing/drafts/" + encodeURIComponent(reviseIds[0]!) + "/" + reviseStage,
+    reviseStage === "media" ? {mode:"single"} : {},
+  ), reviseIds, acceptedCount ? [] : excludedDraftIds), flow?.taskId) : undefined;
+  const reviseLabel = acceptedCount ? "修改待提交稿件" : reviseStage === "media" ? "返回选择媒体" : "返回修改标题";
   const reviseArticleIds = reviseIds.map(id => {
     const group = groups.find(value => value.draftId === id);
     return group?.preflight?.article.id ?? group?.draft?.articleId;
@@ -224,44 +252,27 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
     // turn a multi-draft fix into a one-article editor by guessing missing IDs.
     if (!group.preflight || reviseArticleIds.some(id => !id)) return undefined;
     const url = new URL(contextualPath("/publishing/articles/" + encodeURIComponent(group.preflight.article.id) + "/edit", {
-      draftId:group.draftId, mode:group.preflight.titleMode ?? "per_media", from:"review",
+      draftId:group.draftId, mode:group.preflight.titleMode ?? group.draft?.titleMode ?? "per_media", from:"review",
     }), window.location.origin);
     url.searchParams.delete("batchArticle");
     for (const id of reviseArticleIds) if (id) url.searchParams.append("batchArticle", id);
     return publishingTaskUrl(withPublishingBatch(url.pathname + url.search, reviseIds, acceptedCount ? [] : excludedDraftIds), flow?.taskId);
   };
-  // Both title configuration and review are explicit pages in this route flow,
-  // including single-title drafts; retain all four workflow stages.
-  const stages = flowStagesForMode(draftIds.length > 1 ? "batch" : "per_media");
+  // Read persisted draft modes, never infer a title stage from the number of manuscripts.
+  const reviewStage = groups.length === draftIds.length
+    ? publishingTitleStage(groups.map(group => ({titleMode:group.preflight?.titleMode ?? group.draft?.titleMode}))) : undefined;
+  const stages = reviewStage ? flowStagesForMode(reviewStage === "review" ? "single" : "per_media") : undefined;
+  // One shared check table for every pending manuscript: drafts become group
+  // rows and their media rows sit directly below (batch review requirement).
+  const tableGroups = groups.filter(group => group.preflight && !group.excluded && !(session.progress.accepted[group.draftId] ?? group.batch));
+  const tableTotals = reviewBatchTotals(tableGroups.map(group => group.preflight!));
+  const tablePartial = tableGroups.some(group => { const totals = reviewBatchTotals([group.preflight!]); return totals.failedCount > 0 && totals.passedCount > 0; });
+  const tableTitleLabel = (() => { const modes = new Set(tableGroups.map(group => group.preflight!.titleMode ?? group.draft?.titleMode)); return modes.size === 1 ? ([...modes][0] === "single" ? "统一标题" : "独立标题") : "发布标题"; })();
   return <div className="publishing-review-page">
-    <PublishingPage title="发布预检与确认" description="按稿件核对冻结版本、媒体标题与费用，再确认本次发布。" busy={busy}>
-      {!flow ? <PublishingFlowSteps stages={stages} doneCount={stages.length - 1} activeIndex={stages.length - 1} /> : null}
-      {query.loading ? <PublishingLoading label="正在逐稿刷新价格与发布门禁…" /> : null}
-      {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
-      {groups.length ? <div className="publishing-review-layout">
-        <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验">
-          <header className="publishing-review-fees-head"><h2>费用与预算核验</h2></header>
-          <dl className="publishing-money-summary">
-            <div><dt>软文媒体小计</dt><dd>{totals.news.count} 项 · {formatPublishingMoney(totals.news.amount.toString())}</dd></div>
-            <div><dt>自媒体小计</dt><dd>{totals.selfMedia.count} 项 · {formatPublishingMoney(totals.selfMedia.amount.toString())}</dd></div>
-            <div><dt>预计总价</dt><dd className="is-total">{formatPublishingMoney(totals.publishTotal.toString())}</dd></div>
-            <div><dt>{session.estimatedBalance !== undefined && acceptedCount ? "预计可用余额" : "可用余额"}</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney(available.toString())}</dd></div>
-            <div><dt>本次待预占</dt><dd>{formatPublishingMoney(totals.publishTotal.toString())}</dd></div>
-            <div className="publishing-money-after"><dt>预占后预计可用</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney((available - totals.publishTotal).toString())}</dd></div>
-          </dl>
-          <p className="publishing-review-cost-note">两类小计包含待提交稿件的全部已选媒体；预计总价仅计入通过内容检查的组合。同一家媒体用于两篇稿件时计为两项。已取消稿件与已受理批次不重复计费。</p>
-          {draftIds.length > 1 ? <p className="publishing-review-cost-note">各稿件将逐篇提交；中途失败或结果待核实时会停止后续提交，已受理批次会保留。每稿提交前重新核验余额，账户余额以服务端结果为准。</p> : null}
-          {busy || query.error ? <p className="publishing-review-cost-note" role="status">{query.error ? "预检未能更新，当前显示上一次金额，请重试。" : "正在更新，请等待预检或提交完成。"}</p> : null}
-          {insufficient ? <p className="publishing-form-error" role="alert">可用余额不足以覆盖本次全部待提交组合，请调整媒体后重新预检。</p> : null}
-          {allAccepted ? <p className="publishing-notice is-success" role="status"><CheckCircle2 size={18} />全部 {acceptedCount} 篇稿件的发布请求已受理，请在下方查看各批次结果。</p> : <label className="publishing-acknowledgement">
-            <input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />
-            <span>{unknownIds.length ? "我已确认重试核实原发布请求；核实后将重新预检并确认剩余稿件。" : live ? "我已确认向 " + totals.passedCount + " 项稿件与媒体组合真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。" : "我已确认以 Preview 模拟方式提交 " + totals.passedCount + " 项稿件与媒体组合。本次不会联系供应商或产生真实费用。"}</span>
-          </label>}
-          {submitError ? <p className="publishing-form-error" role="alert">{submitError}</p> : null}
-          {attention ? <p className="publishing-form-error" role="status">已受理批次有待核实结果，后续稿件暂停提交。请查看该批次并刷新结果后继续。</p> : null}
-          {unknownIds.length ? <p className="publishing-form-error" role="status">有 {unknownIds.length} 篇稿件的请求待确认。核实前暂停修改标题和刷新目录；刷新受理状态也会保留原提交请求。</p> : null}
-        </section>
-        <div className="publishing-review-main">
+    <PublishingPage title="发布内容检查与费用核验" layout="review" busy={busy}>
+      {!flow && stages ? <PublishingFlowSteps stages={stages} doneCount={stages.length - 1} activeIndex={stages.length - 1} /> : null}
+      <div className="publishing-review-layout">
+        <section className="publishing-review-main">
           {groups.map((group, index) => {
             const preflight = group.preflight;
             const batch = session.progress.accepted[group.draftId] ?? group.batch;
@@ -281,23 +292,11 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
                 {preflight ? <button className="publishing-button publishing-button-secondary" type="button" aria-controls={previewId} aria-expanded={expanded.has(group.draftId)} onClick={() => setExpanded(current => {const next=new Set(current); next.has(group.draftId) ? next.delete(group.draftId) : next.add(group.draftId); return next;})}><ExternalLink size={15} />{expanded.has(group.draftId) ? "收起冻结正文" : "查看冻结正文"}</button> : null}
               </section>
               {preflight && expanded.has(group.draftId) ? <section id={previewId} className="publishing-panel publishing-frozen-preview" aria-label={title + "冻结正文预览"}><header><div><h2>{title}</h2><p>不可变版本 v{preflight.article.version} · {preflight.article.hash}</p></div><span>{preflight.article.imageCount} 张冻结图片</span></header><div className="publishing-frozen-preview-body" dangerouslySetInnerHTML={{__html:preflight.article.bodyHtml}} /></section> : null}
-              {group.excluded ? <div className="publishing-panel publishing-review-group-status"><strong>本稿未纳入发布</strong><p>已取消全部媒体，不执行预检、不校验标题，也不产生本次费用。返回标题页可重新勾选。</p></div> : batch ? <div className="publishing-panel publishing-review-group-status" role="status">
+              {group.excluded ? <div className="publishing-panel publishing-review-group-status"><strong>本稿未纳入发布</strong><p>已取消全部媒体，不执行预检、不校验标题，也不产生本次费用。返回修改可重新选择媒体。</p></div> : batch ? <div className="publishing-panel publishing-review-group-status" role="status">
                 <strong>发布请求已受理 · {batchStatus(batch)}</strong><p>{batch.itemCount} 项 · {formatPublishingMoney(batch.totalTenThousandths)} · 批次 {batch.id}</p>
                 <Link className="publishing-button publishing-button-secondary" href={publishingTaskUrl("/publishing/publications/" + encodeURIComponent(batch.id), flow?.taskId)}>查看本稿发布结果<ExternalLink size={15} /></Link>
                 <ul className="publishing-review-receipts">{batch.items.map(item => <li key={item.id}><strong>{item.media.name}</strong><span>{item.title}</span><span>{({queued:"排队中",submitting:"正在提交",processing:"处理中",success:"发布成功",failed:"发布失败",auth_blocked:"授权待处理",submission_unknown:"结果待核实",action_required:"待处理"})[item.status]}</span>{item.resultUrl ? <a href={item.resultUrl} target="_blank" rel="noreferrer">查看发布链接</a> : null}</li>)}</ul>
               </div> : uncertain && !preflight ? <div className="publishing-panel publishing-review-group-status"><strong>发布请求待确认</strong><p>将使用原请求核实受理结果；本稿尚未计作发布成功。</p><ul>{items.map(item => <li key={item.media.id}>{item.media.name} · {item.title}</li>)}</ul></div> : preflight ? <>
-                <section className="publishing-panel publishing-review-table" aria-labelledby={"publishing-review-results-" + index}>
-                  <header className="publishing-review-results-head"><h2 id={"publishing-review-results-" + index}>发布内容检查结果</h2><p className="publishing-review-counts">通过 <strong>{groupTotals.passedCount}</strong> · 不通过 <strong>{groupTotals.failedCount}</strong> · 本稿待预占 <strong>{formatPublishingMoney(groupTotals.publishTotal.toString())}</strong>
-                    {groupTotals.failedCount ? <span className="publishing-review-excluded">未纳入本次发布：{groupTotals.failedCount} 项 · {formatPublishingMoney(groupTotals.excludedTotal.toString())}</span> : null}
-                    {groupTotals.failedCount && groupTotals.passedCount ? <span className="publishing-review-partial">部分发布：未通过组合将先移出本稿发布草稿</span> : null}</p></header>
-                  <div className="publishing-review-head publishing-review-row"><span>媒体</span><span>{preflight.titleMode === "single" ? "统一标题" : "独立标题"}</span><span>冻结单价</span><span>内容检查</span><span>状态</span></div>
-                  {preflight.items.map(item => <div className="publishing-review-row" key={group.draftId + ":" + item.media.id}>
-                    <span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>FrontMind 媒体号：{item.media.id}</small><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span></span></span>
-                    <span data-label="发布标题">{item.title}</span><strong data-label="冻结单价">{formatPublishingMoney(item.priceTenThousandths)}</strong><span data-label="内容检查">{item.media.capability === "text" ? "仅纯文字" : item.media.capability === "image" ? "支持图片" : "图片要求未注明"}</span>
-                    <span data-label="状态">{item.blockers.length ? <span className="publishing-status is-danger">未通过</span> : <span className="publishing-status is-success"><CheckCircle2 size={14} />通过</span>}</span>
-                    {item.warnings.length ? <p className="publishing-row-warning"><AlertTriangle size={15} />{item.warnings.join("；")}</p> : null}
-                  </div>)}
-                </section>
                 {preflight.warnings.length ? <div className="publishing-notice is-warning"><AlertTriangle size={21} /><div><strong>有 {preflight.warnings.length} 项内容提示</strong><p>{[...new Set(preflight.warnings)].join("；")}</p></div></div> : null}
                 {blockers.length ? <div className="publishing-notice is-danger" role="alert"><AlertTriangle size={21} /><div><strong>{preflight.blockers.length || !groupTotals.passedCount ? "本稿当前不能发布" : "本稿部分组合未通过"}</strong><p>{blockers.join("；")}</p>
                   {refreshable(preflight) ? <button className="publishing-button publishing-button-secondary" type="button" disabled={busy || Boolean(unknownIds.length)} onClick={() => acceptCatalogChanges(group)}>{refreshingCatalog === group.draftId ? "正在刷新目录快照…" : "接受本稿当前目录并重新预检"}</button> : null}
@@ -306,15 +305,64 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
               </> : null}
             </section>;
           })}
-        </div>
+          {tableGroups.length || query.loading || query.error || !allAccepted || attention ? <section className="publishing-panel publishing-review-table" aria-labelledby="publishing-content-check-heading">
+            <header className="publishing-review-results-head">
+              <div className="publishing-review-results-title">
+                <h2 id="publishing-content-check-heading">发布内容检查</h2>
+                {!allAccepted || attention ? <button type="button" className="publishing-button publishing-button-secondary" disabled={busy} aria-busy={query.loading || query.refreshing || undefined} onClick={() => {setAcknowledged(false); session.estimatedBalance=undefined; query.reload();}}>{query.loading || query.refreshing ? "正在检查…" : unknownIds.length ? "刷新受理状态" : "一键预检"}</button> : null}
+              </div>
+              {tableGroups.length ? <p className="publishing-review-counts">通过 <strong>{tableTotals.passedCount}</strong> · 不通过 <strong>{tableTotals.failedCount}</strong>
+                {tableTotals.failedCount ? <span className="publishing-review-excluded">未纳入本次发布：{tableTotals.failedCount} 项 · {formatPublishingMoney(tableTotals.excludedTotal.toString())}</span> : null}
+                {tablePartial ? <span className="publishing-review-partial">部分发布：未通过组合将先移出对应稿件发布草稿</span> : null}</p> : null}
+            </header>
+            {query.loading ? <PublishingLoading label="正在逐稿刷新价格与发布门禁…" /> : null}
+            {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
+            {tableGroups.length ? <>
+              <div className="publishing-review-head publishing-review-row"><span>媒体</span><span>{tableTitleLabel}</span><span>内容检查</span><span>状态</span></div>
+              {tableGroups.map((group, index) => { const preflight = group.preflight!; const groupTotals = reviewBatchTotals([preflight]); return <Fragment key={group.draftId}>
+                {tableGroups.length > 1 ? <div className="publishing-review-draft-row"><span className="publishing-review-draft-index">稿件 {index + 1}</span><strong>{groupTitle(group)}</strong><span>版本 v{preflight.article.version}</span><span className="publishing-review-draft-counts">通过 {groupTotals.passedCount} · 不通过 {groupTotals.failedCount}</span></div> : null}
+                {preflight.items.map(item => <div className="publishing-review-row" key={item.media.id}>
+                  <span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>FrontMind 媒体号：{item.media.id}</small><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span></span></span>
+                  <span data-label="发布标题">{item.title}</span><span data-label="内容检查">{item.media.capability === "text" ? "仅纯文字" : item.media.capability === "image" ? "支持图片" : "图片要求未注明"}</span>
+                  <span data-label="状态">{item.blockers.length ? <span className="publishing-status is-danger">未通过</span> : <span className="publishing-status is-success"><CheckCircle2 size={14} />通过</span>}</span>
+                  {item.warnings.length ? <p className="publishing-row-warning"><AlertTriangle size={15} />{item.warnings.join("；")}</p> : null}
+                </div>)}
+              </Fragment>; })}
+            </> : null}
+          </section> : null}
+        </section>
+        {groups.length ? <>
+        <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验">
+          <header className="publishing-review-fees-head"><h2>费用与预算核验</h2></header>
+          <dl className="publishing-money-summary">
+            <div><dt>软文媒体小计</dt><dd>{totals.news.count} 项 · {formatPublishingMoney(totals.news.amount.toString())}</dd></div>
+            <div><dt>自媒体小计</dt><dd>{totals.selfMedia.count} 项 · {formatPublishingMoney(totals.selfMedia.amount.toString())}</dd></div>
+            <div><dt>预计总价</dt><dd className="is-total">{formatPublishingMoney(totals.publishTotal.toString())}</dd></div>
+            <div><dt>{session.estimatedBalance !== undefined && acceptedCount ? "预计可用余额" : "可用余额"}</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney(available.toString())}</dd></div>
+            <div><dt>本次待预占</dt><dd>{formatPublishingMoney(totals.publishTotal.toString())}</dd></div>
+            <div className="publishing-money-after"><dt>预占后预计可用</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney((available - totals.publishTotal).toString())}</dd></div>
+          </dl>
+          <p className="publishing-review-cost-note">两类小计包含待提交稿件的全部已选媒体；预计总价仅计入通过内容检查的组合。同一家媒体用于两篇稿件时计为两项。已取消稿件与已受理批次不重复计费。</p>
+          {draftIds.length > 1 ? <p className="publishing-review-cost-note">各稿件将逐篇提交；中途失败或结果待核实时会停止后续提交，已受理批次会保留。每稿提交前重新核验余额，账户余额以服务端结果为准。</p> : null}
+          {busy || query.error ? <p className="publishing-review-cost-note" role="status">{query.error ? "预检未能更新，当前显示上一次金额，请重试。" : "正在更新，请等待预检或提交完成。"}</p> : null}
+          {insufficient ? <p className="publishing-form-error" role="alert">可用余额不足以覆盖本次全部待提交组合，请调整媒体后重新预检。</p> : null}
+          {allAccepted ? <p className="publishing-notice is-success" role="status"><CheckCircle2 size={18} />全部 {acceptedCount} 篇稿件的发布请求已受理，请在上方查看各批次结果。</p> : <label className="publishing-acknowledgement">
+            <input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />
+            <span>{unknownIds.length ? "我已确认重试核实原发布请求；核实后将重新预检并确认剩余稿件。" : live ? "我已确认向 " + totals.passedCount + " 项稿件与媒体组合真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。" : "我已确认以 Preview 模拟方式提交 " + totals.passedCount + " 项稿件与媒体组合。本次不会联系供应商或产生真实费用。"}</span>
+          </label>}
+          {submitError ? <p className="publishing-form-error" role="alert">{submitError}</p> : null}
+          {attention ? <p className="publishing-form-error" role="status">已受理批次有待核实结果，后续稿件暂停提交。请查看该批次并刷新结果后继续。</p> : null}
+          {unknownIds.length ? <p className="publishing-form-error" role="status">有 {unknownIds.length} 篇稿件的请求待确认。核实前暂停修改标题和刷新目录；刷新受理状态也会保留原提交请求。</p> : null}
+        </section>
         <footer className="publishing-workflow-footer">
-          {unknownIds.length || submitting ? <button type="button" className="publishing-button publishing-button-secondary" disabled><ArrowLeft size={16} />返回修改标题</button> : !allAccepted ? onRevise && !acceptedCount ? <button type="button" className="publishing-button publishing-button-secondary" onClick={onRevise}><ArrowLeft size={16} />返回修改标题</button> : <Link className="publishing-button publishing-button-secondary" href={reviseHref}><ArrowLeft size={16} />{acceptedCount ? "修改待提交稿件" : "返回修改标题"}</Link> : <span role="status">已受理批次将继续更新结果</span>}
-          {!allAccepted || attention ? <div className="publishing-confirm-actions">
-            <button type="button" className="publishing-button publishing-button-secondary" disabled={busy} onClick={() => {setAcknowledged(false); session.estimatedBalance=undefined; query.reload();}}>{unknownIds.length ? "刷新受理状态" : "一键预检"}</button>
-            {!allAccepted ? <button type="button" className="publishing-button publishing-button-accent" disabled={!acknowledged || (!canPublish && !canRecover)} onClick={() => unknownIds.length ? void submit() : setDialogOpen(true)}>{submitting ? "正在提交…" : unknownIds.length ? "重试确认受理结果" : (live ? "确认发布" : "模拟发布") + " " + totals.passedCount + " 项"}</button> : null}
+          {allAccepted ? <span role="status">已受理批次将继续更新结果</span> : unknownIds.length || submitting || !reviseHref ? <button type="button" className="publishing-button publishing-button-secondary" disabled><ArrowLeft size={16} />{reviseLabel}</button> : onRevise && !acceptedCount ? <button type="button" className="publishing-button publishing-button-secondary" onClick={() => onRevise(reviseHref)}><ArrowLeft size={16} />{reviseLabel}</button> : <Link className="publishing-button publishing-button-secondary" href={reviseHref}><ArrowLeft size={16} />{reviseLabel}</Link>}
+          {!allAccepted && !modesKnown ? <p className="publishing-form-error" role="status">稿件模式尚未恢复，请重试读取本次稿件后再返回修改。</p> : null}
+          {!allAccepted ? <div className="publishing-confirm-actions">
+            <button type="button" className="publishing-button publishing-button-accent" disabled={!acknowledged || (!canPublish && !canRecover)} onClick={() => unknownIds.length ? void submit() : setDialogOpen(true)}>{submitting ? "正在提交…" : unknownIds.length ? "重试确认受理结果" : (live ? "确认发布" : "模拟发布") + " " + totals.passedCount + " 项"}</button>
           </div> : null}
         </footer>
-      </div> : null}
+        </> : null}
+      </div>
       <PublishingConfirmDialog inline={Boolean(flow)} open={dialogOpen} title={live ? "这是一次真实投稿" : "确认 Preview 模拟发布"}
         description={(live ? "提交后将按逐稿预检快照预占余额，供应商可能立即接单，已创建的外部订单不保证可以撤回。" : "只生成确定性 Mock 批次，不会请求外部供应商。") + (draftIds.length > 1 ? "各稿件逐篇提交，中途失败将保留已受理批次并停止后续稿件。" : "") + (totals.failedCount ? "本次仅提交通过预检的 " + totals.passedCount + " 项，未通过的 " + totals.failedCount + " 项不提交。" : "")}
         confirmLabel={(live ? "提交并预占" : "确认模拟发布") + " " + formatPublishingMoney(totals.publishTotal.toString())} busy={submitting} wide onCancel={() => setDialogOpen(false)} onConfirm={submit}>

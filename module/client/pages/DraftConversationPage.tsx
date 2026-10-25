@@ -29,7 +29,7 @@ export default function DraftConversationPage({
     flow?.taskId,
   );
   // The URL owns the stage; stale presentation choices cannot override Back or deep links.
-  const revise = () => requestWorkspaceNavigation(() => navigate(stagePath("titles")));
+  const revise = (path: string) => requestWorkspaceNavigation(() => navigate(path));
   const saved = (reviewPath?: string) => navigate(reviewPath ?? stagePath("review"));
   if (!flow)
     return initialStage === "titles" ? (
@@ -39,24 +39,17 @@ export default function DraftConversationPage({
     );
   return (
     <div className="publishing-page publishing-flow-step" data-publishing-stage={initialStage}>
-      <WorkflowCompleted
-        id="publishing-input"
-        summary="稿件与媒体已准备好，可继续配置本次投放"
-      />
       {initialStage === "titles" ? (
+        <>
+        <WorkflowCompleted
+          id="publishing-input"
+          summary="稿件与媒体已准备好，可继续配置本次投放"
+        />
         <WorkflowSection id="publishing-titles" title="配置发布标题">
           <TitlesPage draftId={draftId} onSaved={saved} />
         </WorkflowSection>
+        </>
       ) : (
-        <>
-        <WorkflowCompleted
-          id="publishing-titles-saved"
-          summary="发布标题已确认"
-        />
-        <WorkflowSection
-          id="publishing-preflight"
-          title="预检与发布"
-        >
           <ReviewPage
             draftId={draftId}
             onRevise={revise}
@@ -67,8 +60,6 @@ export default function DraftConversationPage({
               ));
             }}
           />
-        </WorkflowSection>
-        </>
       )}
     </div>
   );

@@ -57,6 +57,9 @@ class PublishingRepository {
   // nor the catalog/capability tables carry owner/workspace-specific visibility.
   // A future scoped catalog MUST include that scope here before reusing results.
   mediaFacetsCache = new MediaCatalogPromiseCache<Awaited<ReturnType<PublishingRepository["loadPublisherMediaFacets"]>>>();
+  // The kind-count SUM scans every active resource row; it is invariant for one
+  // catalogue identity, so reuse it instead of rescanning on every list call.
+  mediaCatalogCountsCache = new MediaCatalogPromiseCache<{ news: number; selfMedia: number }>();
 
   async createPublisherObjectLease(
     ownerId: string,
@@ -1028,16 +1031,31 @@ class PublishingRepository {
   async loadPublisherCatalogSnapshot(database: Database | Transaction) {
     const [runtime] = await database.select().from(publisherRuntimeState)
       .where(eq(publisherRuntimeState.id, "kol")).limit(1);
-    const [counts] = await database.select({
-      news: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'news' THEN 1 ELSE 0 END), 0)`,
-      selfMedia: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'self_media' THEN 1 ELSE 0 END), 0)`,
-    }).from(publisherMediaResources).where(and(
-      eq(publisherMediaResources.isActive, true),
-      inArray(publisherMediaResources.mediaKind, ["news", "self_media"]),
-    ));
-    const news = Number(counts?.news);
-    const selfMedia = Number(counts?.selfMedia);
-    if (!counts || !Number.isSafeInteger(news) || news < 0 ||
+    // The aggregate below is the expensive part of every media list request
+    // (a full scan of the active catalogue). Its result cannot change while the
+    // runtime identity (revision, sync timestamp, completeness) stays the same,
+    // so compute once per identity; a catalogue sync moves the identity and the
+    // next request recomputes. Rows read in the same transaction as the counts
+    // when the counts were just computed; reused counts are at most as stale as
+    // the facets cache already tolerates across a sync.
+    const identity = JSON.stringify([
+      runtime?.activeCatalogRevision ?? null,
+      runtime?.catalogSyncedAt?.getTime() ?? null,
+      runtime?.catalogKindComplete ?? false,
+    ]);
+    const cached = await this.mediaCatalogCountsCache.getOrLoad(identity, async () => {
+      const [row] = await database.select({
+        news: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'news' THEN 1 ELSE 0 END), 0)`,
+        selfMedia: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.mediaKind} = 'self_media' THEN 1 ELSE 0 END), 0)`,
+      }).from(publisherMediaResources).where(and(
+        eq(publisherMediaResources.isActive, true),
+        inArray(publisherMediaResources.mediaKind, ["news", "self_media"]),
+      ));
+      return { news: Number(row?.news), selfMedia: Number(row?.selfMedia) };
+    });
+    const news = cached.news;
+    const selfMedia = cached.selfMedia;
+    if (!Number.isSafeInteger(news) || news < 0 ||
         !Number.isSafeInteger(selfMedia) || selfMedia < 0 || !Number.isSafeInteger(news + selfMedia)) {
       throw new RepositoryError("INVALID_STATE", "Media inventory counts are unavailable");
     }
@@ -1067,8 +1085,8 @@ class PublishingRepository {
     const page = Math.max(input.page ?? 1, 1);
     const legacyCursorMode =
       input.page === undefined && input.pageSize === undefined;
-    // The common all/category-only query has exactly the inventory predicates.
-    // Reuse counts computed IN THIS transaction, never a TTL-cached inventory.
+    // The common all/category-only query has exactly the inventory predicates,
+    // so reuse the catalogue-identity-cached aggregate instead of recounting.
     // Capability has a unique media_resource_id, so its LEFT JOIN cannot add rows.
     const inventoryOnly = !input.includeInactive && conditions.length === (input.kind ? 3 : 2);
     let total: number;
@@ -1077,10 +1095,14 @@ class PublishingRepository {
         : input.kind === "self_media" ? catalog.kindCounts.selfMedia
         : catalog.kindCounts.news + catalog.kindCounts.selfMedia;
     } else {
-      const [countRow] = await database.select({ total: count() })
-        .from(publisherMediaResources)
-        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
-        .where(and(...conditions));
+      // Only the imageSupport filter reads the capability table; the join is
+      // 1:1 unique so it never changes the count and can be skipped otherwise.
+      const countBase = database.select({ total: count() })
+        .from(publisherMediaResources);
+      const countQuery = input.imageSupport
+        ? countBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        : countBase;
+      const [countRow] = await countQuery.where(and(...conditions));
       total = Number(countRow?.total ?? 0);
     }
     const pageConditions = input.cursor
@@ -1089,24 +1111,39 @@ class PublishingRepository {
     const ordering = legacyCursorMode
       ? ([asc(publisherMediaResources.id)] as const)
       : publisherMediaOrdering(input.sort);
-    const rows = await database
-      .select({
-        resource: publisherMediaResources,
-        imageSupport: publisherMediaCapabilities.imageSupport,
-      })
+    // Late row lookup: ordering (five mixed-direction keys by default) cannot
+    // use an index, so sorting full resource rows (rawPayload included) made
+    // every page touch the whole wide catalogue. Sort and page ids only, then
+    // hydrate exactly the page rows and their capability.
+    const idRows = await database
+      .select({ id: publisherMediaResources.id })
       .from(publisherMediaResources)
-      .leftJoin(
-        publisherMediaCapabilities,
-        eq(
-          publisherMediaCapabilities.mediaResourceId,
-          publisherMediaResources.id,
-        ),
-      )
       .where(and(...pageConditions))
       .orderBy(...ordering)
       .limit(legacyCursorMode ? pageSize + 1 : pageSize)
       .offset(legacyCursorMode ? 0 : (page - 1) * pageSize);
-    const pageRows = rows.slice(0, pageSize);
+    const pageIds = idRows.slice(0, pageSize).map((row) => row.id);
+    const byId = new Map<string, { resource: typeof publisherMediaResources.$inferSelect; imageSupport: typeof publisherMediaCapabilities.$inferSelect.imageSupport | null }>();
+    if (pageIds.length) {
+      const hydrated = await database
+        .select({
+          resource: publisherMediaResources,
+          imageSupport: publisherMediaCapabilities.imageSupport,
+        })
+        .from(publisherMediaResources)
+        .leftJoin(
+          publisherMediaCapabilities,
+          eq(
+            publisherMediaCapabilities.mediaResourceId,
+            publisherMediaResources.id,
+          ),
+        )
+        .where(inArray(publisherMediaResources.id, pageIds));
+      for (const row of hydrated) byId.set(row.resource.id, row);
+    }
+    const pageRows = pageIds
+      .map((id) => byId.get(id))
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
     return {
       ...catalog,
       items: pageRows.map(({ resource, imageSupport }) =>
@@ -1116,7 +1153,7 @@ class PublishingRepository {
       page,
       pageSize,
       hasMore: legacyCursorMode
-        ? rows.length > pageSize
+        ? idRows.length > pageSize
         : page * pageSize < Number(total),
       legacyCursorMode,
     };
@@ -1136,10 +1173,14 @@ class PublishingRepository {
       runtime?.catalogKindComplete,
       facetInput,
     ]);
-    const result = await this.mediaFacetsCache.getOrLoad(key, () => this.db.transaction(
-      (tx) => this.loadPublisherMediaFacets(facetInput, tx),
-      { isolationLevel: "repeatable read", withConsistentSnapshot: true },
-    ));
+    // Run the facet aggregations on the pool, not inside one snapshot
+    // transaction: a single connection serializes a dozen full-catalog scans
+    // (the observed 16s cold filter load). Each pool connection still reads a
+    // statement-consistent catalogue; a sync landing mid-load is handled by the
+    // identity check below exactly as before.
+    const result = await this.mediaFacetsCache.getOrLoad(key, () =>
+      this.loadPublisherMediaFacets(facetInput),
+    );
     // Sync may activate between the lightweight identity read and the snapshot.
     // Return its internally coherent result, but never retain it under the wrong key.
     if (result.catalogRevision !== (runtime?.activeCatalogRevision ?? null) ||
@@ -1156,6 +1197,10 @@ class PublishingRepository {
   ) {
     const conditions = this.mediaConditions(input);
     const where = and(...conditions);
+    // Only the imageSupport condition reads the capability table. Elsewhere the
+    // 1:1 unique join cannot change any grouped count, so skip it: the join
+    // cost per full-catalog aggregation was a large share of the facet load.
+    const needsCapabilityJoin = input.imageSupport !== undefined;
     const facet = async (
       column:
         | typeof publisherMediaResources.platform
@@ -1167,10 +1212,13 @@ class PublishingRepository {
         | typeof publisherMediaResources.entryLevel
         | typeof publisherMediaResources.linkType,
     ) => {
-      const rows = await database
+      const facetBase = database
         .select({ value: column, total: count() })
-        .from(publisherMediaResources)
-        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        .from(publisherMediaResources);
+      const facetQuery = needsCapabilityJoin
+        ? facetBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        : facetBase;
+      const rows = await facetQuery
         .where(and(where, isNotNull(column)))
         .groupBy(column)
         .orderBy(desc(count()), asc(column));
@@ -1196,18 +1244,21 @@ class PublishingRepository {
       advancedCountRows,
       recommendationTagRows,
     ] = await Promise.all([
-      database
-        .select({
-          minimum: sql<
-            bigint | null
-          >`MIN(${publisherMediaResources.priceTenThousandths})`,
-          maximum: sql<
-            bigint | null
-          >`MAX(${publisherMediaResources.priceTenThousandths})`,
-        })
-        .from(publisherMediaResources)
-        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
-        .where(where),
+      (async () => {
+        const priceBase = database
+          .select({
+            minimum: sql<
+              bigint | null
+            >`MIN(${publisherMediaResources.priceTenThousandths})`,
+            maximum: sql<
+              bigint | null
+            >`MAX(${publisherMediaResources.priceTenThousandths})`,
+          })
+          .from(publisherMediaResources);
+        return needsCapabilityJoin
+          ? priceBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id)).where(where)
+          : priceBase.where(where);
+      })(),
       facet(publisherMediaResources.platform),
       facet(publisherMediaResources.taxonomy),
       facet(publisherMediaResources.mediaType),
@@ -1229,9 +1280,10 @@ class PublishingRepository {
         .where(where)
         .groupBy(imageSupportValue)
         .orderBy(asc(imageSupportValue)),
-      database
-        .select({
-          pcWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
+      (async () => {
+        const advancedCountsBase = database
+          .select({
+            pcWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
           pcWeight2: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 2 THEN 1 ELSE 0 END), 0)`,
           pcWeight3: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 3 THEN 1 ELSE 0 END), 0)`,
           pcWeight4: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 4 THEN 1 ELSE 0 END), 0)`,
@@ -1256,15 +1308,22 @@ class PublishingRepository {
           festivalTrue: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = TRUE THEN 1 ELSE 0 END), 0)`,
           festivalFalse: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = FALSE THEN 1 ELSE 0 END), 0)`,
         })
-        .from(publisherMediaResources)
-        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
-        .where(where),
+        .from(publisherMediaResources);
+      const advancedBase = needsCapabilityJoin
+        ? advancedCountsBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        : advancedCountsBase;
+      return advancedBase.where(where);
+    })(),
       // Group complete stored tag arrays in SQL; no provider calls or client page scan.
-      database.select({ tags: recommendationTagsValue, total: count() })
-        .from(publisherMediaResources)
-        .leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
-        .where(and(where, sql`JSON_TYPE(${recommendationTagsValue}) = 'ARRAY'`))
-        .groupBy(recommendationTagsValue),
+      (async () => {
+        const tagsBase = database.select({ tags: recommendationTagsValue, total: count() })
+          .from(publisherMediaResources);
+        return (needsCapabilityJoin
+          ? tagsBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+          : tagsBase)
+          .where(and(where, sql`JSON_TYPE(${recommendationTagsValue}) = 'ARRAY'`))
+          .groupBy(recommendationTagsValue);
+      })(),
     ]);
     const catalog = await this.loadPublisherCatalogSnapshot(database);
     const prices = priceRows[0];

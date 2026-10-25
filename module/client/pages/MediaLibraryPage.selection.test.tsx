@@ -95,6 +95,14 @@ function gatewayFixture(items = [media("a"), media("b")], detail = article(), in
     saved = { ...draft(items.filter((item) => ids.includes(item.id)), revision + 1), articleVersionId: saved?.articleVersionId ?? "version-1", articleContainsImages: saved?.articleContainsImages ?? false, titleMode: saved?.titleMode ?? "single" };
     return saved;
   });
+  const saveDraftTitles = vi.fn<PublisherGateway["saveDraftTitles"]>(async (_id, input) => {
+    if (!saved || !("expectedRevision" in input) || typeof input.expectedRevision !== "number") throw new Error("未读取当前投放草稿");
+    const update = input as import("../types").SaveDraftTitlesInput;
+    if (saved.revision !== update.expectedRevision) throw new Error("版本已变化");
+    saved = { ...saved, revision: saved.revision + 1, titleMode: update.mode, sharedTitle: update.sharedTitle,
+      items: saved.items.map(item => ({ ...item, title: update.titles[item.media.id] })) };
+    return saved;
+  });
   const getArticle = vi.fn<PublisherGateway["getArticle"]>(async () => detail);
   const getArticleVersion = vi.fn<PublisherGateway["getArticleVersion"]>(async (versionId) => {
     const version = detail.versions.find((candidate) => candidate.id === versionId);
@@ -104,9 +112,9 @@ function gatewayFixture(items = [media("a"), media("b")], detail = article(), in
   const gateway = {
     listMedia: vi.fn<PublisherGateway["listMedia"]>(async (filters) => ({ items, total: items.length, page: filters.page, pageSize: filters.pageSize, catalog })),
     getMediaFacets: vi.fn(async () => facets), listArticles: vi.fn(async () => [detail]), getArticle, getArticleVersion,
-    getDraft, createDraft, updateDraftMedia,
+    getDraft, createDraft, updateDraftMedia, saveDraftTitles,
   } as unknown as PublisherGateway;
-  return { gateway, getArticle, getArticleVersion, getDraft, createDraft, updateDraftMedia };
+  return { gateway, getArticle, getArticleVersion, getDraft, createDraft, updateDraftMedia, saveDraftTitles };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -294,7 +302,7 @@ describe("media selection context and persistence", () => {
   });
 
   // Batch entries hold one common selection for the whole group; per-media drafts are
-  // only created when the batch is confirmed (always per_media — batchMediaSelection.test.ts).
+  // only created when the batch is confirmed. Existing per-draft modes are retained.
   it('holds the batch selection instead of creating the first draft immediately', async () => {
     const fixture = gatewayFixture();
     harness(fixture.gateway, '/publishing/media/third?articleVersion=version-1&mode=batch');
@@ -805,5 +813,59 @@ describe("media catalogue inventory, filters and cart integration", () => {
     });
     expect(screen.queryByRole("checkbox", { name: "选择 媒体 news-0" })).toBeNull();
     expect(count()).toBe("0");
+  });
+});
+
+describe("upstream title-mode handoff", () => {
+  it("saves a newer upstream single-title decision before entering review from an older per-media draft", async () => {
+    const original = { ...draft([media("a")]), titleMode: "per_media" as const, sharedTitle: undefined };
+    original.items[0].title = "旧媒体独立标题";
+    const fixture = gatewayFixture([media("a")], article({ title: "上游确认的正式标题" }), original);
+    const currentFlow = flow();
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?mode=multi&titleMode=single&articleVersion=version-1", currentFlow);
+    const next = await screen.findByRole("button", { name: "预检发布" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(next);
+    await waitFor(() => expect(currentFlow.handoff).toHaveBeenCalled());
+    expect(fixture.saveDraftTitles).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      mode: "single", sharedTitle: "上游确认的正式标题", titles: { a: "上游确认的正式标题" }, expectedRevision: 1,
+    }));
+    expect(currentFlow.handoff).toHaveBeenCalledWith(expect.objectContaining({ route: expect.stringContaining("/drafts/draft-1/review?") }));
+    expect(vi.mocked(currentFlow.handoff).mock.calls[0][0].route).not.toContain("titleMode=");
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("keeps media and stays in selection when the required title save fails", async () => {
+    const original = { ...draft([media("a")]), titleMode: "per_media" as const };
+    const fixture = gatewayFixture([media("a")], article(), original);
+    fixture.saveDraftTitles.mockRejectedValueOnce(new Error("标题尚未写入"));
+    const currentFlow = flow();
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?titleMode=single&articleVersion=version-1", currentFlow);
+    const next = await screen.findByRole("button", { name: "预检发布" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(next);
+    await screen.findByText("标题尚未写入");
+    expect(currentFlow.handoff).not.toHaveBeenCalled();
+    expect(choice("a").checked).toBe(true);
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("routes two existing single-title manuscripts directly to one grouped review", async () => {
+    const rows = ["a", "b"].map(id => ({ ...draft([media("shared")]), id: `draft-${id}`, articleId: `article-${id}`,
+      articleVersionId: `version-${id}`, sharedTitle: `标题${id}`, items: [{ media: media("shared"), title: `标题${id}` }] }));
+    const fixture = gatewayFixture([media("shared")]);
+    fixture.gateway.getDraft = vi.fn<PublisherGateway["getDraft"]>(async id => rows.find(item => item.id === id)!);
+    fixture.gateway.getArticleVersion = vi.fn<PublisherGateway["getArticleVersion"]>(async id => ({ id, version: 1, hash: id, containsImages: false, frozen: true, createdAt: timestamp, createdBy: "账号" }));
+    const currentFlow = flow();
+    harness(fixture.gateway, "/publishing/drafts/draft-a/media/third?mode=batch&batchDraft=draft-a&batchDraft=draft-b", currentFlow);
+    const next = await screen.findByRole("button", { name: "预检发布" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(next);
+    await waitFor(() => expect(currentFlow.handoff).toHaveBeenCalled());
+    const route = new URL(vi.mocked(currentFlow.handoff).mock.calls[0][0].route, window.location.origin);
+    expect(route.pathname).toBe("/publishing/drafts/draft-a/review");
+    expect(route.searchParams.getAll("batchDraft")).toEqual(["draft-a", "draft-b"]);
+    expect(fixture.saveDraftTitles).not.toHaveBeenCalled();
+    expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 });

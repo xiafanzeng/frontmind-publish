@@ -40,11 +40,14 @@ it.each(["single", "multi"])("opens the media overview from an already frozen %s
   render(<Router hook={location.hook} searchHook={location.searchHook}><PublishingGatewayProvider gateway={gateway}><ArticleEditorPage articleId="article-1"/></PublishingGatewayProvider></Router>);
   const choose = await screen.findByTitle("进入媒体选择首页");
   await waitFor(() => expect((choose as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.getByRole("list", { name: "发布步骤" }).children).toHaveLength(mode === "single" ? 3 : 4);
   fireEvent.click(choose);
+  await waitFor(() => expect(new URL(location.history.at(-1)!, window.location.origin).pathname).toBe("/publishing/media"));
   const destination = new URL(location.history.at(-1)!, window.location.origin);
   expect(destination.pathname).toBe("/publishing/media");
   expect(destination.searchParams.get("articleVersion")).toBe("version-1");
   expect(destination.searchParams.get("mode")).toBe(mode);
+  expect(destination.searchParams.get("titleMode")).toBe(mode === "single" ? "single" : "per_media");
   expect(destination.searchParams.get("enterpriseProjectId")).toBe("project-1");
   expect(destination.searchParams.get("operatorOwnerId")).toBe("9");
   expect(freezeArticle).not.toHaveBeenCalled();

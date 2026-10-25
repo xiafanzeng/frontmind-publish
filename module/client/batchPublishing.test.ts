@@ -66,4 +66,28 @@ describe("ordered batch navigation", () => {
     const editor = new URL(publishingTaskResumePath("articles", state), "https://workspace.invalid");
     expect(editor.searchParams.get("draftId")).toBe("old-a");
   });
+  it("resumes a saved all-single batch directly at review without a titles-completed record", () => {
+    const route = publishingTaskResumePath("publishing", { resources: [], step: "media-selection", values: {
+      batchDraftIds: ["a", "b"], publishingDraftTitleModes: { a: "single", b: "single" },
+    } });
+    expect(route).toContain("/publishing/drafts/a/review");
+    expect(readPublishingBatch("a", route.split("?")[1]!).draftIds).toEqual(["a", "b"]);
+  });
+  it("does not treat an incomplete saved mode map as an all-single group", () => {
+    expect(publishingTaskResumePath("publishing", { resources: [], step: "", values: {
+      batchDraftIds: ["a", "b"], publishingDraftTitleModes: { a: "single" },
+    } })).toContain("/publishing/drafts/a/titles");
+  });
+  it("restores an unbound editor choice but does not overwrite a bound draft from old task mode", () => {
+    const values = { editorMode: "multi", titleMode: "per_media" };
+    const unbound = new URL(publishingTaskResumePath("media", {
+      resources: [{ kind: "article_version", id: "v" }], values, step: "",
+    }), "https://workspace.invalid");
+    expect(unbound.searchParams.get("titleMode")).toBe("per_media");
+    const bound = new URL(publishingTaskResumePath("media", {
+      resources: [{ kind: "article_version", id: "v" }, { kind: "publication_draft", id: "a" }], values, step: "",
+    }), "https://workspace.invalid");
+    expect(bound.pathname).toBe("/publishing/drafts/a/media");
+    expect(bound.searchParams.has("titleMode")).toBe(false);
+  });
 });

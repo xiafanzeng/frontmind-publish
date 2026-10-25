@@ -70,16 +70,34 @@ describe("title editor snapshots", () => {
     expect(sameDraftSelection(draft(), saved.draft)).toBe(false);
   });
 
-  it("keeps separate per-article title modes and local edits while adopting unedited server titles", () => {
+  it("keeps independent local titles while adopting unedited server titles", () => {
     const initial = createTitleEditor(draft());
-    const local = { ...initial, mode: "single" as const, sharedTitle: "本稿统一标题", titles: { ...initial.titles, shared: "本地修改" } };
+    const local = { ...initial, titles: { ...initial.titles, shared: "本地修改" } };
     const latest = draft("draft-a", ["shared", "other"], 2);
     latest.items = latest.items.map(item => ({ ...item, title: "服务端修改" }));
     const next = reconcileTitleEditor(latest, local);
-    expect(next.mode).toBe("single");
-    expect(next.sharedTitle).toBe("本稿统一标题");
+    expect(next.mode).toBe("per_media");
     expect(next.titles.shared).toBe("本地修改");
     expect(next.titles.other).toBe("服务端修改");
+  });
+
+  it("ignores a legacy local mode switch and follows the authoritative upstream mode", () => {
+    const initial = createTitleEditor(draft());
+    const legacy = { ...initial, mode: "single" as const, sharedTitle: "旧的本地模式标题", checked: ["shared"] };
+    const next = reconcileTitleEditor(draft(), legacy);
+    expect(next.mode).toBe("per_media");
+    expect(next.sharedTitle).toBe("");
+    expect(next.checked).toEqual(["shared"]);
+    const single = { ...draft(), revision: 2, titleMode: "single" as const, sharedTitle: "上游确认标题" };
+    const switched = reconcileTitleEditor(single, { ...initial, titles: { shared: "旧独立标题" } });
+    expect(switched.mode).toBe("single");
+    expect(switched.sharedTitle).toBe("上游确认标题");
+    expect(sameDraftSelection(draft(), single)).toBe(false);
+  });
+
+  it("does not invent a confirmed single title from the display label", () => {
+    const missing = { ...draft(), titleMode: "single" as const, articleTitle: "upload.docx" };
+    expect(createTitleEditor(missing).sharedTitle).toBe("");
   });
 
   it("advances revisions after media writes without marking unsaved titles clean", () => {

@@ -32,13 +32,103 @@ it("shows both manuscript groups with independent titles for the same media", as
   openReview(gateway);
   const first=await screen.findByRole("region", {name:"稿件 1：稿件 a"});
   const second=await screen.findByRole("region", {name:"稿件 2：稿件 b"});
-  expect(within(first).getByText("稿件 a 的独立标题")).toBeTruthy();
-  expect(within(second).getByText("稿件 b 的独立标题")).toBeTruthy();
-  expect(within(second).queryByText("稿件 a 的独立标题")).toBeNull();
+  expect(within(first).getByText("稿件 a")).toBeTruthy();
+  expect(within(second).getByText("稿件 b")).toBeTruthy();
   const fees=screen.getByRole("region",{name:"费用与预算核验"});
   expect(within(fees).getByText("2 项 · ¥2.00")).toBeTruthy();
   expect(within(fees).getByText("¥10.00")).toBeTruthy();
   expect(preflightDraft.mock.calls.map(call => call[0])).toEqual(["a","b"]);
+  const checks=screen.getByRole("region",{name:"发布内容检查"});
+  // One shared table groups both manuscripts: draft rows separate their media.
+  expect(within(checks).getByText("稿件 1")).toBeTruthy();
+  expect(within(checks).getByText("稿件 2")).toBeTruthy();
+  expect(within(checks).getByText("稿件 a")).toBeTruthy();
+  expect(within(checks).getByText("稿件 b")).toBeTruthy();
+  expect(within(checks).getByText("稿件 a 的独立标题")).toBeTruthy();
+  expect(within(checks).getByText("稿件 b 的独立标题")).toBeTruthy();
+  expect(within(checks).getAllByText("两稿共同选择的媒体")).toHaveLength(2);
+  expect(within(checks).queryByText("冻结单价")).toBeNull();
+  expect(within(checks).queryByText(/本稿待预占/)).toBeNull();
+  expect(checks.compareDocumentPosition(fees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(checks).getAllByRole("button",{name:"一键预检"})).toHaveLength(1);
+  expect(screen.getAllByRole("button",{name:"一键预检"})).toHaveLength(1);
+  expect(screen.queryByRole("heading",{name:"发布预检与确认"})).toBeNull();
+  expect(screen.queryByText("按稿件核对冻结版本、媒体标题与费用，再确认本次发布。")).toBeNull();
+});
+
+it("refreshes every active manuscript from the checks toolbar and invalidates confirmation without submitting", async () => {
+  let revision=1;
+  const preflightDraft=vi.fn<PublisherGateway["preflightDraft"]>(async id=>{
+    const value=snapshot(id);
+    value.items[0]!.title=`${id} 第 ${revision} 次预检标题`;
+    return value;
+  });
+  const submitDraft=vi.fn<PublisherGateway["submitDraft"]>();
+  openReview({preflightDraft,submitDraft} as unknown as PublisherGateway);
+  await screen.findByText("b 第 1 次预检标题");
+  fireEvent.click(screen.getByRole("checkbox"));
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+  revision=2;
+  fireEvent.click(within(screen.getByRole("region",{name:"发布内容检查"})).getByRole("button",{name:"一键预检"}));
+  expect(await screen.findByText("a 第 2 次预检标题")).toBeTruthy();
+  expect(await screen.findByText("b 第 2 次预检标题")).toBeTruthy();
+  expect(preflightDraft.mock.calls.map(call=>call[0])).toEqual(["a","b","a","b"]);
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("button",{name:"模拟发布 2 项"}) as HTMLButtonElement).disabled).toBe(true);
+  expect(submitDraft).not.toHaveBeenCalled();
+});
+
+it("returns all-single batches to media with three stages instead of reopening title configuration", async () => {
+  const gateway={preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>({...snapshot(id),titleMode:"single"}))} as unknown as PublisherGateway;
+  openReview(gateway,"&batchArticleVersion=version-a&batchArticleVersion=version-b&enterpriseProjectId=project-1");
+  const back=await screen.findByRole("link",{name:"返回选择媒体"});
+  const href=new URL(back.getAttribute("href")!,window.location.origin);
+  expect(href.pathname).toBe("/publishing/drafts/a/media");
+  expect(href.searchParams.getAll("batchDraft")).toEqual(["a","b"]);
+  expect(href.searchParams.getAll("batchArticleVersion")).toEqual(["version-a","version-b"]);
+  expect(href.searchParams.get("enterpriseProjectId")).toBe("project-1");
+  const steps=screen.getByLabelText("发布流程");
+  expect(steps.children).toHaveLength(3);
+  expect(within(steps).queryByText("配置标题")).toBeNull();
+});
+
+it("keeps the complete mixed-mode collection when returning to the existing title editor", async () => {
+  const gateway={preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>({...snapshot(id),titleMode:id==="a"?"single":"per_media"}))} as unknown as PublisherGateway;
+  openReview(gateway);
+  const back=await screen.findByRole("link",{name:"返回修改标题"});
+  const href=new URL(back.getAttribute("href")!,window.location.origin);
+  expect(href.pathname).toBe("/publishing/drafts/a/titles");
+  expect(href.searchParams.getAll("batchDraft")).toEqual(["a","b"]);
+  expect(screen.getByLabelText("发布流程").children).toHaveLength(4);
+});
+
+it("recovers an omitted preflight title mode from the matching frozen draft", async () => {
+  const getDraft=vi.fn<PublisherGateway["getDraft"]>(async id=>({
+    ...draft(id),articleVersionId:"version-"+id,revision:1,titleMode:"single",
+  }));
+  const preflightDraft=vi.fn<PublisherGateway["preflightDraft"]>(async id=>{
+    const value=snapshot(id);
+    delete value.titleMode;
+    return value;
+  });
+  openReview({getDraft,preflightDraft} as unknown as PublisherGateway);
+  expect(await screen.findByRole("link",{name:"返回选择媒体"})).toBeTruthy();
+  expect(screen.getByLabelText("发布流程").children).toHaveLength(3);
+  expect(getDraft.mock.calls.map(call=>call[0])).toEqual(["a","b"]);
+});
+
+it("does not combine a preflight snapshot with a newer draft while recovering its mode", async () => {
+  const getDraft=vi.fn<PublisherGateway["getDraft"]>(async id=>({
+    ...draft(id),articleVersionId:"version-"+id,revision:2,titleMode:"single",
+  }));
+  const preflightDraft=vi.fn<PublisherGateway["preflightDraft"]>(async id=>{
+    const value=snapshot(id);
+    delete value.titleMode;
+    return value;
+  });
+  openReview({getDraft,preflightDraft} as unknown as PublisherGateway);
+  expect((await screen.findAllByText("稿件版本或标题已变化，请重新预检后继续。")).length).toBe(2);
+  expect((screen.getByRole("button",{name:"模拟发布 0 项"}) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("keeps a wholly unchecked manuscript visible without preflight or fees", async () => {
@@ -104,6 +194,28 @@ it("waits for host hydration before reading or saving accepted receipts and exac
     expect(JSON.parse(String(values["publishingBatchReview:a,b"]))).toEqual({acceptedBatchIds:{a:"batch-a"},requests:{b:request}});
     expect(values.publishingBatchReviewPending).toBe(true);
   }
+});
+
+it("restores a subset's outstanding request even when an old URL excludes that draft", async () => {
+  const request={draftId:"b",preflightRevision:"original-b",quoteFingerprint:"quote-b",acknowledged:true,idempotencyKey:"publisher-submit:b:quote-b"};
+  const flow=taskFlow({"publishingBatchReview:a,b":JSON.stringify({requests:{b:request},acceptedBatchIds:{a:"batch-a"}})});
+  const gateway={
+    getDraft:vi.fn<PublisherGateway["getDraft"]>(async id=>({...draft(id),titleMode:"single"})),
+    preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>snapshot(id)),
+    submitDraft:vi.fn<PublisherGateway["submitDraft"]>(),
+  } as unknown as PublisherGateway;
+  const path="/publishing/drafts/b/review?excludedDraft=b";
+  window.history.replaceState({},"",path);
+  const location=memoryLocation({path,record:true});
+  render(<Router hook={location.hook} searchHook={location.searchHook}><PublishingGatewayProvider gateway={gateway}><PublishingFlowProvider value={flow}><ReviewPage draftId="b"/></PublishingFlowProvider></PublishingGatewayProvider></Router>);
+  expect(await screen.findByText("发布请求待确认")).toBeTruthy();
+  const refresh=within(screen.getByRole("region",{name:"发布内容检查"})).getByRole("button",{name:"刷新受理状态"});
+  fireEvent.click(refresh);
+  await waitFor(()=>expect(gateway.getDraft).toHaveBeenCalledTimes(2));
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+  expect(screen.queryByText("本稿未纳入发布")).toBeNull();
+  expect((screen.getByRole("button",{name:"返回选择媒体"}) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("blocks later drafts until an accepted attention batch is actually refreshed and resolved", async () => {
