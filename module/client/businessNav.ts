@@ -37,10 +37,10 @@ export const BUSINESS_NAV: BusinessNavModule[] = [
   {
     id: "intent",
     label: "媒体选择",
-    home: { id: "media-home", label: "媒体库", path: "/publishing/media" },
+    home: { id: "media-home", label: "媒体选择", path: "/publishing/media" },
     views: [
       { id: "source-matrix", label: "信源矩阵", path: "/publishing/source-matrix" },
-      { id: "third-media", label: "第三方媒体", path: "/publishing/media/third" },
+      { id: "third-media", label: "媒体库", path: "/publishing/media/third" },
     ],
   },
 ];

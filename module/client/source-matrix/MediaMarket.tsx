@@ -66,9 +66,10 @@ export function MediaDialog({open,title,description,confirmLabel,onCancel,onConf
  if(!open)return null;
  return <dialog ref={dialog} id="dialog" aria-labelledby="dialog-title" onCancel={event=>{event.preventDefault();if(!busy)onCancel();}}><header className="dialog-header"><h2 id="dialog-title">{title}</h2><button className="close" aria-label="关闭弹窗" onClick={onCancel}><ReferenceIcon name="x"/></button></header><div id="dialog-body" className="dialog-body">{description&&<p className="small muted">{description}</p>}{children}</div><footer id="dialog-foot" className="dialog-foot">{footer??<><button className="button secondary" onClick={onCancel}>取消</button><button className="button primary" disabled={busy||confirmDisabled} onClick={onConfirm}>{confirmLabel}</button></>}</footer></dialog>;
 }
-export function MediaShell({title,note,notice,actions,taskbar,children,dialogs:extraDialogs,steps}:{title:string;note:string;notice?:ReactNode;actions?:ReactNode;taskbar?:ReactNode;children:ReactNode;dialogs?:ReactNode;steps?:ReactNode}) {
+export function MediaShell({title,note,notice,actions,taskbar,children,dialogs:extraDialogs,steps}:{title?:string;note?:string;notice?:ReactNode;actions?:ReactNode;taskbar?:ReactNode;children:ReactNode;dialogs?:ReactNode;steps?:ReactNode}) {
  const nodes=Children.toArray(children),dialogs=nodes.filter(node=>isValidElement(node)&&(node.type===MediaDialog||node.type===MediaDetails)),body=nodes.filter(node=>!dialogs.includes(node));
- return <div className="fm-media" style={referenceScopeStyle}><ReferenceSymbols/><main id="view" className="content"><header className="heading"><div><h1>{title}</h1><p>{note}</p></div><div className="actions">{actions}</div></header>{notice}{steps}{taskbar}{body}</main>{dialogs}{extraDialogs}</div>;
+ // 无标题的页面（媒体选择总览）不再渲染页头区块，页内第一个元素就是流程条/正文。
+ return <div className="fm-media" style={referenceScopeStyle}><ReferenceSymbols/><main id="view" className="content">{title!==undefined&&<header className="heading"><div><h1>{title}</h1><p>{note}</p></div><div className="actions">{actions}</div></header>}{notice}{steps}{taskbar}{body}</main>{dialogs}{extraDialogs}</div>;
 }
 export function MediaTabs(_props:{active:string;base?:string;query?:string}) { return null; }
 export function MediaTaskbar({title,note,count=0,total,children,actions,saveStatus,cartHref='/publishing/media/cart',cart=true}:{title?:string;note?:string;count?:number;total?:string;children?:ReactNode;actions?:ReactNode;saveStatus?:string;cartHref?:string;cart?:boolean}) {

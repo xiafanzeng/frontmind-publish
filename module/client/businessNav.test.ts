@@ -91,7 +91,7 @@ describe("publishing navigation context", () => {
 
   it("uses Chinese breadcrumbs and a non-linked current page", () => {
     const crumbs = publishingBreadcrumbs("/publishing/drafts/d1/titles", "matrixTask=t1&mode=multi");
-    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体选择", "第三方媒体", "配置发布标题"]);
+    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体选择", "媒体库", "配置发布标题"]);
     expect(crumbs.at(-1)?.href).toBeUndefined();
     expect(url(crumbs[1]?.href).pathname).toBe("/publishing/drafts/d1/media");
     const parent = url(crumbs[2]?.href);
@@ -102,7 +102,7 @@ describe("publishing navigation context", () => {
 
   it("shows a non-duplicated overview breadcrumb", () => {
     const crumbs = publishingBreadcrumbs("/publishing/media", "articleVersion=v1&mode=multi");
-    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体库"]);
+    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体选择"]);
     expect(crumbs.at(-1)?.href).toBeUndefined();
   });
 
