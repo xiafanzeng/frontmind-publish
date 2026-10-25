@@ -14,7 +14,7 @@ import type { SourceMatrixDecisionAdapter } from './adapter.js';
  */
 const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 const DEFAULT_MODEL = 'glm-4.6';
-const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = 240_000;
 
 interface ChatMessage { role: 'system' | 'user'; content: string; }
 
@@ -49,7 +49,12 @@ function compactCandidates(request: Row, prepared: Row): Row[] {
   const catalog: Row[] = Array.isArray(request.catalog) ? request.catalog : [];
   const indexByResource = new Map(catalog.map((row, index) => [typeof row.resource_id === 'string' ? row.resource_id : '', index]));
   const candidates: Row[] = Array.isArray(prepared?.matrix?.candidates) ? prepared.matrix.candidates as Row[] : [];
-  return candidates.map(candidate => {
+  // Observation-only candidates carry no catalog attribute path, so the model
+  // cannot ground a decision on them; pass the purchasable subset and a count.
+  return candidates.filter(candidate => {
+    const resource = typeof candidate.resource_id === 'string' ? candidate.resource_id : '';
+    return !!resource && indexByResource.has(resource);
+  }).map(candidate => {
     const resource = typeof candidate.resource_id === 'string' ? candidate.resource_id : '';
     const index = indexByResource.get(resource);
     const catalogRow = index === undefined ? null : catalog[index];
@@ -111,8 +116,8 @@ export function createEnvDecisionAdapter(env: Readonly<Record<string, string | u
           task: { industry: input.request.task?.industry ?? null, product: input.request.task?.product ?? null, audience: input.request.task?.audience ?? null, regions: input.request.task?.regions ?? [], requirements: input.request.task?.requirements ?? {}, hours: input.request.task?.hours ?? null },
           questions: questionsOf(input.request),
           candidates: candidates,
-          observed_sources: observedSources(input.prepared),
-          note: 'candidates 是内核真实候选（candidate_id 必须原样引用，不得自造）；observed_sources 是品牌样本原始观察（域名/名称/证据），仅其 evidence_id 可被 references 引用；attribute path 形如 catalog[catalog_index].字段，仅 catalog_index 非 null 的候选可用。',
+          observed_sources: observedSources(input.prepared).slice(0, 30),
+          note: 'candidates 是内核真实候选（candidate_id 必须原样引用，不得自造，仅这些可被决定）；observed_sources 是品牌样本原始观察（仅前 30 条示例，域名/名称/证据），仅其 evidence_id 可被 references 引用；attribute path 形如 catalog[catalog_index].字段。观察型来源未列入 candidates，不可被决定。',
         }) },
       ]);
       const decisions = (payload as { matrix_decisions?: unknown })?.matrix_decisions;
