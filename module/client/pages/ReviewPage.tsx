@@ -2,7 +2,8 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, ShieldCheck } fro
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
-import { MediaMark, PublishingConfirmDialog, PublishingError, PublishingLoading, PublishingPage } from "../components/PublishingUi";
+import { PublishingConfirmDialog, PublishingError, PublishingLoading, PublishingPage } from "../components/PublishingUi";
+import PublishingFrozenArticleDialog from "../components/PublishingFrozenArticleDialog";
 import { usePublishingChoice } from "../components/PublishingConversation";
 import PublishingFlowSteps, { flowStagesForMode } from "../components/PublishingFlowSteps";
 import { formatPublishingMoney, type PublicationBatch, type PublicationDraft, type PublicationPreflight } from "../types";
@@ -64,7 +65,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const activeIds = draftIds.filter(id => !excludedDraftIds.includes(id) || session.acceptedIds[id] || session.progress.requests[id]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [preview, setPreview] = useState<{draftId: string; context: string; run: number; trigger: HTMLButtonElement}>();
   const [submitting, setSubmitting] = useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = useState<string>();
   const [submitError, setSubmitError] = useState("");
@@ -125,6 +126,13 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
     const current = group.draft && check?.context === reviewDraftContext(group.draft) ? check : undefined;
     return {...group, check:current, preflight:current?.phase === "complete" ? current.preflight : undefined};
   });
+  // Keep only the identity of the selected current check. Never retain a copy
+  // of frozen HTML after its draft, version, selection or preflight is invalid.
+  const previewGroup = preview && preview.run === checkRun.current ? groups.find(group =>
+    group.draftId === preview.draftId && group.draft && reviewDraftContext(group.draft) === preview.context) : undefined;
+  const previewArticle = typeof previewGroup?.preflight?.article.bodyHtml === "string" ? previewGroup.preflight.article : undefined;
+  const closePreview = useCallback(() => setPreview(undefined), []);
+  useEffect(() => { if (preview && !previewArticle) closePreview(); }, [preview, previewArticle, closePreview]);
   const entryRef = usePreparationEntryScroll(`review:${sessionKey}`, Boolean(metadata && !query.loading && !query.refreshing || query.error));
   const reloadContext = () => { invalidateChecks(); query.reload(); };
   const reloadContextRef = useRef(reloadContext);
@@ -402,7 +410,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
             </header>
             {query.loading ? <PublishingLoading label="正在恢复稿件、媒体与冻结版本…" /> : null}
             {query.error ? <PublishingError error={query.error} onRetry={reloadContext} /> : null}
-            {groups.length ? <div className="publishing-review-head publishing-review-row"><span>媒体</span><span>发布标题</span><span>内容检查</span><span>状态</span></div> : null}
+            {groups.length ? <div className="publishing-review-head publishing-review-row"><span>媒体名称</span><span>媒体类型</span><span>发布标题</span><span>内容检查</span><span>状态</span></div> : null}
             {groups.map((group, index) => {
               const preflight = group.preflight;
               const batch = session.progress.accepted[group.draftId] ?? group.batch;
@@ -411,18 +419,19 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
               const title = groupTitle(group);
               const version = preflight?.article.version ?? group.draft?.articleVersion;
               const groupTotals = reviewBatchTotals(preflight ? [preflight] : []);
-              const previewId = "publishing-frozen-preview-" + index;
+              const canPreview = Boolean(preflight && group.draft && typeof preflight.article.bodyHtml === "string");
+              const previewHint = !preflight ? "完成预检后可查看对应冻结正文" : !canPreview ? "当前冻结正文不可用，请重新预检后重试" : undefined;
               const statusLabel = group.check?.phase === "checking" ? "预检中" : group.check?.phase === "failed" ? "预检失败" : "待预检";
               return <section key={group.draftId} className="publishing-review-draft-group" aria-label={"稿件 " + (index + 1) + "：" + title}>
                 <div className="publishing-review-draft-row">
                   <span className="publishing-review-draft-index">稿件 {index + 1}</span><strong>{title}</strong>
                   <span>{version === undefined ? "版本待恢复" : "版本 v" + version}</span>
-                  <button className="publishing-button publishing-button-secondary publishing-review-preview-toggle" type="button" disabled={!preflight} title={!preflight ? "完成预检后可查看对应冻结正文" : undefined} aria-controls={previewId} aria-expanded={Boolean(preflight && expanded.has(group.draftId))} onClick={() => setExpanded(current => {const next=new Set(current); next.has(group.draftId) ? next.delete(group.draftId) : next.add(group.draftId); return next;})}><ExternalLink size={15} />{preflight && expanded.has(group.draftId) ? "收起冻结正文" : "查看冻结正文"}</button>
+                  <button className="publishing-button publishing-button-secondary publishing-review-preview-toggle" type="button" disabled={!canPreview} title={previewHint} aria-haspopup="dialog" onClick={event => { if (canPreview && group.draft) setPreview({draftId:group.draftId, context:reviewDraftContext(group.draft), run:checkRun.current, trigger:event.currentTarget}); }}><ExternalLink size={15} />查看冻结正文</button>
                   {!preflight && !batch && !uncertain ? <small className="publishing-review-preview-note">完成预检后可查看</small> : null}
+                  {preflight && !canPreview && !batch && !uncertain ? <small className="publishing-review-preview-note">冻结正文不可用，请重新预检</small> : null}
                   <span className="publishing-review-draft-counts">{group.excluded ? "未选择投放媒体" : batch ? "发布请求已受理" : uncertain ? "受理结果待确认" : preflight ? "通过 " + groupTotals.passedCount + " · 不通过 " + groupTotals.failedCount : statusLabel + " " + items.length + " 项"}</span>
                 </div>
                 {group.error ? <PublishingError error={group.error} onRetry={reloadContext} /> : null}
-                {preflight && expanded.has(group.draftId) ? <section id={previewId} className="publishing-frozen-preview" aria-label={title + "冻结正文预览"}><header><div><h2>{title}</h2><p>不可变版本 v{preflight.article.version} · {preflight.article.hash}</p></div><span>{preflight.article.imageCount} 张冻结图片</span></header><div className="publishing-frozen-preview-body" dangerouslySetInnerHTML={{__html:preflight.article.bodyHtml}} /></section> : null}
                 {group.excluded ? <div className="publishing-review-group-status"><strong>本稿未纳入发布</strong><p>已取消全部媒体，不执行预检、不校验标题，也不产生本次费用。返回修改可重新选择媒体。</p></div> : batch ? <div className="publishing-review-group-status" role="status">
                   <strong>发布请求已受理 · {batchStatus(batch)}</strong><p>{batch.itemCount} 项 · {formatPublishingMoney(batch.totalTenThousandths)} · 批次 {batch.id}</p>
                   <Link className="publishing-button publishing-button-secondary" href={publishingTaskUrl("/publishing/publications/" + encodeURIComponent(batch.id), flow?.taskId)}>查看本稿发布结果<ExternalLink size={15} /></Link>
@@ -433,7 +442,8 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
                   {items.map(item => {
                     const result = preflight?.items.find(value => value.media.id === item.media.id);
                     return <div className="publishing-review-row" key={group.draftId + ":" + group.draft?.articleVersionId + ":" + item.media.id}>
-                      <span className="publishing-media-name" data-label="媒体"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : item.media.kind === "news" ? "软文媒体" : "媒体类型待核验"}</span></span></span>
+                      <span className="publishing-review-media-name" data-label="媒体名称"><strong>{item.media.name}</strong></span>
+                      <span data-label="媒体类型"><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : item.media.kind === "news" ? "软文媒体" : "媒体类型待核验"}</span></span>
                       <span data-label="发布标题">{item.title}</span>
                       <span data-label="内容检查">{result ? <span className="publishing-review-check-details">
                         {result.checks.map((check, checkIndex) => <span key={checkIndex} className={check.passed ? "is-success" : "is-danger"}>{check.passed ? "✓ " : "× "}{check.label}</span>)}
@@ -488,6 +498,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
         </footer>
         </> : null}
       </div>
+      <PublishingFrozenArticleDialog article={previewArticle} trigger={preview?.trigger} onClose={closePreview} />
       <PublishingConfirmDialog inline={Boolean(flow)} open={dialogOpen} title={live ? "这是一次真实投稿" : "确认 Preview 模拟发布"}
         description={(live ? "提交后将按逐稿预检快照预占余额，供应商可能立即接单，已创建的外部订单不保证可以撤回。" : "只生成确定性 Mock 批次，不会请求外部供应商。") + (draftIds.length > 1 ? "各稿件逐篇提交，中途失败将保留已受理批次并停止后续稿件。" : "") + (totals.failedCount ? "本次仅提交通过预检的 " + totals.passedCount + " 项，未通过的 " + totals.failedCount + " 项不提交。" : "")}
         confirmLabel={(live ? "提交并预占" : "确认模拟发布") + " " + formatPublishingMoney(totals.publishTotal.toString())} busy={submitting} wide onCancel={() => setDialogOpen(false)} onConfirm={submit}>

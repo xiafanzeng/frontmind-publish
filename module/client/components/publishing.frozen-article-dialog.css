@@ -1,0 +1,124 @@
+/* Business variant of the shared Radix Dialog; the portal has no module ancestor. */
+.publishing-frozen-article-dialog[data-slot="dialog-content"] {
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  width:min(920px,calc(100vw - 32px));
+  max-width:calc(100vw - 32px);
+  height:min(760px,calc(100dvh - 48px));
+  max-height:calc(100dvh - 48px);
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+  padding:0;
+  border:1px solid var(--publishing-line,#e6e8f1);
+  border-radius:var(--publishing-radius,16px);
+  background:var(--publishing-surface,#fff);
+  color:var(--publishing-ink,#202134);
+  font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  font-size:14px;
+  line-height:1.7;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-header {
+  display:flex;
+  flex:0 0 auto;
+  align-items:flex-start;
+  gap:16px;
+  min-width:0;
+  padding:20px 24px;
+  border-bottom:1px solid var(--publishing-line,#e6e8f1);
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-heading {
+  flex:1 1 auto;
+  min-width:0;
+  max-height:30dvh;
+  overflow:auto;
+  overflow-wrap:anywhere;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-eyebrow {
+  display:block;
+  margin-bottom:4px;
+  color:var(--publishing-purple,#b33467);
+  font-size:13px;
+  font-weight:600;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-title {
+  margin:0;
+  color:var(--publishing-ink,#202134);
+  font-size:20px;
+  font-weight:650;
+  line-height:1.5;
+  overflow-wrap:anywhere;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-description,
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-hash {
+  margin:6px 0 0;
+  color:var(--publishing-muted,#737991);
+  font-size:13px;
+  line-height:1.6;
+  overflow-wrap:anywhere;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-close {
+  display:inline-flex;
+  flex:0 0 auto;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:8px 16px;
+  border:1px solid var(--publishing-line,#e6e8f1);
+  border-radius:8px;
+  background:var(--publishing-surface,#fff);
+  color:var(--publishing-ink,#202134);
+  font:inherit;
+  line-height:1.5;
+  cursor:pointer;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-close:hover {
+  border-color:var(--publishing-purple,#b33467);
+  background:var(--publishing-purple-soft,#f9eff5);
+  color:var(--publishing-purple,#b33467);
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-close:active {
+  color:var(--publishing-purple-dark,#962654);
+}
+.publishing-frozen-article-dialog :is(button,a,[tabindex]):focus-visible {
+  outline:3px solid var(--publishing-focus,#cf77a2);
+  outline-offset:2px;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-scroll {
+  flex:1 1 auto;
+  min-width:0;
+  min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding:24px;
+}
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-scroll:focus-visible { outline-offset:-3px; }
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-body {
+  min-width:0;
+  overflow-wrap:anywhere;
+  font-size:16px;
+  line-height:1.85;
+}
+.publishing-frozen-article-dialog-body > :first-child { margin-top:0; }
+.publishing-frozen-article-dialog-body > :last-child { margin-bottom:0; }
+.publishing-frozen-article-dialog-body :is(img,video,iframe) { max-width:100%; height:auto; }
+.publishing-frozen-article-dialog-body :is(p,ul,ol,blockquote,pre,table) { margin-block:0 1em; }
+.publishing-frozen-article-dialog-body :is(ul,ol) { padding-left:1.75em; }
+.publishing-frozen-article-dialog-body a { color:var(--publishing-purple,#b33467); text-decoration:underline; overflow-wrap:anywhere; }
+.publishing-frozen-article-dialog-body a:hover { color:var(--publishing-purple-dark,#962654); }
+.publishing-frozen-article-dialog-body pre { max-width:100%; overflow:auto; white-space:pre-wrap; }
+.publishing-frozen-article-dialog-body table { display:block; max-width:100%; overflow:auto; border-collapse:collapse; }
+.publishing-frozen-article-dialog-body :is(td,th) { padding:8px 12px; border:1px solid var(--publishing-line,#e6e8f1); overflow-wrap:anywhere; }
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-empty { margin:0; color:var(--publishing-muted,#737991); }
+@media(max-width:650px) {
+  .publishing-frozen-article-dialog[data-slot="dialog-content"] { width:calc(100vw - 24px); max-width:calc(100vw - 24px); height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); }
+  .publishing-frozen-article-dialog .publishing-frozen-article-dialog-header { gap:12px; padding:16px; }
+  .publishing-frozen-article-dialog .publishing-frozen-article-dialog-scroll { padding:16px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .publishing-frozen-article-dialog[data-slot="dialog-content"],
+  .publishing-frozen-article-overlay[data-slot="dialog-overlay"] { animation:none; transition:none; }
+}
