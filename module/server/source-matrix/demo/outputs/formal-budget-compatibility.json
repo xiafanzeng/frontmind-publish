@@ -1,0 +1,17 @@
+{
+  "cliOutputWritten": false,
+  "exitCode": 2,
+  "stderrResult": {
+    "schema_version": "1.0",
+    "status": "invalid_input",
+    "errors": [
+      {
+        "code": "invalid_structure",
+        "path": "request",
+        "message": "Malformed nested input: ValueError"
+      }
+    ],
+    "budget_plans": []
+  },
+  "explanation": "Original publication budget requires a resource identity for catalog reference rebinding. Raw observation candidates have none. No formal budget plan is fabricated."
+}

@@ -1,0 +1,1070 @@
+{
+  "source_file": "一航软件-信源分析-20260913-214944.xlsx",
+  "source_sha256": "639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d",
+  "field_mapping": {
+    "citedAt": "A:引用日期",
+    "model": "B:模型",
+    "question": "C:监控问题",
+    "title": "D:内容标题",
+    "url": "E:内容链接",
+    "mediaName": "F:媒体名称",
+    "mediaUrl": "G:媒体url"
+  },
+  "sheet_mapping": {
+    "媒体统计": {
+      "A": "引用排行",
+      "B": "媒体名称",
+      "C": "媒体url",
+      "D": "引用日期",
+      "E": "引用次数",
+      "F": "引用占比"
+    },
+    "内容统计": {
+      "A": "引用排行",
+      "B": "内容状态",
+      "C": "内容标题",
+      "D": "内容URL",
+      "E": "媒体名称",
+      "F": "媒体url",
+      "G": "引用日期",
+      "H": "引用次数",
+      "I": "引用占比"
+    },
+    "详细表格": {
+      "A": "引用日期",
+      "B": "模型",
+      "C": "监控问题",
+      "D": "内容标题",
+      "E": "内容链接",
+      "F": "媒体名称",
+      "G": "媒体url"
+    },
+    "字段说明": {
+      "A": "字段名称",
+      "B": "字段释义"
+    }
+  },
+  "reconciliation": {
+    "records": 502,
+    "contentUrls": 114,
+    "mediaGroups": 61,
+    "uniqueSevenFieldRows": 216,
+    "additionalIdenticalRows": 286,
+    "models": {
+      "百度文心-手机版": 118,
+      "百度文心-网页版": 282,
+      "通义千问-手机版": 49,
+      "通义千问-网页版": 53
+    },
+    "citationDates": {
+      "2026-09-12": 262,
+      "2026-09-13": 240
+    },
+    "mediaSummaryCount": 502,
+    "contentSummaryCount": 502
+  },
+  "original_question_texts": [
+    "第三方软件测试机构推荐"
+  ],
+  "policy": {
+    "duplicates": "Retained in workbook.json and each observation_context.records.",
+    "catalog": "Research attribute rows only: resource_id, offer_id and pricing are absent.",
+    "candidate_id": "unverified_offer:<catalog index> is the original Skill research key, not an offer ID.",
+    "citations": "Empty: no answer IDs or evidence IDs are fabricated from workbook row numbers.",
+    "industry_recommendations": "Empty: brand observations are not independent industry background.",
+    "source_row_id": "Workbook SHA + sheet + row is provenance only, not citation evidence.",
+    "published_at": "Unknown; citation date is never used as publication date."
+  },
+  "groups": [
+    {
+      "catalog_index": 0,
+      "candidate_id": "unverified_offer:0",
+      "media_name": "爱企查",
+      "media_url": "aiqicha.baidu.com",
+      "rows": [
+        2,
+        3,
+        17,
+        18,
+        29,
+        30,
+        40,
+        41,
+        48,
+        49,
+        57,
+        60,
+        61,
+        67,
+        70,
+        71,
+        76,
+        77,
+        82,
+        83,
+        84,
+        98,
+        104,
+        110,
+        111,
+        112,
+        127,
+        133,
+        139,
+        150,
+        151,
+        175,
+        178,
+        242,
+        243,
+        246,
+        257,
+        260,
+        261,
+        268,
+        271,
+        272,
+        275,
+        276,
+        290,
+        291,
+        305,
+        306,
+        315,
+        321,
+        325,
+        326,
+        341,
+        347,
+        353,
+        355,
+        356,
+        371,
+        376,
+        383,
+        400,
+        401,
+        427,
+        428,
+        441
+      ]
+    },
+    {
+      "catalog_index": 1,
+      "candidate_id": "unverified_offer:1",
+      "media_name": "北京九运百行文化传播有限公司",
+      "media_url": "jiangxi.360189.com",
+      "rows": [
+        4,
+        20,
+        31,
+        43,
+        50,
+        62,
+        85,
+        113,
+        152,
+        180,
+        245,
+        263,
+        274,
+        278,
+        293,
+        308,
+        327,
+        358,
+        402,
+        430
+      ]
+    },
+    {
+      "catalog_index": 2,
+      "candidate_id": "unverified_offer:2",
+      "media_name": "北京九运百行文化传播有限公司",
+      "media_url": "m.360189.com",
+      "rows": [
+        5,
+        6,
+        19,
+        21,
+        22,
+        25,
+        26,
+        42,
+        44,
+        45,
+        53,
+        54,
+        63,
+        64,
+        86,
+        87,
+        97,
+        103,
+        105,
+        121,
+        122,
+        126,
+        132,
+        134,
+        153,
+        154,
+        172,
+        173,
+        179,
+        182,
+        187,
+        244,
+        249,
+        250,
+        253,
+        254,
+        262,
+        264,
+        265,
+        273,
+        277,
+        286,
+        287,
+        292,
+        301,
+        302,
+        307,
+        309,
+        310,
+        320,
+        322,
+        328,
+        329,
+        340,
+        343,
+        348,
+        357,
+        359,
+        360,
+        373,
+        377,
+        387,
+        389,
+        390,
+        403,
+        408,
+        423,
+        424,
+        429,
+        434,
+        439
+      ]
+    },
+    {
+      "catalog_index": 3,
+      "candidate_id": "unverified_offer:3",
+      "media_name": "北京九运百行文化传播有限公司",
+      "media_url": "hechuan.360189.com",
+      "rows": [
+        7,
+        23,
+        27,
+        46,
+        55,
+        65,
+        88,
+        123,
+        155,
+        174,
+        251,
+        255,
+        266,
+        288,
+        303,
+        311,
+        330,
+        361,
+        391,
+        425
+      ]
+    },
+    {
+      "catalog_index": 4,
+      "candidate_id": "unverified_offer:4",
+      "media_name": "CSDN",
+      "media_url": "blog.csdn.net",
+      "rows": [
+        8,
+        24,
+        28,
+        47,
+        56,
+        66,
+        89,
+        124,
+        156,
+        176,
+        252,
+        256,
+        267,
+        289,
+        304,
+        312,
+        331,
+        362,
+        392,
+        426
+      ]
+    },
+    {
+      "catalog_index": 5,
+      "candidate_id": "unverified_offer:5",
+      "media_name": "搜狐",
+      "media_url": "www.sohu.com",
+      "rows": [
+        9,
+        32,
+        73,
+        75,
+        90,
+        114,
+        115,
+        145,
+        165,
+        279,
+        280,
+        294,
+        295,
+        332,
+        333,
+        363,
+        364,
+        393,
+        394,
+        416,
+        419,
+        447,
+        450
+      ]
+    },
+    {
+      "catalog_index": 6,
+      "candidate_id": "unverified_offer:6",
+      "media_name": "百家号",
+      "media_url": "baijiahao.baidu.com",
+      "rows": [
+        10,
+        33,
+        91,
+        96,
+        99,
+        101,
+        107,
+        116,
+        125,
+        128,
+        130,
+        136,
+        146,
+        163,
+        164,
+        170,
+        185,
+        188,
+        191,
+        281,
+        296,
+        314,
+        316,
+        318,
+        334,
+        339,
+        342,
+        345,
+        351,
+        365,
+        370,
+        374,
+        381,
+        395,
+        406,
+        409,
+        412,
+        415,
+        418,
+        421,
+        437,
+        440,
+        443,
+        446,
+        449
+      ]
+    },
+    {
+      "catalog_index": 7,
+      "candidate_id": "unverified_offer:7",
+      "media_name": "广州尚承科技发展有限公司",
+      "media_url": "m.article.opmele.com",
+      "rows": [
+        11,
+        34,
+        92,
+        117,
+        147,
+        181,
+        282,
+        297,
+        335,
+        366,
+        396,
+        433
+      ]
+    },
+    {
+      "catalog_index": 8,
+      "candidate_id": "unverified_offer:8",
+      "media_name": "知乎",
+      "media_url": "zhuanlan.zhihu.com",
+      "rows": [
+        12,
+        35,
+        93,
+        148,
+        283,
+        298
+      ]
+    },
+    {
+      "catalog_index": 9,
+      "candidate_id": "unverified_offer:9",
+      "media_name": "搜狐新闻",
+      "media_url": "news.sohu.com",
+      "rows": [
+        13,
+        36,
+        94,
+        118,
+        140,
+        149,
+        284,
+        299,
+        336,
+        354,
+        367,
+        384,
+        397
+      ]
+    },
+    {
+      "catalog_index": 10,
+      "candidate_id": "unverified_offer:10",
+      "media_name": "百度百科",
+      "media_url": "baike.baidu.com",
+      "rows": [
+        14,
+        37,
+        72,
+        95,
+        119,
+        159,
+        285,
+        300,
+        337,
+        368,
+        398
+      ]
+    },
+    {
+      "catalog_index": 11,
+      "candidate_id": "unverified_offer:11",
+      "media_name": "企来检",
+      "media_url": "www.qilaijian.com",
+      "rows": [
+        15,
+        16,
+        38,
+        39,
+        51,
+        52,
+        59,
+        177,
+        247,
+        248,
+        258,
+        259,
+        269,
+        270
+      ]
+    },
+    {
+      "catalog_index": 12,
+      "candidate_id": "unverified_offer:12",
+      "media_name": "企查查",
+      "media_url": "www.qcc.com",
+      "rows": [
+        58
+      ]
+    },
+    {
+      "catalog_index": 13,
+      "candidate_id": "unverified_offer:13",
+      "media_name": "顺企网",
+      "media_url": "nanning.11467.com",
+      "rows": [
+        68
+      ]
+    },
+    {
+      "catalog_index": 14,
+      "candidate_id": "unverified_offer:14",
+      "media_name": "德学培训网",
+      "media_url": "www.dexuee.com",
+      "rows": [
+        69
+      ]
+    },
+    {
+      "catalog_index": 15,
+      "candidate_id": "unverified_offer:15",
+      "media_name": "网易",
+      "media_url": "m.163.com",
+      "rows": [
+        74
+      ]
+    },
+    {
+      "catalog_index": 16,
+      "candidate_id": "unverified_offer:16",
+      "media_name": "恒沁检测公司",
+      "media_url": "www.gxhqtest.com",
+      "rows": [
+        78
+      ]
+    },
+    {
+      "catalog_index": 17,
+      "candidate_id": "unverified_offer:17",
+      "media_name": "天眼查",
+      "media_url": "news.tianyancha.com",
+      "rows": [
+        79,
+        108,
+        137,
+        324,
+        350,
+        380
+      ]
+    },
+    {
+      "catalog_index": 18,
+      "candidate_id": "unverified_offer:18",
+      "media_name": "搜了网",
+      "media_url": "qq422122667.51sole.com",
+      "rows": [
+        80
+      ]
+    },
+    {
+      "catalog_index": 19,
+      "candidate_id": "unverified_offer:19",
+      "media_name": "南宁市文化广电和旅游局网站",
+      "media_url": "wgl.nanning.gov.cn",
+      "rows": [
+        81
+      ]
+    },
+    {
+      "catalog_index": 20,
+      "candidate_id": "unverified_offer:20",
+      "media_name": "搜狐网",
+      "media_url": "www.sohu.com",
+      "rows": [
+        100,
+        129,
+        317,
+        344,
+        372
+      ]
+    },
+    {
+      "catalog_index": 21,
+      "candidate_id": "unverified_offer:21",
+      "media_name": "北京九运百行文化传播有限公司",
+      "media_url": "dazu.360189.com",
+      "rows": [
+        102,
+        131,
+        319,
+        346,
+        375
+      ]
+    },
+    {
+      "catalog_index": 22,
+      "candidate_id": "unverified_offer:22",
+      "media_name": "手机网易网",
+      "media_url": "www.163.com",
+      "rows": [
+        106,
+        135,
+        323,
+        349,
+        379
+      ]
+    },
+    {
+      "catalog_index": 23,
+      "candidate_id": "unverified_offer:23",
+      "media_name": "买购网",
+      "media_url": "www.maigoo.com",
+      "rows": [
+        109,
+        138,
+        352,
+        382,
+        420,
+        451
+      ]
+    },
+    {
+      "catalog_index": 24,
+      "candidate_id": "unverified_offer:24",
+      "media_name": "深圳市壹站式物流供应链管理有限公司",
+      "media_url": "mip.yizhanshi56.com",
+      "rows": [
+        120,
+        160,
+        338,
+        369,
+        399
+      ]
+    },
+    {
+      "catalog_index": 25,
+      "candidate_id": "unverified_offer:25",
+      "media_name": "十大品牌网",
+      "media_url": "www.cnpp.cn",
+      "rows": [
+        141,
+        385
+      ]
+    },
+    {
+      "catalog_index": 26,
+      "candidate_id": "unverified_offer:26",
+      "media_name": "中科检测",
+      "media_url": "baijiahao.baidu.com",
+      "rows": [
+        142,
+        386
+      ]
+    },
+    {
+      "catalog_index": 27,
+      "candidate_id": "unverified_offer:27",
+      "media_name": "法行宝",
+      "media_url": "ailegal.baidu.com",
+      "rows": [
+        143,
+        157,
+        422
+      ]
+    },
+    {
+      "catalog_index": 28,
+      "candidate_id": "unverified_offer:28",
+      "media_name": "电子技术应用",
+      "media_url": "www.chinaaet.com",
+      "rows": [
+        144,
+        158
+      ]
+    },
+    {
+      "catalog_index": 29,
+      "candidate_id": "unverified_offer:29",
+      "media_name": "知乎",
+      "media_url": "www.zhihu.com",
+      "rows": [
+        161,
+        167
+      ]
+    },
+    {
+      "catalog_index": 30,
+      "candidate_id": "unverified_offer:30",
+      "media_name": "腾讯云",
+      "media_url": "cloud.tencent.com",
+      "rows": [
+        162,
+        168
+      ]
+    },
+    {
+      "catalog_index": 31,
+      "candidate_id": "unverified_offer:31",
+      "media_name": "稀土掘金",
+      "media_url": "juejin.cn",
+      "rows": [
+        166
+      ]
+    },
+    {
+      "catalog_index": 32,
+      "candidate_id": "unverified_offer:32",
+      "media_name": "甄选家电好物",
+      "media_url": "baijiahao.baidu.com",
+      "rows": [
+        169
+      ]
+    },
+    {
+      "catalog_index": 33,
+      "candidate_id": "unverified_offer:33",
+      "media_name": "广府仕碌架桌球（东莞）有限公司",
+      "media_url": "wap.gfsnooker.com",
+      "rows": [
+        171
+      ]
+    },
+    {
+      "catalog_index": 34,
+      "candidate_id": "unverified_offer:34",
+      "media_name": "大众网",
+      "media_url": "www.dzwww.com",
+      "rows": [
+        183,
+        388,
+        404,
+        435
+      ]
+    },
+    {
+      "catalog_index": 35,
+      "candidate_id": "unverified_offer:35",
+      "media_name": null,
+      "media_url": "m.tiantianshoumi.com",
+      "rows": [
+        184,
+        405,
+        436
+      ]
+    },
+    {
+      "catalog_index": 36,
+      "candidate_id": "unverified_offer:36",
+      "media_name": "同花顺财经",
+      "media_url": "news.10jqka.com.cn",
+      "rows": [
+        186,
+        407,
+        438
+      ]
+    },
+    {
+      "catalog_index": 37,
+      "candidate_id": "unverified_offer:37",
+      "media_name": "东方财富网",
+      "media_url": "caifuhao.eastmoney.com",
+      "rows": [
+        189,
+        410,
+        442
+      ]
+    },
+    {
+      "catalog_index": 38,
+      "candidate_id": "unverified_offer:38",
+      "media_name": "百度文库",
+      "media_url": "wenku.baidu.com",
+      "rows": [
+        190,
+        413,
+        444
+      ]
+    },
+    {
+      "catalog_index": 39,
+      "candidate_id": "unverified_offer:39",
+      "media_name": "齐鲁网",
+      "media_url": "caijing.iqilu.com",
+      "rows": [
+        192,
+        204,
+        215,
+        220,
+        226,
+        230,
+        240,
+        453,
+        483,
+        488,
+        493
+      ]
+    },
+    {
+      "catalog_index": 40,
+      "candidate_id": "unverified_offer:40",
+      "media_name": "广州软件应用技术研究院",
+      "media_url": "www.gzis.ac.cn",
+      "rows": [
+        193,
+        200,
+        205,
+        212,
+        217,
+        222,
+        231,
+        237,
+        454,
+        457,
+        467,
+        480,
+        486,
+        491,
+        495,
+        501
+      ]
+    },
+    {
+      "catalog_index": 41,
+      "candidate_id": "unverified_offer:41",
+      "media_name": "凤凰网",
+      "media_url": "i.ifeng.com",
+      "rows": [
+        194,
+        210,
+        471,
+        500
+      ]
+    },
+    {
+      "catalog_index": 42,
+      "candidate_id": "unverified_offer:42",
+      "media_name": "奇安信",
+      "media_url": "www.qianxin.com",
+      "rows": [
+        195,
+        209,
+        216,
+        241
+      ]
+    },
+    {
+      "catalog_index": 43,
+      "candidate_id": "unverified_offer:43",
+      "media_name": "博客园",
+      "media_url": "www.cnblogs.com",
+      "rows": [
+        196,
+        197,
+        198,
+        199,
+        201,
+        218,
+        223,
+        227,
+        228,
+        229,
+        232,
+        452,
+        458,
+        459,
+        468,
+        472,
+        473,
+        474,
+        476,
+        477,
+        478,
+        481,
+        482,
+        487,
+        492,
+        496,
+        502,
+        503
+      ]
+    },
+    {
+      "catalog_index": 44,
+      "candidate_id": "unverified_offer:44",
+      "media_name": "Neusoft",
+      "media_url": "www.neusoft.com",
+      "rows": [
+        202,
+        206,
+        219,
+        235,
+        239,
+        469,
+        494,
+        497
+      ]
+    },
+    {
+      "catalog_index": 45,
+      "candidate_id": "unverified_offer:45",
+      "media_name": "深圳市卓越软件评测有限公司",
+      "media_url": "www.zyscan.cn",
+      "rows": [
+        203,
+        207,
+        214,
+        221,
+        225,
+        236,
+        455,
+        463,
+        470,
+        484,
+        489,
+        499
+      ]
+    },
+    {
+      "catalog_index": 46,
+      "candidate_id": "unverified_offer:46",
+      "media_name": "IT之家",
+      "media_url": "www.ithome.com",
+      "rows": [
+        208,
+        498
+      ]
+    },
+    {
+      "catalog_index": 47,
+      "candidate_id": "unverified_offer:47",
+      "media_name": "Research and Markets report",
+      "media_url": "www.researchandmarkets.com",
+      "rows": [
+        211,
+        213,
+        224,
+        233,
+        460
+      ]
+    },
+    {
+      "catalog_index": 48,
+      "candidate_id": "unverified_offer:48",
+      "media_name": "河南经济报",
+      "media_url": "baijiahao.baidu.com",
+      "rows": [
+        234
+      ]
+    },
+    {
+      "catalog_index": 49,
+      "candidate_id": "unverified_offer:49",
+      "media_name": "北京云测信息技术有限公司官网",
+      "media_url": "www.testin.cn",
+      "rows": [
+        238,
+        465
+      ]
+    },
+    {
+      "catalog_index": 50,
+      "candidate_id": "unverified_offer:50",
+      "media_name": "抖音",
+      "media_url": "www.douyin.com",
+      "rows": [
+        313,
+        431,
+        432
+      ]
+    },
+    {
+      "catalog_index": 51,
+      "candidate_id": "unverified_offer:51",
+      "media_name": "网易",
+      "media_url": "www.163.com",
+      "rows": [
+        378,
+        411,
+        417,
+        448
+      ]
+    },
+    {
+      "catalog_index": 52,
+      "candidate_id": "unverified_offer:52",
+      "media_name": "搜狐",
+      "media_url": "roll.sohu.com",
+      "rows": [
+        414,
+        445
+      ]
+    },
+    {
+      "catalog_index": 53,
+      "candidate_id": "unverified_offer:53",
+      "media_name": "上海市软件评测中心有限公司",
+      "media_url": "www.itesting.cn",
+      "rows": [
+        456,
+        490
+      ]
+    },
+    {
+      "catalog_index": 54,
+      "candidate_id": "unverified_offer:54",
+      "media_name": "北京轩宇信息技术有限公司",
+      "media_url": "www.sunwiseinfo.com",
+      "rows": [
+        461
+      ]
+    },
+    {
+      "catalog_index": 55,
+      "candidate_id": "unverified_offer:55",
+      "media_name": "PeerSpot",
+      "media_url": "www.peerspot.com",
+      "rows": [
+        462
+      ]
+    },
+    {
+      "catalog_index": 56,
+      "candidate_id": "unverified_offer:56",
+      "media_name": "SMM商机",
+      "media_url": "b.smm.cn",
+      "rows": [
+        464
+      ]
+    },
+    {
+      "catalog_index": 57,
+      "candidate_id": "unverified_offer:57",
+      "media_name": "企业资讯",
+      "media_url": "baijiahao.baidu.com",
+      "rows": [
+        466
+      ]
+    },
+    {
+      "catalog_index": 58,
+      "candidate_id": "unverified_offer:58",
+      "media_name": "中国质量检验协会",
+      "media_url": "caqi.org.cn",
+      "rows": [
+        475
+      ]
+    },
+    {
+      "catalog_index": 59,
+      "candidate_id": "unverified_offer:59",
+      "media_name": "万国企业网手机站",
+      "media_url": "m.trustexporter.com",
+      "rows": [
+        479
+      ]
+    },
+    {
+      "catalog_index": 60,
+      "candidate_id": "unverified_offer:60",
+      "media_name": "北京尚拓云测科技有限公司",
+      "media_url": "www.bjstos.com",
+      "rows": [
+        485
+      ]
+    }
+  ]
+}

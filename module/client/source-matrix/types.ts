@@ -19,7 +19,7 @@ export interface BudgetPlan {
 export interface MatrixResult {
  status:string;plan_id:string;plan_version:string;matrix_version:string;as_of:string;
  scope:{task:Record<string,Json>;evidence_scope:EvidenceScope};
- matrix:{status:string;candidates:Candidate[];layers:Array<{role:string;display_name:string;status:string;candidate_ids:string[];auxiliary_candidate_ids:string[]}>;fit_order:string[]};
+ matrix:{status:string;candidates:Candidate[];layers:Array<{role:string;display_name:string;status:string;candidate_ids:string[];auxiliary_candidate_ids:string[];reason_summary?:string}>;fit_order:string[]};
  source_analysis:Analysis;budget_plans:BudgetPlan[];limitations:string[];warnings:Issue[];errors:Issue[];minimum_known_cost:Json;
 }
 export interface TaskResponse {task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}

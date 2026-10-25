@@ -1,0 +1,82 @@
+{
+  "matrix_decisions": {
+    "items": [
+      {
+        "candidate_id": "unverified_offer:58", "primary_role": "authority", "auxiliary_roles": [], "matched_questions": ["q1"],
+        "references": [{"type":"attribute","path":"catalog[58].source_name"},{"type":"attribute","path":"catalog[58].observation_context.records[0].title"},{"type":"attribute","path":"task.questions[0].text"}],
+        "reason_summary": "作为资质核验的参考来源：样本记录了协会站点上的中国软件评测中心介绍，可用来建立核验机构与资质的内容框架。",
+        "reason_details": ["来源：详细表格第 475 行，媒体名称为中国质量检验协会，域名 caqi.org.cn，标题为《中国软件评测中心 （工业和信息化部软件与集成电路促进中心）》。", "权威参考是本次内容角色判断，不是对该记录、机构资质或页面真实性的独立认证；需要回看原文和有效证明。", "适合作为选型说明的参考阅读，不假设协会接受商业投稿或替一航软件背书。"],
+        "unconfirmed_items": ["原文内容与信息有效期尚未核验", "不能由该记录证明一航软件的资质", "未确认可投稿渠道、报价与稿件条件"], "selection":"recommended"
+      },
+      {
+        "candidate_id":"unverified_offer:40", "primary_role":"authority", "auxiliary_roles":[], "matched_questions":["q2"],
+        "references":[{"type":"attribute","path":"catalog[40].source_name"},{"type":"attribute","path":"catalog[40].observation_context.records[0].title"},{"type":"attribute","path":"task.questions[1].text"}],
+        "reason_summary":"将研究院的先进软件测评实验室介绍作为技术能力与服务交付的参考材料，帮助建立采购比较问题。",
+        "reason_details":["来源：详细表格第 193 行起，广州软件应用技术研究院 www.gzis.ac.cn，标题包含《先进软件测评实验室》及智慧城市、物联网、云计算等研究领域。", "该标题提供软件测评服务的直接主题联系；据此建议研究其测试范围与交付说明，不把研究院名称当作已验证背书。", "这是研究参考，不能假定该机构为一航软件提供可购买的发布位。"],
+        "unconfirmed_items":["仅有导出标题，未核实实验室能力与原文", "研究机构与一航软件的关系未知", "发布合作、报价和稿件审核均未知"],"selection":"recommended"
+      },
+      {
+        "candidate_id":"unverified_offer:28", "primary_role":"industry", "auxiliary_roles":[], "matched_questions":["q1","q2"],
+        "references":[{"type":"attribute","path":"catalog[28].observation_context.records[0].title"},{"type":"attribute","path":"catalog[28].source_name"},{"type":"attribute","path":"task.questions[0].text"}],
+        "reason_summary":"优先研究电子技术应用的行业选型内容：样本主题直接讨论软件测试企业与 CMA/CNAS，可承接资质辨析和能力比较。",
+        "reason_details":["来源：详细表格第 144、158 行，标题《深度剖析 2026 年具备 CMA 和 CNAS 资质的第三方软件测试公司精选企业-AET-电子技术应用》。", "选择依据是具体选型议题与任务吻合，而非两行记录代表的引用次数；标题中的资质结论仍需逐项核验。", "建议的内容方向是解释资质适用范围与测试交付差异，不直接复用排行榜断言。"],
+        "unconfirmed_items":["文章作者、编辑审核机制和商业投稿入口未知", "未确认一航软件是否满足文中资质条件", "媒体报价、附加费与发布时间未知"],"selection":"recommended"
+      },
+      {
+        "candidate_id":"unverified_offer:30", "primary_role":"industry", "auxiliary_roles":[], "matched_questions":["q1","q3"],
+        "references":[{"type":"attribute","path":"catalog[30].observation_context.records[0].title"},{"type":"attribute","path":"catalog[30].source_name"},{"type":"attribute","path":"task.questions[2].text"}],
+        "reason_summary":"腾讯云开发者社区的样本条目围绕第三方检测资质问答，适合作为技术解释型内容的候选研究方向。",
+        "reason_details":["来源：详细表格第 162 行《软件第三方检测机构也有CMA资质吗？一文读懂认证真相与机构选择》及第 168 行《第三方测试报告机构资质要求？》。", "两条标题对应采购者容易混淆的资质问题，适合将一航软件的真实能力材料组织为可核验问答。", "这里只确认样本给出的平台名称和文章标题，不代表腾讯云官方认可文章观点或推荐一航软件。"],
+        "unconfirmed_items":["具体作者账号和发布权限未确认", "品牌资质、链接及素材要求需另行确认", "没有报价或稿件预检结果"],"selection":"recommended"
+      },
+      {
+        "candidate_id":"unverified_offer:46", "primary_role":"industry", "auxiliary_roles":[], "matched_questions":["q2","q3"],
+        "references":[{"type":"attribute","path":"catalog[46].observation_context.records[0].title"},{"type":"attribute","path":"catalog[46].source_name"},{"type":"attribute","path":"task.questions[1].text"}],
+        "reason_summary":"IT之家的样本标题讨论第三方检测的价值和挑选方法，可研究用交付案例解释软件测试服务价值的内容方案。",
+        "reason_details":["来源：详细表格第 208、498 行，《不止是出报告！第三方检测机构的真正价值与挑选方法 - IT之家》。", "该话题能补充纯资质清单，重点讨论测试方法、发现问题及交付价值；仍需核实原文是否涉及软件测试。", "推荐基于主题适配，没有预测触达、阅读量或未来 AI 引用效果。"],
+        "unconfirmed_items":["原文可能涵盖更宽泛的检测行业，需要确认软件主题比例", "具体栏目和商业合作资格未知", "报价、稿件规格及排期未知"],"selection":"alternative"
+      },
+      {
+        "candidate_id":"unverified_offer:4", "primary_role":"industry", "auxiliary_roles":[], "matched_questions":["q2","q3"],
+        "references":[{"type":"attribute","path":"catalog[4].observation_context.records[0].title"},{"type":"attribute","path":"catalog[4].domain"},{"type":"attribute","path":"task.questions[1].text"}],
+        "reason_summary":"将 CSDN 的软件测试公司推荐条目作为技术社区备选入口，优先验证能否发布有方法与案例支撑的技术内容。",
+        "reason_details":["来源：详细表格第 8 行起，blog.csdn.net，标题《2026年国内权威第三方软件测试公司推荐》。", "多行重复观察保留但不用于抬高适配顺序；同一标题与企业推荐话题相关，尚不能证明账号具有技术审核能力。", "列为备选而非已确认核心投放位，先核实作者与内容质量，再决定能否承担测试方法和交付案例。"],
+        "unconfirmed_items":["作者身份、账号与商业投放映射未知", "标题中的权威及排行主张未核实", "缺报价、稿件版本及发布规则"],"selection":"alternative"
+      },
+      {
+        "candidate_id":"unverified_offer:29", "primary_role":"supplement", "auxiliary_roles":[], "matched_questions":["q1","q3"],
+        "references":[{"type":"attribute","path":"catalog[29].observation_context.records[0].title"},{"type":"attribute","path":"catalog[29].source_name"},{"type":"attribute","path":"task.questions[0].text"}],
+        "reason_summary":"知乎的资质问题条目可补充面向采购者的直接问答，使行业解释内容有更明确的问题入口。",
+        "reason_details":["来源：详细表格第 161、167 行，《第三方软件测试机构需要什么资质？ - 知乎》。", "补充价值是问题组织形式，不把平台名当成具体回答者或已授权账号。", "适合回答资质如何核验、报告适用范围和材料清单；不得使用未验证的品牌资质宣称。"],
+        "unconfirmed_items":["问题页面和具体回答账号未核验", "平台允许的推广方式与内容规则未知", "报价或可售发布资源未知"],"selection":"recommended",
+        "supplemental_value":"在腾讯云的解释文章之外，增加按采购问题组织的问答视角。","supplemental_to":["unverified_offer:30"]
+      },
+      {
+        "candidate_id":"unverified_offer:5", "primary_role":"supplement", "auxiliary_roles":[], "matched_questions":["q1","q2","q3"],
+        "references":[{"type":"attribute","path":"catalog[5].observation_context.records[0].title"},{"type":"attribute","path":"catalog[5].source_name"},{"type":"attribute","path":"task.questions[1].text"}],
+        "reason_summary":"搜狐样本同时出现资质、公司选择和报告话题，可研究作为技术行业内容之外的采购决策解释渠道。",
+        "reason_details":["来源：详细表格第 9 行起，www.sohu.com，包含《国家认可的第三方软件测试机构长什么样？（如柯信检测）》等标题。", "建议将已核实的技术案例转成采购比较框架，补充电子技术应用的行业技术视角。", "门户文章和账号不能混为一个已确认发布渠道；同域的搜狐网、搜狐新闻等原始名称没有合并。"],
+        "unconfirmed_items":["样本包含其他机构推广，不可直接视为一航软件命中", "具体账号、审核与商业入口未知", "没有报价和当前发布状态"],"selection":"recommended",
+        "supplemental_value":"增加围绕采购选型与报告用途的通俗说明，补足行业技术文章的阅读门槛。","supplemental_to":["unverified_offer:28"]
+      },
+      {
+        "candidate_id":"unverified_offer:6", "primary_role":"supplement", "auxiliary_roles":[], "matched_questions":["q1","q3"],
+        "references":[{"type":"attribute","path":"catalog[6].observation_context.records[0].title"},{"type":"attribute","path":"catalog[6].source_name"},{"type":"attribute","path":"task.questions[0].text"}],
+        "reason_summary":"百家号样本包含实验室资质、机构作用和选择指南，可作为资质解释内容的补充备选。",
+        "reason_details":["来源：详细表格第 10 行起，标题包含《软件检测实验室资质要求，第三方测评合规条件》等。", "适合研究将核验步骤拆成常见问题内容；45 行原始记录不等于45个独立回答，不用于预测效果。", "平台级名称没有回答作者身份；不把样本中河南经济报、中科检测等不同名称自动合并为同一渠道。"],
+        "unconfirmed_items":["具体账号及其行业相关性需确认", "文章资质主张与采样范围的真实性未核验", "价格、附加费和发布规则未知"],"selection":"alternative",
+        "supplemental_value":"在腾讯云技术解释之外，研究更基础的资质核验步骤与采购常见问题表达。","supplemental_to":["unverified_offer:30"]
+      },
+      {
+        "candidate_id":"unverified_offer:31", "primary_role":"exploration", "auxiliary_roles":[], "matched_questions":["q1","q2","q3"],
+        "references":[{"type":"attribute","path":"catalog[31].observation_context.records[0].title"},{"type":"attribute","path":"catalog[31].source_name"},{"type":"attribute","path":"task.questions[2].text"}],
+        "reason_summary":"稀土掘金仅有一条收费与资质主题记录，适合小规模验证技术读者是否需要具体测试案例和选型解释。",
+        "reason_details":["来源：详细表格第 166 行，《第三方软件检测机构的收费标准和资质有哪些？》。", "该标题与采购问题相关但观察很少；因此作为有明确验证问题的探索方向，不根据单条记录宣称稳定表现。", "费用词是内容主题，不是发布报价；矩阵没有用预算或费用给候选排序。"],
+        "unconfirmed_items":["作者与账号权限未确认", "没有可售资源、媒体报价或附加费", "未提供稿件及技术读者反馈"],"selection":"alternative",
+        "exploration_hypothesis":"经核验的测试案例和资质解释可能比机构榜单更适合技术社区；需通过小规模内容反馈验证。",
+        "verification_items":["核对具体账号与允许的内容形式", "检查稿件包含可复核的方法与真实案例", "记录实际发布反馈，不把反馈等同于未来 AI 引用效果"]
+      }
+    ],
+    "fit_order":["unverified_offer:58","unverified_offer:40","unverified_offer:28","unverified_offer:30","unverified_offer:46","unverified_offer:4","unverified_offer:29","unverified_offer:5","unverified_offer:6","unverified_offer:31"]
+  }
+}
