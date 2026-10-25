@@ -13,7 +13,7 @@ it("expands the selected section from the route without any disclosure buttons",
   expect(screen.getByRole("link",{name:"发布记录"})).toBeTruthy();
   // 媒体选择子菜单收起：隐藏子链接不出现在可访问树。
   expect(screen.queryByRole("link",{name:"信源矩阵"})).toBeNull();
-  expect(screen.queryByRole("link",{name:"第三方媒体"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"媒体库"})).toBeNull();
   // 本轮已移除独立的展开/收起箭头按钮。
   expect(screen.queryByRole("button",{name:/子菜单/})).toBeNull();
 });
@@ -24,7 +24,7 @@ it("switches the expanded group after a deep route change and restores highlight
   view.rerender(<PublishingNavigation path="/publishing/drafts/d1/media/matrix" search="task=t1" collapsed={false} onNavigate={navigate}/>);
   expect(screen.getByRole("link",{name:"信源矩阵"}).getAttribute("aria-current")).toBe("page");
   expect(screen.queryByRole("link",{name:"管理稿件"})).toBeNull();
-  expect(screen.queryByRole("link",{name:"第三方媒体"})).toBeTruthy();
+  expect(screen.queryByRole("link",{name:"媒体库"})).toBeTruthy();
 });
 
 it("keeps the current section expanded when its parent link is clicked again", () => {
@@ -40,7 +40,7 @@ it("collapses both sections on a section without child destinations", () => {
   expect(screen.getByRole("link",{name:"发布工作台"}).getAttribute("aria-current")).toBe("page");
   expect(screen.queryByRole("link",{name:"管理稿件"})).toBeNull();
   expect(screen.queryByRole("link",{name:"信源矩阵"})).toBeNull();
-  expect(screen.queryByRole("link",{name:"第三方媒体"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"媒体库"})).toBeNull();
 });
 
 it("targets the media overview from the media parent while carrying task context", () => {

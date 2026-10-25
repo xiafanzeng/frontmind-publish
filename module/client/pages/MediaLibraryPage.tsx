@@ -1235,7 +1235,7 @@ export default function PublishingMediaLibraryPage({
   const nextLabel=flowMode==="single"?"预检发布":"配置标题";
   const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext||!!contextReadIssue||selectionBusy||!selected.size} nextHint={!hasArticleContext?"您还未选择稿件":contextReadIssue||(selectionBusy?'正在保存媒体选择…':!selected.size?'请先选择媒体':undefined)} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} onRemove={media=>toggle(media)}/>;
   useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
-  return <MediaShell steps={flowSteps} title={view==='home'?'媒体库':view==='cart'?'第三方购物车':'第三方媒体选择'} notice={view==='home'?<div className="notice x-home-notice">矩阵先按问题与媒体适配生成；填写预算后，再推荐组合。两种选媒方式共用一个购物车。</div>:undefined} note={view==='home'?'分析信源、比较媒体，统一管理本次投放清单。':view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:view==='home'&&currentArticleTitle?<span className="x-task-pill" title={currentArticleTitle}>稿件：{currentArticleTitle}{currentArticleVersion !== undefined ? ` · v${currentArticleVersion}` : ''}</span>:undefined} taskbar={<MediaTaskbar note={currentArticleNote} saveStatus={selectionBusy?'正在保存…':contextReadIssue || (task?'已读取投放草稿':frozenVersion?'已读取冻结稿件':'')} title={currentArticleTitle?(view==='home'?'当前稿件：':'')+currentArticleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={currentArticleId&&<>{task&&<button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button>}<Link className="link small" href={projectWorkspaceUrl(articleEditHref)}>返回编辑</Link></>}><select aria-label="当前投放任务" value={hasArticleContext?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{hasArticleContext&&<option value="current">{currentArticleTitle??'正在读取稿件'}</option>}</select></MediaTaskbar>}>
+  return <MediaShell steps={flowSteps} title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} note={view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':view==='home'?undefined:'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined} taskbar={<MediaTaskbar note={currentArticleNote} saveStatus={selectionBusy?'正在保存…':contextReadIssue || (task?'已读取投放草稿':frozenVersion?'已读取冻结稿件':'')} title={currentArticleTitle?(view==='home'?'当前稿件：':'')+currentArticleTitle:undefined} count={selected.size} total={selectedTotal} cart={view!=='home'} cartHref={pageHref(base+'/cart')} actions={currentArticleId&&<>{task&&<button className="link small" onClick={()=>setPreviewOpen(true)}>查看稿件</button>}<Link className="link small" href={projectWorkspaceUrl(articleEditHref)}>返回编辑</Link></>}><select aria-label="当前投放任务" value={hasArticleContext?'current':'research'} onChange={e=>{if(e.target.value==='research')navigate(projectWorkspaceUrl('/publishing/media/third'));}}><option value="research">独立浏览 / 研究</option>{hasArticleContext&&<option value="current">{currentArticleTitle??'正在读取稿件'}</option>}</select></MediaTaskbar>}>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}
     {isBatch ? <button className="link" disabled={batchQuery.loading||batchQuery.refreshing} onClick={()=>batchQuery.reload()}>重试读取批量稿件</button>
@@ -1260,21 +1260,17 @@ export default function PublishingMediaLibraryPage({
       <Link className="button primary x-duo-cta" href={sourceHref('/publishing/source-matrix')}>进入信源矩阵 →</Link>
     </section>
     <section className="panel x-duo-card">
-      <div className="x-duo-head"><div className="metric-icon"><ReferenceIcon name="send"/></div><div><h2>媒体选择</h2><p>搜索和筛选第三方媒体，对比发布条件与两项 AI 指标。</p></div></div>
+      <div className="x-duo-head"><div className="metric-icon"><ReferenceIcon name="send"/></div><div><h2>媒体库</h2><p>搜索和筛选第三方媒体，对比发布条件与两项 AI 指标。</p></div></div>
       <div className="x-metric-chips">
         <div className="x-metric-chip"><strong>AI引用率<span className="r-help" tabIndex={0}>ⓘ<span>AI 在引用标注中列出该信源的次数 ÷ 总测试提问次数。</span></span></strong><span>引用标注中列出信源</span></div>
         <div className="x-metric-chip"><strong>AI提及率<span className="r-help" tabIndex={0}>ⓘ<span>AI 输出正文包含信源的样本数 ÷ 总测试提问次数。</span></span></strong><span>输出正文包含信源</span></div>
       </div>
       <p className="small muted x-metric-note">指标口径来自信源分析定义；当前媒体目录暂未接入实测数值。</p>
       <div className="x-duo-tags"><span className="x-muted-tag">媒体属性与 AI 指标并列展示</span></div>
-      <Link className="button primary x-duo-cta" href={pageHref(base+'/third')}>进入媒体选择 →</Link>
+      <Link className="button primary x-duo-cta" href={pageHref(base+'/third')}>进入媒体库 →</Link>
     </section>
   </div>
-  <section className="panel x-cart-summary">
-    <div className="grow"><h2>共用购物车</h2><p className="small muted">矩阵组合与手选媒体统一汇总，生成本身不入车。</p></div>
-    <div className="x-cart-metrics">{draftReadIssue?<strong>{draftQuery.loading||draftQuery.refreshing?'正在读取购物车…':'购物车暂不可用，请重试读取草稿'}</strong>:<><strong>{selected.size} 家 · {pending?'已知报价合计 ':''}{formatPublishingMoney(selectedTotal)}</strong><span className="small muted">{selected.size?`已确认选择 · ${pending} 项费用待确认`:'尚未选择媒体'}</span></>}</div>
-    <Link className="button secondary" href={projectWorkspaceUrl(pageHref(base+'/cart'))}>查看购物车 →</Link>
-  </section>
+  {footer}
   <p className="footer-note">媒体、报价与发布要求来自已配置的供应商接口；不保证收录或 AI 引用。</p>
 </>:view==='cart'?<>
    <div className="actions" style={{marginBottom:18}}><Link className="button secondary" href={projectWorkspaceUrl(pageHref(base+'/third'))}>← 继续选择媒体</Link><button className="button quiet" onClick={()=>exportRows(selectedValues)}>导出清单</button><button className="button quiet" onClick={()=>{setTemplateError('');setTemplateOpen(true);}}>保存组合模板</button><button className="link danger" onClick={()=>setDialogMessage('clear')}>清空购物车</button></div>

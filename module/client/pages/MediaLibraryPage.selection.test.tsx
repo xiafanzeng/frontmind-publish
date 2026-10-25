@@ -195,7 +195,7 @@ describe("media selection context and persistence", () => {
     detail.versions[0]!.containsImages = true;
     const fixture = gatewayFixture([pending, media("text", { kind, capability: "text" })], detail);
     const view = harness(fixture.gateway, `/publishing/media?articleVersion=version-1&kind=${kind}`);
-    fireEvent.click(screen.getByRole("link", { name: "进入媒体选择 →" }));
+    fireEvent.click(screen.getByRole("link", { name: "进入媒体库 →" }));
     await waitFor(() => expect(choice("pending").disabled).toBe(false));
     expect(choice("text").disabled).toBe(true);
     fireEvent.click(choice("pending"));
@@ -345,16 +345,16 @@ describe("media selection context and persistence", () => {
     const fixture = gatewayFixture();
     fixture.getDraft.mockRejectedValue(new Error('读取失败'));
     harness(fixture.gateway, '/publishing/drafts/draft-1/media');
-    expect(await screen.findByText('购物车暂不可用，请重试读取草稿')).toBeTruthy();
-    expect(screen.queryByText('尚未选择媒体')).toBeNull();
+    expect(await screen.findByText(/投放草稿读取失败/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重试读取草稿' })).toBeTruthy();
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 
-  it("shows pending quotes separately from the known total on the shared home cart", async () => {
+  it("totals only known prices on the shared home cart", async () => {
     const fixture = gatewayFixture();
     harness(fixture.gateway, '/publishing/media', flow({ selections: { mediaSelection: [media('a'), media('unknown', { priceTenThousandths: '' })] } }));
-    expect(await screen.findByText('已确认选择 · 1 项费用待确认')).toBeTruthy();
-    expect(screen.getByText(/2 家 · 已知报价合计/).textContent).toContain('100.00');
+    await waitFor(() => expect(count()).toBe('2'));
+    expect(screen.getByTestId('cart-total').textContent).toBe('1000000');
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 
@@ -379,7 +379,7 @@ describe("media selection context and persistence", () => {
     } });
     const fixture = gatewayFixture();
     harness(fixture.gateway, "/publishing/media?articleVersion=version-1&mode=multi&workbenchTask=task-1&matrixTask=matrix-1&enterpriseProjectId=project-1&operatorOwnerId=9");
-    const link = screen.getByRole("link", { name: "进入媒体选择 →" });
+    const link = screen.getByRole("link", { name: "进入媒体库 →" });
     const target = new URL(link.getAttribute("href")!, window.location.origin);
     expect(target.pathname).toBe("/publishing/media/third");
     for (const [key, value] of Object.entries({ articleVersion: "version-1", mode: "multi", workbenchTask: "task-1", matrixTask: "matrix-1", enterpriseProjectId: "project-1", operatorOwnerId: "9" })) {
