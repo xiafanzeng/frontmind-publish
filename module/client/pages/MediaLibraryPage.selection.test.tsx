@@ -255,7 +255,7 @@ describe("media selection context and persistence", () => {
     for (const [key, value] of Object.entries({ articleVersion: 'version-1', mode: 'multi', workbenchTask: 'task-1', task: 'matrix-1', enterpriseProjectId: 'project-1', operatorOwnerId: '9' }))
       expect(target.searchParams.get(key)).toBe(value);
     expect(target.searchParams.has('matrixTask')).toBe(false);
-    await waitFor(() => expect((screen.getByRole('combobox', { name: '当前投放任务' }) as HTMLSelectElement).value).toBe('current'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /当前稿件/ }).textContent).toContain('已确认稿件'));
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 

@@ -364,9 +364,18 @@
 .fm-media .r-media-table th:nth-child(8),.fm-media .r-media-table th:nth-child(9){width:100px;white-space:nowrap}
 .fm-media .r-media-table th:nth-child(10){width:54px}
 .fm-media .r-media-table td:nth-child(n+8){vertical-align:middle;text-align:center}
-.fm-media .r-help{position:relative;display:inline-grid;place-items:center;border:1px solid #aa94ab;color:#886d8c;border-radius:50%;width:15px;height:15px;padding:0;font-size:10px;cursor:help}
-.fm-media .r-help span{display:none;position:absolute;right:-5px;top:23px;white-space:normal;text-align:left;width:220px;padding:12px;line-height:1.7;color:#fff;background:#51325d;border-radius:9px;z-index:20;box-shadow:0 5px 20px #31203b22;font-size:12px;font-weight:400}
-.fm-media .r-help:hover span,.fm-media .r-help:focus span{display:block}
+.fm-media .y-help-dot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;margin-left:5px;border:0;background:none;color:#886d8c;cursor:help;vertical-align:-3px}
+.fm-media .y-help-dot svg{width:16px;height:16px;stroke-width:1.7}
+.fm-media .y-article-menu{position:relative;display:inline-flex;max-width:100%;margin-bottom:18px}
+.fm-media .y-article-menu-trigger{display:inline-flex;align-items:center;gap:9px;max-width:100%;padding:9px 14px;background:#fff;border:1px solid var(--line);border-radius:11px;color:inherit;font-size:13px;cursor:pointer}
+.fm-media .y-article-menu-trigger strong{font-weight:650;flex-shrink:0}
+.fm-media .y-article-menu-trigger span{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fm-media .y-article-menu-trigger i{font-style:normal;color:#a08ca6;flex-shrink:0}
+.fm-media .y-article-menu ul{position:absolute;top:calc(100% + 8px);left:0;z-index:60;min-width:280px;max-width:min(440px,calc(100vw - 24px));margin:0;padding:8px;list-style:none;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px #31203b1f}
+.fm-media .y-article-menu li{padding:9px 10px;border-radius:8px}
+.fm-media .y-article-menu li strong{display:block;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.fm-media .y-article-menu li small{color:var(--muted);font-size:12px}
+.fm-media .y-article-menu-empty{color:var(--muted);font-size:12px;line-height:1.7;padding:9px 10px}
 .fm-media .r-star{width:32px;height:32px;padding:4px;color:#a3a7b7;border-radius:8px}
 .fm-media .r-star svg{width:24px;height:24px;fill:transparent;stroke:currentColor;stroke-width:1.7}
 .fm-media .r-star.active{color:#c79132;background:#fff7e5}

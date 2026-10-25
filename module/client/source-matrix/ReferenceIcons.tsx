@@ -24,6 +24,10 @@ export function ReferenceSymbols(){return (<svg width="0" height="0" style={{pos
 
 <symbol id="i-layer" viewBox="0 0 24 24"><path d="m12 2 10 6-10 6L2 8Z M2 12l10 6 10-6 M2 16l10 6 10-6"/></symbol>
 
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.7v.01"/></symbol>
+
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11 M12 15l4.5-4.5 M12 15 7.5 10.5"/><path d="M5 19h14"/></symbol>
+
 </defs></svg>);}
 export function ReferenceIcon({name}:{name:string}){return <svg><use href={'#i-'+name}/></svg>;}
 const inline:Record<string,ReactNode>={
