@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FileCheck2, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import { MediaMark, PublishingConfirmDialog, PublishingError, PublishingLoading, PublishingPage } from "../components/PublishingUi";
@@ -262,17 +262,17 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const reviewStage = groups.length === draftIds.length
     ? publishingTitleStage(groups.map(group => ({titleMode:group.preflight?.titleMode ?? group.draft?.titleMode}))) : undefined;
   const stages = reviewStage ? flowStagesForMode(reviewStage === "review" ? "single" : "per_media") : undefined;
+  // One shared check table for every pending manuscript: drafts become group
+  // rows and their media rows sit directly below (batch review requirement).
+  const tableGroups = groups.filter(group => group.preflight && !group.excluded && !(session.progress.accepted[group.draftId] ?? group.batch));
+  const tableTotals = reviewBatchTotals(tableGroups.map(group => group.preflight!));
+  const tablePartial = tableGroups.some(group => { const totals = reviewBatchTotals([group.preflight!]); return totals.failedCount > 0 && totals.passedCount > 0; });
+  const tableTitleLabel = (() => { const modes = new Set(tableGroups.map(group => group.preflight!.titleMode ?? group.draft?.titleMode)); return modes.size === 1 ? ([...modes][0] === "single" ? "统一标题" : "独立标题") : "发布标题"; })();
   return <div className="publishing-review-page">
     <PublishingPage title="发布内容检查与费用核验" layout="review" busy={busy}>
       {!flow && stages ? <PublishingFlowSteps stages={stages} doneCount={stages.length - 1} activeIndex={stages.length - 1} /> : null}
       <div className="publishing-review-layout">
-        <section className="publishing-review-main" aria-labelledby="publishing-content-check-heading">
-          <header className="publishing-review-check-toolbar">
-            <h2 id="publishing-content-check-heading">发布内容检查</h2>
-            {!allAccepted || attention ? <button type="button" className="publishing-button publishing-button-secondary" disabled={busy} aria-busy={query.loading || query.refreshing || undefined} onClick={() => {setAcknowledged(false); session.estimatedBalance=undefined; query.reload();}}>{query.loading || query.refreshing ? "正在检查…" : unknownIds.length ? "刷新受理状态" : "一键预检"}</button> : null}
-          </header>
-          {query.loading ? <PublishingLoading label="正在逐稿刷新价格与发布门禁…" /> : null}
-          {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
+        <section className="publishing-review-main">
           {groups.map((group, index) => {
             const preflight = group.preflight;
             const batch = session.progress.accepted[group.draftId] ?? group.batch;
@@ -297,18 +297,6 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
                 <Link className="publishing-button publishing-button-secondary" href={publishingTaskUrl("/publishing/publications/" + encodeURIComponent(batch.id), flow?.taskId)}>查看本稿发布结果<ExternalLink size={15} /></Link>
                 <ul className="publishing-review-receipts">{batch.items.map(item => <li key={item.id}><strong>{item.media.name}</strong><span>{item.title}</span><span>{({queued:"排队中",submitting:"正在提交",processing:"处理中",success:"发布成功",failed:"发布失败",auth_blocked:"授权待处理",submission_unknown:"结果待核实",action_required:"待处理"})[item.status]}</span>{item.resultUrl ? <a href={item.resultUrl} target="_blank" rel="noreferrer">查看发布链接</a> : null}</li>)}</ul>
               </div> : uncertain && !preflight ? <div className="publishing-panel publishing-review-group-status"><strong>发布请求待确认</strong><p>将使用原请求核实受理结果；本稿尚未计作发布成功。</p><ul>{items.map(item => <li key={item.media.id}>{item.media.name} · {item.title}</li>)}</ul></div> : preflight ? <>
-                <section className="publishing-panel publishing-review-table" aria-labelledby={"publishing-review-results-" + index}>
-                  <header className="publishing-review-results-head"><h2 id={"publishing-review-results-" + index}>发布内容检查结果</h2><p className="publishing-review-counts">通过 <strong>{groupTotals.passedCount}</strong> · 不通过 <strong>{groupTotals.failedCount}</strong> · 本稿待预占 <strong>{formatPublishingMoney(groupTotals.publishTotal.toString())}</strong>
-                    {groupTotals.failedCount ? <span className="publishing-review-excluded">未纳入本次发布：{groupTotals.failedCount} 项 · {formatPublishingMoney(groupTotals.excludedTotal.toString())}</span> : null}
-                    {groupTotals.failedCount && groupTotals.passedCount ? <span className="publishing-review-partial">部分发布：未通过组合将先移出本稿发布草稿</span> : null}</p></header>
-                  <div className="publishing-review-head publishing-review-row"><span>媒体</span><span>{(preflight.titleMode ?? group.draft?.titleMode) === "single" ? "统一标题" : "独立标题"}</span><span>冻结单价</span><span>内容检查</span><span>状态</span></div>
-                  {preflight.items.map(item => <div className="publishing-review-row" key={group.draftId + ":" + item.media.id}>
-                    <span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>FrontMind 媒体号：{item.media.id}</small><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span></span></span>
-                    <span data-label="发布标题">{item.title}</span><strong data-label="冻结单价">{formatPublishingMoney(item.priceTenThousandths)}</strong><span data-label="内容检查">{item.media.capability === "text" ? "仅纯文字" : item.media.capability === "image" ? "支持图片" : "图片要求未注明"}</span>
-                    <span data-label="状态">{item.blockers.length ? <span className="publishing-status is-danger">未通过</span> : <span className="publishing-status is-success"><CheckCircle2 size={14} />通过</span>}</span>
-                    {item.warnings.length ? <p className="publishing-row-warning"><AlertTriangle size={15} />{item.warnings.join("；")}</p> : null}
-                  </div>)}
-                </section>
                 {preflight.warnings.length ? <div className="publishing-notice is-warning"><AlertTriangle size={21} /><div><strong>有 {preflight.warnings.length} 项内容提示</strong><p>{[...new Set(preflight.warnings)].join("；")}</p></div></div> : null}
                 {blockers.length ? <div className="publishing-notice is-danger" role="alert"><AlertTriangle size={21} /><div><strong>{preflight.blockers.length || !groupTotals.passedCount ? "本稿当前不能发布" : "本稿部分组合未通过"}</strong><p>{blockers.join("；")}</p>
                   {refreshable(preflight) ? <button className="publishing-button publishing-button-secondary" type="button" disabled={busy || Boolean(unknownIds.length)} onClick={() => acceptCatalogChanges(group)}>{refreshingCatalog === group.draftId ? "正在刷新目录快照…" : "接受本稿当前目录并重新预检"}</button> : null}
@@ -317,6 +305,31 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
               </> : null}
             </section>;
           })}
+          {tableGroups.length || query.loading || query.error || !allAccepted || attention ? <section className="publishing-panel publishing-review-table" aria-labelledby="publishing-content-check-heading">
+            <header className="publishing-review-results-head">
+              <div className="publishing-review-results-title">
+                <h2 id="publishing-content-check-heading">发布内容检查</h2>
+                {!allAccepted || attention ? <button type="button" className="publishing-button publishing-button-secondary" disabled={busy} aria-busy={query.loading || query.refreshing || undefined} onClick={() => {setAcknowledged(false); session.estimatedBalance=undefined; query.reload();}}>{query.loading || query.refreshing ? "正在检查…" : unknownIds.length ? "刷新受理状态" : "一键预检"}</button> : null}
+              </div>
+              {tableGroups.length ? <p className="publishing-review-counts">通过 <strong>{tableTotals.passedCount}</strong> · 不通过 <strong>{tableTotals.failedCount}</strong>
+                {tableTotals.failedCount ? <span className="publishing-review-excluded">未纳入本次发布：{tableTotals.failedCount} 项 · {formatPublishingMoney(tableTotals.excludedTotal.toString())}</span> : null}
+                {tablePartial ? <span className="publishing-review-partial">部分发布：未通过组合将先移出对应稿件发布草稿</span> : null}</p> : null}
+            </header>
+            {query.loading ? <PublishingLoading label="正在逐稿刷新价格与发布门禁…" /> : null}
+            {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
+            {tableGroups.length ? <>
+              <div className="publishing-review-head publishing-review-row"><span>媒体</span><span>{tableTitleLabel}</span><span>内容检查</span><span>状态</span></div>
+              {tableGroups.map((group, index) => { const preflight = group.preflight!; const groupTotals = reviewBatchTotals([preflight]); return <Fragment key={group.draftId}>
+                {tableGroups.length > 1 ? <div className="publishing-review-draft-row"><span className="publishing-review-draft-index">稿件 {index + 1}</span><strong>{groupTitle(group)}</strong><span>版本 v{preflight.article.version}</span><span className="publishing-review-draft-counts">通过 {groupTotals.passedCount} · 不通过 {groupTotals.failedCount}</span></div> : null}
+                {preflight.items.map(item => <div className="publishing-review-row" key={item.media.id}>
+                  <span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>FrontMind 媒体号：{item.media.id}</small><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span></span></span>
+                  <span data-label="发布标题">{item.title}</span><span data-label="内容检查">{item.media.capability === "text" ? "仅纯文字" : item.media.capability === "image" ? "支持图片" : "图片要求未注明"}</span>
+                  <span data-label="状态">{item.blockers.length ? <span className="publishing-status is-danger">未通过</span> : <span className="publishing-status is-success"><CheckCircle2 size={14} />通过</span>}</span>
+                  {item.warnings.length ? <p className="publishing-row-warning"><AlertTriangle size={15} />{item.warnings.join("；")}</p> : null}
+                </div>)}
+              </Fragment>; })}
+            </> : null}
+          </section> : null}
         </section>
         {groups.length ? <>
         <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验">

@@ -32,16 +32,23 @@ it("shows both manuscript groups with independent titles for the same media", as
   openReview(gateway);
   const first=await screen.findByRole("region", {name:"稿件 1：稿件 a"});
   const second=await screen.findByRole("region", {name:"稿件 2：稿件 b"});
-  expect(within(first).getByText("稿件 a 的独立标题")).toBeTruthy();
-  expect(within(second).getByText("稿件 b 的独立标题")).toBeTruthy();
-  expect(within(second).queryByText("稿件 a 的独立标题")).toBeNull();
+  expect(within(first).getByText("稿件 a")).toBeTruthy();
+  expect(within(second).getByText("稿件 b")).toBeTruthy();
   const fees=screen.getByRole("region",{name:"费用与预算核验"});
   expect(within(fees).getByText("2 项 · ¥2.00")).toBeTruthy();
   expect(within(fees).getByText("¥10.00")).toBeTruthy();
   expect(preflightDraft.mock.calls.map(call => call[0])).toEqual(["a","b"]);
   const checks=screen.getByRole("region",{name:"发布内容检查"});
-  expect(checks.contains(first)).toBe(true);
-  expect(checks.contains(second)).toBe(true);
+  // One shared table groups both manuscripts: draft rows separate their media.
+  expect(within(checks).getByText("稿件 1")).toBeTruthy();
+  expect(within(checks).getByText("稿件 2")).toBeTruthy();
+  expect(within(checks).getByText("稿件 a")).toBeTruthy();
+  expect(within(checks).getByText("稿件 b")).toBeTruthy();
+  expect(within(checks).getByText("稿件 a 的独立标题")).toBeTruthy();
+  expect(within(checks).getByText("稿件 b 的独立标题")).toBeTruthy();
+  expect(within(checks).getAllByText("两稿共同选择的媒体")).toHaveLength(2);
+  expect(within(checks).queryByText("冻结单价")).toBeNull();
+  expect(within(checks).queryByText(/本稿待预占/)).toBeNull();
   expect(checks.compareDocumentPosition(fees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(checks).getAllByRole("button",{name:"一键预检"})).toHaveLength(1);
   expect(screen.getAllByRole("button",{name:"一键预检"})).toHaveLength(1);

@@ -984,8 +984,7 @@
   display: grid;
   min-height: 100px;
   grid-template-columns:
-    minmax(250px, 1.3fr) minmax(190px, 1fr) minmax(86px, 0.45fr)
-    minmax(92px, 0.5fr) 72px;
+    minmax(250px, 1.3fr) minmax(190px, 1.1fr) minmax(110px, 0.55fr) 88px;
   align-items: center;
   gap: 12px;
   padding: 13px 18px;
@@ -1424,18 +1423,17 @@
   .monitoring-module
     :where(.publishing-page)
     .publishing-review-head
-    > span:nth-child(4),
+    > span:nth-child(3),
   .monitoring-module
     :where(.publishing-page)
     .publishing-review-row
-    > span:nth-child(4) {
+    > span:nth-child(3) {
     display: none;
   }
 
   .monitoring-module :where(.publishing-page) .publishing-review-row {
     grid-template-columns:
-      minmax(200px, 1fr) minmax(190px, 0.9fr) minmax(90px, 0.45fr)
-      80px;
+      minmax(200px, 1fr) minmax(190px, 0.9fr) 80px;
   }
 }
 
