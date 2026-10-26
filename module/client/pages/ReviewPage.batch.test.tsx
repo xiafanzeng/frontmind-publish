@@ -6,7 +6,7 @@ import { memoryLocation } from "wouter/memory-location";
 import ReviewPage from "./ReviewPage";
 import { PublishingGatewayProvider } from "../PublishingContext";
 import type { PublisherGateway } from "../gateway";
-import type { PublicationBatch, PublicationDraft, PublicationPreflight } from "../types";
+import type { PublicationBatch, PublicationDraft, PublicationPreflight, PublishingDashboard } from "../types";
 import { PublishingFlowProvider, type PublishingFlow } from "../PublishingFlowContext";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.history.replaceState({}, "", "/"); });
@@ -25,9 +25,27 @@ function draft(id: string): PublicationDraft {
     articleVersionHash:"hash-"+id,articleContainsImages:false,revision:1,titleMode:"per_media",
     items:value.items.map(item=>({media:item.media,title:item.title})),updatedAt:"2026-10-25T00:00:00Z"};
 }
+function dashboard(availableTenThousandths = "100000"): PublishingDashboard {
+  return {wallet:{availableTenThousandths,reservedTenThousandths:"0",frozenTenThousandths:"0"},
+    catalog:{activeRevision:"catalog",lastSyncedAt:"2026-10-26T00:00:00Z",stale:false},
+    articleCount:2,actionableItemCount:0,resumableDraftCount:2,resumableDrafts:[],
+    processingBatchCount:0,processingBatches:[],recentBatches:[],resumableArticles:[]};
+}
 function gatewayWith(overrides: Partial<PublisherGateway> = {}): PublisherGateway {
   return {getDraft:vi.fn<PublisherGateway["getDraft"]>(async (id:string)=>draft(id)),preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async(id:string)=>snapshot(id)),
+    getDashboard:vi.fn<PublisherGateway["getDashboard"]>(async()=>dashboard()),
     submitDraft:vi.fn<PublisherGateway["submitDraft"]>(),...overrides} as unknown as PublisherGateway;
+}
+function feeValue(label: string) {
+  return within(screen.getByRole("region",{name:"费用与预算核验"})).getByText(label).nextElementSibling!.textContent;
+}
+function quotedDraft(id: string, total: string, quantity = 1): PublicationDraft {
+  const value=draft(id);
+  value.items[0]!.publication={schemaVersion:1,source:"source_matrix_budget_plan",taskId:"task-1",planId:"plan-1",planVersion:"plan-v1",planIndex:0,
+    articleId:id,articleVersionId:"version-"+id,articleVersion:"v1",resourceId:"shared-media",offerId:"offer-1",publicationSpec:"article",
+    quantity,quantityMeaning:quantity>1?"repeat_same_article":"single",purpose:"standard",unitPriceTenThousandths:"10000",
+    totalPriceTenThousandths:total,quoteFingerprint:"a".repeat(64),locked:false};
+  return value;
 }
 function openReview(gateway: PublisherGateway, extra="", flow?:PublishingFlow) {
   const path="/publishing/drafts/a/review?batchDraft=a&batchDraft=b" + extra;
@@ -80,8 +98,139 @@ it("restores both manuscripts as pending without calling preflight or showing du
   expect(within(checks).getAllByRole("button",{name:"一键预检"})).toHaveLength(1);
   expect(screen.getByRole("button",{name:"一键预检"}).classList.contains("publishing-button-primary")).toBe(true);
   expect(within(fees).getByText("2 项 · ¥2.00")).toBeTruthy();
-  expect(within(fees).getAllByText("待预检")).toHaveLength(2);
+  expect(feeValue("预计总价")).toBe("¥2.00");
+  expect(feeValue("本次待预占")).toBe("待预检后确定");
+  await waitFor(()=>expect(feeValue("可用余额")).toBe("¥10.00"));
+  expect(feeValue("按预估扣除后余额")).toBe("¥8.00");
+  expect(gateway.getDashboard).toHaveBeenCalledTimes(1);
+  expect(within(fees).getByText("请先点击一键预检，完成当前稿件与媒体的检查后再确认发布。")).toBeTruthy();
+  expect(within(fees).queryByText("尚未完成本次预检，不能确认发布。请点击上方“一键预检”。")).toBeNull();
   expect((within(first).getByRole("button",{name:"查看冻结正文"}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("keeps the fees panel visible while metadata and the independent balance are loading", async () => {
+  const drafts:Array<()=>void>=[];
+  let resolveBalance:(value:PublishingDashboard)=>void=()=>{throw new Error("余额读取尚未开始");};
+  const gateway=gatewayWith({
+    getDraft:vi.fn<PublisherGateway["getDraft"]>(id=>new Promise(resolve=>drafts.push(()=>resolve(draft(id))))),
+    getDashboard:vi.fn<PublisherGateway["getDashboard"]>(()=>new Promise(resolve=>{resolveBalance=resolve;})),
+  });
+  openReview(gateway);
+  expect(screen.getByRole("region",{name:"费用与预算核验"})).toBeTruthy();
+  expect(feeValue("预计总价")).toBe("正在读取…");
+  expect(feeValue("可用余额")).toBe("正在读取…");
+  await waitFor(()=>expect(drafts).toHaveLength(2));
+  await act(async()=>{drafts.forEach(resolve=>resolve());});
+  await waitFor(()=>expect(gateway.getDashboard).toHaveBeenCalledTimes(1));
+  expect(feeValue("预计总价")).toBe("¥2.00");
+  expect(feeValue("可用余额")).toBe("正在读取…");
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  await act(async()=>resolveBalance(dashboard()));
+  expect(feeValue("可用余额")).toBe("¥10.00");
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it.each(["request failure","invalid amount"])("retries only the independent balance after %s without pretending an unknown balance is zero", async failure => {
+  let attempts=0;
+  const gateway=gatewayWith({getDashboard:vi.fn<PublisherGateway["getDashboard"]>(async()=>{
+    if(++attempts===1) {if(failure==="request failure") throw new Error("余额服务暂不可用");return dashboard("");}
+    return dashboard("0");
+  })});
+  openReview(gateway);
+  const fees=screen.getByRole("region",{name:"费用与预算核验"});
+  await within(fees).findByRole("alert");
+  expect(feeValue("预计总价")).toBe("¥2.00");
+  expect(feeValue("可用余额")).toBe("读取失败");
+  expect(feeValue("按预估扣除后余额")).toBe("读取失败");
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(within(fees).getByRole("button",{name:"重试"}));
+  await waitFor(()=>expect(feeValue("可用余额")).toBe("¥0.00"));
+  expect(within(fees).queryByRole("alert")).toBeNull();
+  expect(gateway.getDashboard).toHaveBeenCalledTimes(2);
+  expect(gateway.getDraft).toHaveBeenCalledTimes(2);
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("button",{name:"确认发布"}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("keeps the checked wallet authoritative when the initial balance arrives late without clearing confirmation", async () => {
+  let resolveBalance:(value:PublishingDashboard)=>void=()=>{throw new Error("余额读取尚未开始");};
+  const gateway=gatewayWith({getDashboard:vi.fn<PublisherGateway["getDashboard"]>(()=>new Promise(resolve=>{resolveBalance=resolve;}))});
+  openReview(gateway);
+  await waitFor(()=>expect(gateway.getDashboard).toHaveBeenCalledTimes(1));
+  await startPreflight();await finishPreflight();
+  expect(feeValue("可用余额")).toBe("¥10.00");
+  expect(feeValue("本次待预占")).toBe("¥2.00");
+  expect(feeValue("预占后预计可用")).toBe("¥8.00");
+  fireEvent.click(screen.getByRole("checkbox"));
+  await act(async()=>resolveBalance(dashboard("0")));
+  expect(feeValue("可用余额")).toBe("¥10.00");
+  expect(feeValue("预占后预计可用")).toBe("¥8.00");
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("button",{name:"模拟发布 2 项"}) as HTMLButtonElement).disabled).toBe(false);
+  expect(gateway.preflightDraft).toHaveBeenCalledTimes(2);
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it("keeps the server's insufficient balance blocking after a higher entry estimate", async () => {
+  const gateway=gatewayWith({
+    getDashboard:vi.fn<PublisherGateway["getDashboard"]>(async()=>dashboard("10000000")),
+    preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>{const value=snapshot(id);value.wallet.availableTenThousandths="10000";return value;}),
+  });
+  openReview(gateway);
+  await waitFor(()=>expect(feeValue("可用余额")).toBe("¥1,000.00"));
+  await startPreflight();await finishPreflight();
+  expect(feeValue("可用余额")).toBe("¥1.00");
+  expect(feeValue("预计总价")).toBe("¥2.00");
+  expect(screen.getByText("可用余额不足以覆盖本次全部待提交组合，请调整媒体后重新预检。")).toBeTruthy();
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"模拟发布 2 项"}) as HTMLButtonElement).disabled).toBe(true);
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it("ignores an old balance after route changes and a later metadata restore", async () => {
+  const balances:Array<(value:PublishingDashboard)=>void>=[];
+  const gateway=gatewayWith({getDashboard:vi.fn<PublisherGateway["getDashboard"]>(()=>new Promise(resolve=>balances.push(resolve)))});
+  const view=openReview(gateway);
+  await waitFor(()=>expect(balances).toHaveLength(1));
+  act(()=>view.location.navigate("/publishing/drafts/a/review?batchDraft=a&batchDraft=b&batchArticleVersion=new-selection"));
+  await waitFor(()=>expect(balances).toHaveLength(2));
+  await act(async()=>balances[1]!(dashboard("200000")));
+  expect(feeValue("可用余额")).toBe("¥20.00");
+  act(()=>{
+    const event=new Event("pageshow");Object.defineProperty(event,"persisted",{value:true});
+    window.dispatchEvent(event);
+  });
+  await waitFor(()=>expect(balances).toHaveLength(3));
+  await act(async()=>balances[0]!(dashboard("900000")));
+  expect(feeValue("可用余额")).toBe("正在读取…");
+  await act(async()=>balances[2]!(dashboard("300000")));
+  expect(feeValue("可用余额")).toBe("¥30.00");
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
+});
+
+it.each([
+  {name:"confirmed repeated total and a zero-price sibling",total:"31000",quantity:3,missing:false,expected:"¥3.10"},
+  {name:"a genuinely quoted zero total",total:"0",quantity:1,missing:false,expected:"¥0.00"},
+  {name:"an unverified legacy catalogue price",total:"0",quantity:1,missing:true,expected:"报价待核验"},
+])("estimates $name once for each manuscript-media item", async scenario => {
+  const gateway=gatewayWith({getDraft:vi.fn<PublisherGateway["getDraft"]>(async id=>{
+    const value=quotedDraft(id,id==="a"?scenario.total:"0",id==="a"?scenario.quantity:1);
+    if(scenario.missing && id==="a") {delete value.items[0]!.publication;value.items[0]!.media.priceTenThousandths="0";}
+    return value;
+  })});
+  openReview(gateway);
+  await screen.findByRole("region",{name:"稿件 2：稿件 b"});
+  expect(feeValue("预计总价")).toBe(scenario.expected);
+  expect(feeValue("软文媒体小计")).toBe("2 项 · "+scenario.expected);
+  expect(feeValue("本次待预占")).toBe("待预检后确定");
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
 });
 
 it("checks only on click, renders actual reasons, and invalidates confirmation on a later run", async () => {
@@ -119,6 +268,10 @@ it("keeps successful results separate from request failures and retries without 
   expect(screen.getByText(/第二稿服务暂不可用/)).toBeTruthy();
   expect(screen.getAllByText("预检失败").length).toBeGreaterThan(0);
   expect((screen.getByRole("button",{name:"确认发布"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  expect(feeValue("预计总价")).toBe("¥2.00");
+  expect(feeValue("本次待预占")).toBe("待预检后确定");
   expect(screen.queryByText("不通过")).toBeNull();
   fail=false;
   await startPreflight();
@@ -169,6 +322,35 @@ it("shows checking while in flight and does not start duplicate requests", async
   expect(gateway.preflightDraft).toHaveBeenCalledTimes(2);
 });
 
+it("retains the adjusted wallet while a later manuscript's submitted request is unresolved", async () => {
+  let resolveSecond:(value:PublicationBatch)=>void=()=>{throw new Error("第二稿尚未提交");};
+  let checks=0;
+  const gateway=gatewayWith({
+    getDashboard:vi.fn<PublisherGateway["getDashboard"]>(async()=>dashboard("100000")),
+    preflightDraft:vi.fn<PublisherGateway["preflightDraft"]>(async id=>{
+      const value=snapshot(id);
+      if(++checks>2 && id==="b") value.wallet.availableTenThousandths="90000";
+      return value;
+    }),
+    submitDraft:vi.fn<PublisherGateway["submitDraft"]>(input=>input.draftId==="a"
+      ? Promise.resolve({...acceptedBatch(),id:"batch-a"})
+      : new Promise(resolve=>{resolveSecond=resolve;})),
+    getBatch:vi.fn<PublisherGateway["getBatch"]>(async id=>({...acceptedBatch(),id})),
+  });
+  openReview(gateway);
+  await waitFor(()=>expect(feeValue("可用余额")).toBe("¥10.00"));
+  await startPreflight();await finishPreflight();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button",{name:"模拟发布 2 项"}));
+  fireEvent.click(await screen.findByRole("button",{name:"确认模拟发布 ¥2.00"}));
+  await waitFor(()=>expect(gateway.submitDraft).toHaveBeenCalledTimes(2));
+  await waitFor(()=>expect(feeValue("预计可用余额")).toBe("¥9.00"));
+  expect(feeValue("预计总价")).toBe("受理结果待确认");
+  expect(gateway.submitDraft).toHaveBeenNthCalledWith(2,expect.objectContaining({draftId:"b",idempotencyKey:"publisher-submit:b:quote-b"}));
+  await act(async()=>resolveSecond({...acceptedBatch(),id:"batch-b",articleTitle:"稿件 b"}));
+  await screen.findByText(/全部 2 篇稿件的发布请求已受理/);
+});
+
 it("rejects a late result when the frozen draft changes during preflight", async () => {
   let changed=false;
   const gateway=gatewayWith({getDraft:vi.fn<PublisherGateway["getDraft"]>(async id=>{const value=draft(id);if(changed && id==="a") {value.revision=2;value.items[0]!.title="修改后的标题";}return value;}),
@@ -177,7 +359,8 @@ it("rejects a late result when the frozen draft changes during preflight", async
   await startPreflight();
   expect(await screen.findByText("修改后的标题")).toBeTruthy();
   await waitFor(()=>expect(screen.queryByText("通过")).toBeNull());
-  expect(screen.getAllByText("待预检")).toHaveLength(4);
+  expect(within(screen.getByRole("region",{name:"稿件 1：稿件 a"})).getByText("待预检")).toBeTruthy();
+  expect(within(screen.getByRole("region",{name:"稿件 2：稿件 b"})).getByText("待预检")).toBeTruthy();
   expect((screen.getByRole("button",{name:"确认发布"}) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -386,11 +569,15 @@ it("waits for task hydration and preserves accepted receipts and exact outstandi
   expect(screen.getByText("正在恢复稿件与已受理批次…")).toBeTruthy();
   expect(pendingFlow.saveValues).not.toHaveBeenCalled();
   expect(gateway.getDraft).not.toHaveBeenCalled();
+  expect(gateway.getDashboard).not.toHaveBeenCalled();
   const restored=taskFlow({"publishingBatchReview:a,b":saved});
   view.rerender(tree(restored));
   expect(await screen.findByRole("link",{name:"查看本稿发布结果"})).toBeTruthy();
   expect(screen.getByText("发布请求待确认")).toBeTruthy();
+  expect(feeValue("预计总价")).toBe("受理结果待确认");
+  expect(feeValue("本次待预占")).toBe("受理结果待确认");
   expect(gateway.preflightDraft).not.toHaveBeenCalled();
+  expect(gateway.submitDraft).not.toHaveBeenCalled();
   await waitFor(()=>expect(restored.saveValues).toHaveBeenCalled());
   for(const [values] of vi.mocked(restored.saveValues!).mock.calls) {
     expect(JSON.parse(String(values["publishingBatchReview:a,b"]))).toEqual({acceptedBatchIds:{a:"batch-a"},requests:{b:request}});
@@ -411,6 +598,11 @@ it("refreshes unknown acceptance read-only despite URL exclusion and keeps the e
   expect(gateway.submitDraft).not.toHaveBeenCalled();
   expect(screen.queryByText("本稿未纳入发布")).toBeNull();
   expect((screen.getByRole("button",{name:"返回选择媒体"}) as HTMLButtonElement).disabled).toBe(true);
+  expect(feeValue("预计总价")).toBe("受理结果待确认");
+  await waitFor(()=>expect(flow.saveValues).toHaveBeenCalled());
+  for(const [values] of vi.mocked(flow.saveValues!).mock.calls) {
+    expect(JSON.parse(String(values["publishingBatchReview:b"])).requests.b).toEqual(request);
+  }
 });
 
 it("refreshes an accepted attention batch before explicitly checking remaining drafts", async () => {
