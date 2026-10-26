@@ -9,22 +9,24 @@ function invalid(path:string):Row {
  const out:Row={items:[],details:[],unknown_items:[{path,reasons:['invalid_type']}],errors:[issue('invalid_type',path)],currency:null,complete:false,budget_feasible:false,ready_to_publish:false,status:'estimate',is_estimate:true};
  amounts(out,Object.fromEntries(['total_cost','exploration_cost','known_total_cost','known_exploration_cost','total_cap','exploration_cap','total_remaining','exploration_remaining'].map(k=>[k,null])),'');return out;
 }
-export function priceItems(items:Row[],catalog:Row[],asOf:string):Row {
+export function priceItems(items:Row[],catalog:Row[],asOf:string,publicationIdentity=true):Row {
   if(!validRows(items))return invalid('items');if(!validRows(catalog))return invalid('catalog');
   for(const c of catalog)if(c.pricing!=null&&(!object(c.pricing)||(c.pricing.currency!=null&&typeof c.pricing.currency!=='string')||(c.pricing.included_items!=null&&!validRows(c.pricing.included_items))))return invalid('catalog.pricing');
   const errors:Issue[]=[],dedup=new Map<string,Row>();
-  for(const original of items){const row=clone(original),key=publicationKey(row),prior=dedup.get(key);
+  for(const original of items){const row=clone(original),key=publicationIdentity?publicationKey(row):stableJson([row.candidate_id,row.resource_id,row.offer_id,row.publication_spec,row.quantity,row.purpose]),prior=dedup.get(key);
     if(prior){if(!equal([prior.offer_id,prior.purpose],[row.offer_id,row.purpose]))errors.push(issue('conflicting_publication','items'));prior.locked=!!(prior.locked||row.locked);}else dedup.set(key,row);}
   const chosen=[...dedup.values()],details:Row[]=[],unknown:Row[]=[],currencies=new Set<string>(),charged=new Set<string>();
   let total=0n,exploration=0n;
   for(const [index,row] of chosen.entries()){
     const reasons:string[]=[],q=Number.isSafeInteger(row.quantity)&&row.quantity>0?BigInt(row.quantity):null;
     if(q===null)reasons.push('quantity_required_positive_integer');
-    if(identity.slice(0,-1).some(k=>row[k]==null||row[k]===''||equal(row[k],{})))reasons.push('publication_identity_incomplete');
+    if((publicationIdentity?identity.slice(0,-1):['resource_id','publication_spec']).some(k=>row[k]==null||row[k]===''||equal(row[k],{})))reasons.push('publication_identity_incomplete');
     if(!['standard','exploration'].includes(row.purpose))reasons.push('purpose_required');
     const matches=unique(catalog.filter(o=>row.offer_id&&o.offer_id===row.offer_id&&o.resource_id===row.resource_id)),offer=matches.length===1?matches[0]!:{};
     if(matches.length!==1)reasons.push('offer_missing_or_ambiguous');
     if(!equal(offer.publication_spec,row.publication_spec))reasons.push('offer_spec_mismatch');
+    for(const field of ['min_quantity','max_quantity'])if(field in offer&&(!Number.isSafeInteger(offer[field])||offer[field]<1))reasons.push('quantity_limit_invalid');
+    if(q!==null&&((Number.isSafeInteger(offer.min_quantity)&&row.quantity<offer.min_quantity)||(Number.isSafeInteger(offer.max_quantity)&&row.quantity>offer.max_quantity)))reasons.push('quantity_out_of_range');
     if('allowed_purposes' in offer){const a=offer.allowed_purposes;if(!Array.isArray(a)||!a.length||a.some(x=>!['standard','exploration'].includes(x)))reasons.push('allowed_purposes_invalid');else if(!a.includes(row.purpose))reasons.push('purpose_not_allowed');}
     const p:Row=object(offer.pricing)?offer.pricing:{},currency=p.currency;
     if(typeof currency==='string'&&precision[currency]!==undefined)currencies.add(currency);else reasons.push('currency_unknown');
@@ -47,7 +49,7 @@ export function priceItems(items:Row[],catalog:Row[],asOf:string):Row {
     }
     if(reasons.some(r=>['quote_not_valid','quote_dates_unknown','offer_spec_mismatch','package_members_unresolved','pricing_rule_unknown','package_cross_resource_unresolved'].includes(r)))known=0n;
     if(pack){if(charged.has(row.offer_id))known=0n;charged.add(row.offer_id);}
-    const detail:Row={item:clone(row),currency:currency??null,unknown_reasons:reasons,cost_basis:kind==='range'?'confirmed_upper_bound':'exact'};
+    const detail:Row={item:clone(row),currency:currency??null,unknown_reasons:reasons,cost_basis:kind==='range'?'confirmed_upper_bound':'exact',pricing_kind:kind??null,unit_price:!pack&&base!==null?String(p.kind==='range'?p.upper_bound:p.amount):null,mandatory_fees:clone(p.mandatory_fees??null)};
     amounts(detail,{cost:reasons.length?null:known,known_cost:known,lower_cost:!reasons.length&&base!==null&&lower!==null&&multiplier!==null?known-(base-lower)*multiplier:null},currency);details.push(detail);
     if(reasons.length){unknown.push({item:clone(row),reasons});for(const reason of reasons)if(['quantity_required_positive_integer','purpose_required'].includes(reason))errors.push(issue(reason,`items[${index}]`));}
     total+=known;if(row.purpose==='exploration')exploration+=known;
@@ -75,8 +77,15 @@ export function verifyPlan(plan:Row,matrix:Row,r:Row,asOf:string):Row {
   const candidates:Row[]=matrix.matrix.candidates,catalog:Row[]=r.catalog??[],out=priceItems(choices,catalog,asOf);errors.push(...out.errors);
   const prechecks:Row[]=[];
   out.items.forEach((row:Row,i:number)=>{
+    if(row.quantity>100)errors.push(issue('quantity_limit_exceeded',`items[${i}]`,'单个发布项最多 100 篇'));
+    const declared:Row[]=r.task?.manuscripts?.length?r.task.manuscripts:r.task?.manuscript?[r.task.manuscript]:[];
+    if(!declared.some(m=>m.article_id===row.article_id&&m.version===row.version))errors.push(issue('undeclared_manuscript',`items[${i}]`,'发布项必须绑定可信任务内的真实稿件冻结版本'));
     const c=candidates.find(c=>c.resource_id&&c.resource_id===row.resource_id);
     if(!c)errors.push(issue('outside_matrix',`items[${i}]`));else if(c.channel_status!=='eligible')errors.push(issue('channel_not_eligible',`items[${i}]`));
+    if(row.quantity>1){
+      const offer=catalog.find(o=>o.resource_id===row.resource_id&&o.offer_id===row.offer_id&&equal(o.publication_spec,row.publication_spec));
+      if(r.publication_intent!=='repeat_existing_article'||offer?.repeat_allowed!==true)errors.push(issue('repeat_publication_not_authorized',`items[${i}]`));
+    }
     const checks:Row[]=(c?.manuscript_checks??[]).filter((x:Row)=>x.article_id===row.article_id&&x.version===row.version);
     const status=checks.some(x=>x.status==='failed')?'failed':checks.length&&checks.every(x=>x.status==='passed')?'passed':'needs_manuscript_check';
     prechecks.push({article_id:row.article_id,version:row.version,resource_id:row.resource_id,status});

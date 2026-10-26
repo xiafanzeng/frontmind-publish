@@ -153,7 +153,7 @@ it('applies the previewed plan inside the transaction and returns the new revisi
  const input=insert.mock.calls[0]![0] as any;
  expect(input.expectedRevision).toBe(3);
  expect(input.planIdentity).toMatchObject({taskId:'task-1',planIndex:0});
- expect(input.mediaSnapshotFor(resources().get('media-1')!,input.additions[0]).publication).toMatchObject({source:'source_matrix_budget_plan',offer_id:'offer-1',quantity:1});
+ expect(input.mediaSnapshotFor(resources().get('media-1')!,input.additions[0]).publication).toMatchObject({source:'source_matrix_budget_plan',offerId:'offer-1',quantity:1});
 });
 function resources(){return new Map([['media-1',{id:'media-1',name:'媒体一',externalResourceId:'ext-1',mediaKind:'news',priceTenThousandths:'1000000',catalogRevision:'cat-1',remark:null,titleLimit:null,rawPayload:{publisher_quote_v1:{offer_id:'offer-1',publication_spec:{channel:'news'},provider_resource_id:'ext-1',provider_execution:'independent_unit_orders',pricing:{kind:'unit',amount:'100.00',currency:'CNY',quoted_at:'2020-01-01T00:00:00Z',valid_until:'2099-01-01T00:00:00Z',mandatory_fees:[]}}},imageSupport:'unknown' as const}]]);}
 it('refuses unverified, estimated or unknown-cost plans and unknown apply-plan fields',async()=>{

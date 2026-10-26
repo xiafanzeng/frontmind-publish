@@ -4,47 +4,62 @@
     {
       "source": "module/server/source-matrix/common.ts",
       "browser": "module/client/source-matrix/simulation/kernel/common.ts",
-      "source_sha256": "2e6486df14a80b8e031abea080502a7ead57099e4a2cee89b19667e7b9dc1cbf",
-      "browser_sha256": "7cd8e43f4c37fc57677af47811bfd42c238da145c4b451dd1cef4ac1822514b6",
+      "source_sha256": "f14b217a23a8bb11910b5eea186690d6addd4fa6fe0e43ad42f6009b40986897",
+      "browser_sha256": "50f2292d6d181e62840b43978f9a864599256aaf20cc3377defbf97229e5b53b",
       "adaptation": "hash import only"
     },
     {
       "source": "module/server/source-matrix/contracts.ts",
       "browser": "module/client/source-matrix/simulation/kernel/contracts.ts",
-      "source_sha256": "2403ad54965acc7c2a2a7e472f92cbae876d77dd2a5c7b8dd666c986f0653c58",
-      "browser_sha256": "2403ad54965acc7c2a2a7e472f92cbae876d77dd2a5c7b8dd666c986f0653c58",
+      "source_sha256": "ee31a88f3a51a6edba2ebf5e3de1078aba55227b09ea5c2bb6432002976dd7ee",
+      "browser_sha256": "ee31a88f3a51a6edba2ebf5e3de1078aba55227b09ea5c2bb6432002976dd7ee",
       "adaptation": "none"
     },
     {
       "source": "module/server/source-matrix/evidence.ts",
       "browser": "module/client/source-matrix/simulation/kernel/evidence.ts",
-      "source_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
-      "browser_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
+      "source_sha256": "7109680bce67f7b39d94833f64e94cac8a54f735b03271aab0cdf7174e5bd700",
+      "browser_sha256": "7109680bce67f7b39d94833f64e94cac8a54f735b03271aab0cdf7174e5bd700",
       "adaptation": "none"
     },
     {
       "source": "module/server/source-matrix/matrix.ts",
       "browser": "module/client/source-matrix/simulation/kernel/matrix.ts",
-      "source_sha256": "186b524b800ed3e5fbdfaa92ae58b707e90c791b512167c56412b4aefb126857",
-      "browser_sha256": "186b524b800ed3e5fbdfaa92ae58b707e90c791b512167c56412b4aefb126857",
+      "source_sha256": "c462914a47aa99ca384e3fb5ae0a6cd89ab0fcbde5858665346cff74d0ac1b7d",
+      "browser_sha256": "c462914a47aa99ca384e3fb5ae0a6cd89ab0fcbde5858665346cff74d0ac1b7d",
       "adaptation": "none"
     },
     {
       "source": "module/server/source-matrix/budget.ts",
       "browser": "module/client/source-matrix/simulation/kernel/budget.ts",
-      "source_sha256": "77dd3ccc682b992c93b78984364ef11ec1eba9a412471077689deb53ac2cccaa",
-      "browser_sha256": "77dd3ccc682b992c93b78984364ef11ec1eba9a412471077689deb53ac2cccaa",
+      "source_sha256": "e267647fcbd2519aadb72ec82f65417a2ea9c2d72e0107982441c24118e16959",
+      "browser_sha256": "e267647fcbd2519aadb72ec82f65417a2ea9c2d72e0107982441c24118e16959",
       "adaptation": "none"
     },
     {
       "source": "module/server/source-matrix/planner.ts",
       "browser": "module/client/source-matrix/simulation/kernel/planner.ts",
-      "source_sha256": "f1f5cc09fb61f1dd427530843352959a235954553459b45109f77a7dddb4e341",
-      "browser_sha256": "f1f5cc09fb61f1dd427530843352959a235954553459b45109f77a7dddb4e341",
+      "source_sha256": "df4693b1ca3849896d475b678a02957f8cbc1a1bba9f5fa293ae6d010d5e1f59",
+      "browser_sha256": "df4693b1ca3849896d475b678a02957f8cbc1a1bba9f5fa293ae6d010d5e1f59",
       "adaptation": "none"
+    },
+    {
+      "source": "module/server/source-matrix/export-research.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/export-research.ts",
+      "source_sha256": "cec8e840c0575947d32ed5ec45d3e8f5c8774fc1df83f5f0c85314a460f196b7",
+      "browser_sha256": "cec8e840c0575947d32ed5ec45d3e8f5c8774fc1df83f5f0c85314a460f196b7",
+      "adaptation": "none (new in 2026.10.26-web.1 sync)"
+    },
+    {
+      "source": "module/server/source-matrix/content-plans.ts",
+      "browser": "module/client/source-matrix/simulation/kernel/content-plans.ts",
+      "source_sha256": "a3eb59f594e0a7529fa3ddd250e852475e014355599db2d04717ab88123cb299",
+      "browser_sha256": "a3eb59f594e0a7529fa3ddd250e852475e014355599db2d04717ab88123cb299",
+      "adaptation": "none (new in 2026.10.26-web.1 sync)"
     }
   ],
   "hash_source": "module/server/domain/hash.ts",
   "hash_source_sha256": "ec2df827c90f6b60da0fdcd19e79e88ffcd951f54d5152b854080449cc2daea6",
-  "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto"
+  "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto",
+  "sync_note": "ZCode re-sync after skill upgrade: server planner gained export-research candidate matches."
 }

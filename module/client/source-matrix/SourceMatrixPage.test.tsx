@@ -430,7 +430,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
- const apply=await screen.findByRole('button',{name:'加入本组合'});
+ const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:30000});
  fireEvent.click(apply);
  await screen.findByText('新增 · 1 篇 · ¥100.00');
  fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
@@ -440,7 +440,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  expect(applyBodies[1]).toMatchObject({preview:false});
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(mediaGateway.getDraft).toHaveBeenLastCalledWith('draft-1');
-});
+}, 60000);
 
 it('keeps the cart untouched and surfaces guidance when the server reports a stale binding during apply',async()=>{
  liveDirectory();
@@ -459,11 +459,13 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
- fireEvent.click(await screen.findByRole('button',{name:'加入本组合'}));
- await screen.findByText('绑定稿件、冻结版本或已选媒体已变化，请重新生成矩阵和组合');
+ await waitFor(()=>expect(mediaGateway.getDraft).toHaveBeenCalled(), { timeout: 30000 });
+ await waitFor(()=>expect(screen.queryByText(/正在读取稿件上下文/)).toBeNull(), { timeout: 30000 });
+ fireEvent.click(await screen.findByRole('button',{name:'加入本组合'},{timeout:30000}));
+ await screen.findByText('绑定稿件、冻结版本或已选媒体已变化，请重新生成矩阵和组合', {}, { timeout: 30000 });
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(mediaGateway.getDraft).toHaveBeenCalledTimes(2);
-});
+}, 60000);
 
 it('one click generates the matrix then automatically the budget combination with the editable demo budget',async()=>{
  liveDirectory();

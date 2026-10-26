@@ -125,6 +125,9 @@ class BudgetTests(unittest.TestCase):
     def test_two_locked_quantities_are_distinct_publications(self):
         rows=[dict(item(),locked=True),dict(item(),quantity=2,locked=True)]
         req=request([offer()]);req['selected_items']=deepcopy(rows)
+        # Quantity above one requires the explicit repeat intent and channel permission
+        # even for locked selections (PUBLICATION_QUANTITY contract).
+        req['publication_intent']='repeat_existing_article';req['catalog'][0]['repeat_allowed']=True
         out=verify_plan({'items':rows},matrix(req['catalog']),req,NOW)
         self.assertTrue(out['budget_feasible']);self.assertEqual(len(out['items']),2)
         self.assertEqual(out['total_cost'],'30.00');self.assertEqual(out['total_remaining'],'4970.00')
