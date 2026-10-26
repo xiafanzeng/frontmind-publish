@@ -1,0 +1,50 @@
+{
+  "matrix_decisions": {
+    "items": [
+      {
+        "candidate_id": "resource:r1",
+        "primary_role": "industry",
+        "auxiliary_roles": [],
+        "matched_questions": [
+          "q1"
+        ],
+        "references": [
+          {
+            "type": "aggregate",
+            "aggregate_id": "ag1",
+            "usage": "industry_context"
+          }
+        ],
+        "reason_summary": "显式软件行业汇总支持该刊物作为行业背景候选，问题q1的匹配是语义判断",
+        "reason_details": [
+          "虚构研究fictional-study的2026-09版本，在原行业问题、industry-model及截至2026-09-30的范围内记录12次研究报告原始引用次数。",
+          "汇总来源，暂无逐条证据；不表示当前品牌或q1命中，不推断样本量、文章、URL或未来效果。"
+        ],
+        "unconfirmed_items": [
+          "行业统计向当前任务迁移的适用性仍需人工复核"
+        ],
+        "selection": "recommended"
+      }
+    ],
+    "fit_order": [
+      "resource:r1"
+    ]
+  },
+  "budget_plans": [
+    {
+      "strategy": "行业覆盖",
+      "reason_summary": "用一个行业渠道覆盖目标问题",
+      "items": [
+        {
+          "article_id": "a1",
+          "version": "v1",
+          "resource_id": "r1",
+          "offer_id": "o1",
+          "publication_spec": "text",
+          "quantity": 1,
+          "purpose": "standard"
+        }
+      ]
+    }
+  ]
+}

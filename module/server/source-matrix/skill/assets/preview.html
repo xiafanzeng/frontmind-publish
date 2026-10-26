@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>信源矩阵推荐 · 案例预览</title>
+<style>/*__PREVIEW_CSS__*/</style></head><body>
+<header class="top"><div class="top-inner"><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div><b>FrontMind <span class="accent">信源矩阵</span></b><div class="eyebrow">EXCEL INPUT LAB · 输入适配实验</div></div></div><div id="caseSwitch" class="case-switch" aria-label="切换实验案例"></div></div></header>
+<main>
+<section class="panel brief-panel" aria-labelledby="briefTitle"><h2 id="briefTitle">本次投放要求</h2>
+<form id="briefForm" novalidate><div class="form-grid">
+<div><label for="brand">品牌 / 产品</label><input id="brand" placeholder="输入品牌或产品"><p class="field-help">文件标签作演示，未核验品牌实体</p></div>
+<div><label for="industry">目标行业 *</label><input id="industry" aria-describedby="industryError"><div id="industryError" class="error"></div></div>
+<div><label for="regions">覆盖地区</label><input id="regions" placeholder="未设定；多个地区用顿号分隔"></div>
+<div><label for="audience">目标受众</label><input id="audience" placeholder="描述内容面向的人群"></div>
+<div><label for="hours">期望发布时效（小时）</label><input id="hours" type="number" min="1" inputmode="decimal" aria-describedby="hoursError"><div id="hoursError" class="error"></div></div>
+<div><label for="material">素材能力要求</label><select id="material"><option value="">未限定</option><option>图文优先</option><option>纯文字</option><option>含视频</option></select><p class="field-help">需求设定，不代表媒体已具备能力</p></div>
+<div><label for="sampleFile">品牌引用数据</label><input id="sampleFile" readonly><p class="field-help">切换上方案例，可查看其他文件</p></div>
+<div><label for="model">引用样本平台</label><select id="model"></select><p class="field-help">按原表“模型”原值筛选，不推断版本</p></div>
+<div class="full"><label for="questions">目标问题 / 内容需求 *</label><textarea class="resize-none" id="questions" aria-describedby="questionsError"></textarea><div id="questionsError" class="error"></div></div>
+</div><div class="form-footer"><div id="fileLine" class="file-line"></div><div class="form-actions"><button type="button" class="quiet" id="viewInput" onclick="showInput(event)">查看模型输入</button><button type="submit" class="btn primary">查看本例研究矩阵</button></div></div><div id="formStatus" class="status" aria-live="polite"></div></form>
+<p class="field-help">本页预载本轮判断，不调用新模型。修改投放目标会隐藏旧建议，需按新要求重新进行语义判断；模型筛选只重算观察数据。</p></section>
+<section id="recommendationView" aria-labelledby="recommendationTitle">
+<div class="result-heading"><h2 id="recommendationTitle" tabindex="-1">信源矩阵推荐</h2><button id="download" class="btn" onclick="downloadResult()">导出当前结果</button></div>
+<div class="layout">
+ <section class="panel matrix-panel" aria-labelledby="matrixTitle"><div class="matrix-panel-heading"><h3 id="matrixTitle">信源矩阵</h3><button class="quiet ranking-help" onclick="showRanking(event)">查看排序依据</button></div><p id="matrixState" class="state-note" hidden aria-live="polite"></p><table class="matrix-table" aria-label="按五个层级排列的信源矩阵"><tbody id="matrixRows"></tbody></table></section>
+ <aside class="panel drafts-panel" aria-labelledby="draftTitle"><h3 id="draftTitle">组合研究草案</h3><p class="muted small">先确认内容分工，再匹配真实账号与报价。</p><label class="budget-label" for="budget">总预算（CNY，可选）</label><div class="budget-row"><input id="budget" type="number" inputmode="decimal" min="0" placeholder="尚未设置"><span class="muted small">元</span></div><div id="budgetNote" class="field-help">没有报价，当前费用未知。</div><div id="drafts"></div><div class="no-checkout">待补充：具体账号、有效报价、稿件版本与数量及刊发条件。</div></aside>
+</div></section>
+<footer><span>研究候选的具体账号与刊发能力需确认。</span><span>离线案例预览 · 演示要求尚未正式确认</span></footer></main>
+<div id="roleHelpTooltip" class="role-tooltip" role="tooltip" hidden></div>
+<dialog id="detailDialog" aria-labelledby="dialogTitle"><div class="dialog-head"><h2 id="dialogTitle"></h2><button class="btn" id="closeDialog" onclick="closeDialog()" aria-label="关闭详情">关闭</button></div><div id="dialogBody" class="dialog-body"></div></dialog>
+<script id="caseData" type="application/json">/*__CASE_DATA__*/</script>
+<script>/*__PREVIEW_JS__*/</script>
+</body></html>

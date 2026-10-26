@@ -14,6 +14,7 @@ import { clearResolvedReviewRequests, mergeReviewSessionReceipts, restoreReviewS
 import { publishingTitleStage } from "../titleFlow";
 import { preflightMatchesReviewDraft, reviewDraftContext, type ManualReviewCheck } from "../reviewPreflight";
 import { usePreparationEntryScroll } from "../usePreparationEntryScroll";
+import { publicationLineTotal, publicationQuantity } from "../publicationAmounts";
 import "../publishing.review-batch.css";
 
 const REFRESHABLE_CATALOG_BLOCKERS = new Set([
@@ -149,7 +150,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const totals = reviewBatchTotals(pendingPreflights);
   const selectedItems = ordinary.flatMap(group => group.preflight
     ? group.preflight.items.map(item => ({media:item.media, price:item.priceTenThousandths}))
-    : (group.draft?.items ?? []).map(item => ({media:item.media, price:item.media.priceTenThousandths})));
+    : (group.draft?.items ?? []).map(item => ({media:item.media, price:publicationLineTotal(item) ?? ''})));
   const selectedKind = (kind: string) => {
     const items = selectedItems.filter(item => item.media.kind === kind);
     const prices = items.map(item => item.price);
@@ -442,7 +443,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
                   {items.map(item => {
                     const result = preflight?.items.find(value => value.media.id === item.media.id);
                     return <div className="publishing-review-row" key={group.draftId + ":" + group.draft?.articleVersionId + ":" + item.media.id}>
-                      <span className="publishing-review-media-name" data-label="媒体名称"><strong>{item.media.name}</strong></span>
+                      <span className="publishing-review-media-name" data-label="媒体名称"><strong>{item.media.name}</strong>{item.publication ? <small>{publicationQuantity(item) ?? '待确认'} 次发布{item.publication.quantityMeaning === 'repeat_same_article' ? ' · 同稿重复' : ''}</small> : null}</span>
                       <span data-label="媒体类型"><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : item.media.kind === "news" ? "软文媒体" : "媒体类型待核验"}</span></span>
                       <span data-label="发布标题">{item.title}</span>
                       <span data-label="内容检查">{result ? <span className="publishing-review-check-details">
@@ -508,7 +509,7 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
             <h3>{value.article.title} · v{value.article.version}</h3><p>冻结版本 {value.article.hash}</p>
             <div className="publishing-live-article" dangerouslySetInnerHTML={{__html:value.article.bodyHtml}} />
             <h4>最终图片</h4>{value.article.images.length ? <ul className="publishing-live-images">{value.article.images.map((image,index) => <li key={image.id}>{image.previewUrl || image.sourceUrl ? <img src={image.previewUrl ?? image.sourceUrl} alt={image.altText} /> : null}<span><strong>图片 {index+1}</strong><small>{image.altText || "未填写 Alt 文本"}</small><code>{image.id}</code></span></li>)}</ul> : <p className="publishing-live-empty">本冻结版本不含图片</p>}
-            <h4>本次投稿媒体、资源 ID 与逐项报价</h4><ul className="publishing-live-media-list">{value.items.filter(item => !item.blockers.length).map(item => <li key={item.media.id}><span><strong>{item.media.name}</strong><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span><small>资源 ID：{item.media.externalResourceId ?? item.media.id}</small><small>标题：{item.title}</small></span><b>{formatPublishingMoney(item.priceTenThousandths)}</b></li>)}</ul>
+            <h4>本次投稿媒体、资源 ID 与逐项报价</h4><ul className="publishing-live-media-list">{value.items.filter(item => !item.blockers.length).map(item => <li key={item.media.id}><span><strong>{item.media.name}</strong><span className="publishing-kind-chip">{item.media.kind === "self_media" ? "自媒体" : "软文媒体"}</span><small>资源 ID：{item.media.externalResourceId ?? item.media.id}</small><small>标题：{item.title}</small><small>{publicationQuantity(item) ?? "待确认"} 次发布{item.publication?.quantityMeaning === "repeat_same_article" ? " · 同稿同标题重复发布" : ""} · 单价 {formatPublishingMoney(item.media.priceTenThousandths)}</small></span><b>小计 {formatPublishingMoney(item.priceTenThousandths)}</b></li>)}</ul>
           </section>;})}
           <p className={"publishing-live-irrevocable" + (live ? "" : " is-preview")}><AlertTriangle size={17} />{live ? "提交可能立即创建供应商订单；最终公开发布后不保证能够撤回。" : "Preview 只生成 Mock 结果，不会创建供应商订单。"}</p>
         </div>

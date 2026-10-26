@@ -3,8 +3,8 @@ import { runPlanner } from './planner.js';
 import { priceItems } from './budget.js';
 const now='2026-10-20T00:00:00Z';
 const item={article_id:'a',version:'v',resource_id:'r',offer_id:'o',publication_spec:'text',quantity:2,purpose:'standard'};
-const catalog={resource_id:'r',offer_id:'o',source_name:'测试媒体',industry:'测试行业',publication_status:'available',publication_spec:'text',manuscript_checks:[{article_id:'a',version:'v',status:'pass'}],pricing:{kind:'unit',amount:'100',currency:'CNY',quoted_at:'2026-10-01T00:00:00Z',valid_until:'2026-10-30T00:00:00Z',mandatory_fees:[{amount:'10',basis:'unit'},{amount:'5',basis:'item'}]}};
-const request=()=>({tenant_id:'t',task_id:'task',brand_id:'b',task:{industry:'测试行业',questions:[{question_id:'q',text:'测试问题'}],manuscripts:[{article_id:'a',version:'v'}]},catalog:[structuredClone(catalog)]});
+const catalog={resource_id:'r',offer_id:'o',source_name:'测试媒体',industry:'测试行业',publication_status:'available',repeat_allowed:true,publication_spec:'text',manuscript_checks:[{article_id:'a',version:'v',status:'pass'}],pricing:{kind:'unit',amount:'100',currency:'CNY',quoted_at:'2026-10-01T00:00:00Z',valid_until:'2026-10-30T00:00:00Z',mandatory_fees:[{amount:'10',basis:'unit'},{amount:'5',basis:'item'}]}};
+const request=()=>({tenant_id:'t',task_id:'task',brand_id:'b',publication_intent:'repeat_existing_article',task:{industry:'测试行业',questions:[{question_id:'q',text:'测试问题'}],manuscripts:[{article_id:'a',version:'v'}]},catalog:[structuredClone(catalog)]});
 const md={items:[{candidate_id:'resource:r',primary_role:'industry',auxiliary_roles:[],matched_questions:['q'],references:[{type:'attribute',path:'catalog[0].industry'}],reason_summary:'适配所声明行业',reason_details:[],unconfirmed_items:[],selection:'recommended'}],fit_order:['resource:r']};
 const plans=[{strategy:'显式投放',reason_summary:'支持任务问题',items:[item]}];
 it('does not invent model decisions and keeps five possibly empty layers',()=>{

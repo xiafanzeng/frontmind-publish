@@ -1,0 +1,54 @@
+{
+  "task_id": "fictional-task",
+  "task": {
+    "industry": "软件",
+    "questions": [
+      {
+        "question_id": "q1",
+        "text": "如何评估软件？"
+      }
+    ],
+    "manuscripts": [
+      {
+        "article_id": "a1",
+        "version": "v1"
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "resource_id": "r1",
+      "offer_id": "o1",
+      "source_name": "虚构软件刊物",
+      "industry": [
+        "软件"
+      ],
+      "publication_status": "available",
+      "publication_spec": "text",
+      "allowed_purposes": [
+        "standard"
+      ],
+      "manuscript_checks": [
+        {
+          "article_id": "a1",
+          "version": "v1",
+          "status": "pass"
+        }
+      ],
+      "pricing": {
+        "kind": "unit",
+        "amount": "100.00",
+        "currency": "CNY",
+        "quoted_at": "2026-10-01T00:00:00Z",
+        "valid_until": "2026-11-01T00:00:00Z",
+        "mandatory_fees": []
+      }
+    }
+  ],
+  "budget": {
+    "currency": "CNY",
+    "total_cap": "500.00",
+    "exploration_enabled": true,
+    "exploration_cap": "50.00"
+  }
+}

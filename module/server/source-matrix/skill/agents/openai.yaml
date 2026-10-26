@@ -1,0 +1,4 @@
+interface:
+  display_name: "发布信源矩阵规划"
+  short_description: "导入信源分析 Excel 和投放要求，研究媒体适配并复核真实发布预算"
+  default_prompt: "使用 $source-matrix-planner 读取信源分析文件与投放要求，先确定 export_research 或可信 JSON 模式，制作可追溯的研究矩阵；具备真实目录与报价后再核算发布组合。"

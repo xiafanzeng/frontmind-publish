@@ -1073,6 +1073,7 @@
 .fm-media .y-cart-drawer li strong{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600}
 .fm-media .y-cart-drawer li small{color:var(--muted,#737991);flex:none}
 .fm-media .y-cart-drawer li .b-price{flex:none}
+.fm-media .y-cart-drawer li .b-price small{display:block;max-width:240px;white-space:normal;line-height:1.5;font-size:12px;font-weight:400}
 .fm-media .y-cart-drawer li .link{flex:none}
 .fm-media .y-cart-drawer-head button{min-width:32px;min-height:32px;justify-content:center}
 @media(max-width:650px){

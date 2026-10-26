@@ -1,3 +1,22 @@
+# 2026.10.26-web.1 当前运行说明
+
+本节描述本轮改动；下方日期较早的接入记录仅保留历史，冲突以本节与 skill/references/website-integration.md 为准。
+
+网站运行入口仍是本目录 TypeScript（http/decisions/planner/matrix/budget），没有新增 Python 子进程或 npm 依赖。完整上游 Skill 位于 skill/，新增 content-planning/1.0 独立契约和 Python 离线校验入口。独立 Skill ZIP 同时附网站实际 TypeScript 源码及散列映射，避免分发未被网站使用的单独实现。
+
+新增 export-research.ts 将可信原表 JSON 转成研究候选，保留文件SHA、原行与 locator_key；不把品牌导出行伪装成精确引用 evidence。全部品牌分组与真实媒体库候选送入真实模型，第一阶段不提供价格/预算；media_intro/content_direction/layer_rank/ranking_reason 随同决定校验。默认保存的一航演示仍保留原生成版本，不伪造本轮生成时间。
+
+真实目录来自 publisher-source-matrix-catalog.ts；不是独立 dataset 静态刊价。型号、账号、内部resource、外部供应商ID、offer和规格分开；目录原价可显示，缺少有效期/附加费/规格时仍未知。多账号/多报价通过catalog_matches与resource_selections显式选择，名称/域名不自动确认账号。其他团队样本可由受控导入写入行业dataset.brand_exports（与现有一航JSON同结构），无需按品牌名写推荐名单。本轮不新增浏览器xlsx上传入口。
+
+预算入口增加 quantity_mode、resource_selections。组合结果区分content_plans（内容/报价规划，不能直接入车）与budget_plans（真实文章/版本发布项），两者合计最多三套。费用复用确定性计算器，包含单价×篇数、必付费、套餐、数量范围、单价上下界、总额和探索子额度；货币精度不够不擅自四舍五入。新稿尚未逐篇绑定时不制造稿件ID，正式同稿多次发布需明确repeat意图和供应商允许。
+
+新增 POST /classify/:taskId/content-plan 和 /formal-plan 在原矩阵上复核数量，不调用新AI也不写购物车。只改预算、价格、数量或购物车，不改矩阵语义顺序；稿件实际article/version/hash改变返回stale_binding。重新读当前锁定项，任务修订在行锁内对plan_version比较，取消或过期修订不能覆盖当前状态。apply-plan再读实时目录复核价格、预算及全部项，并通过现有草稿事务写入完整发布元数据和数量，不静默部分加入。
+
+新/修改测试源码包含 content-plans.test.ts、repository.test.ts、http.test.ts、planner.test.ts 和 skill/tests/test_content_planning.py 等，未执行。旧示例及旧测试结果不代表本版通过。
+
+本轮未执行运行验证，交由智谱 ZCode 和网站验收。
+
+---
 # source-matrix-planner TypeScript 接入
 
 这是新内核的原生 TypeScript 移植，不运行 Python，不包含旧 classify-media-sources 技能或 Flask 服务，不引入新依赖。
@@ -106,3 +125,7 @@ matrix 阶段按用户显式时间处理，不自动填充证据时间；预算�
 - **组合应用已接入**：`POST /classify/:taskId/apply-plan`（body：plan_id、plan_version、plan_index、draft_id、article_version_id、expected_revision、preview）。服务端从归档快照取组合（不接受客户端成员/价格），校验 plan 可应用（budget_feasible 且无未知费用/错误）、绑定一致，逐项解析到真实媒体目录（active + 有效报价），复用图片规则（publisherImageCompatibilityBlocker + mediaRulesImageBlocker）与稿件版本身份校验；preview=true 只返回差异（新增/已选保留/暂不加入原因/合并数量与已知费用），preview=false 在单事务内 FOR UPDATE 锁草稿、按 expected_revision 比较写入新增 publisher_draft_items（报价/规格/数量/组合身份保存在 mediaSnapshot.publication 命名空间，未加列、未改 vendor 契约），既有行原样保留。超 20 家、版本不符、数量≠1、未映射/停用/无报价一律跳过或拒绝并说明原因；revision 冲突返回 409 由前端刷新重试。加入组合不等于发稿：仍走现有重新报价、标题配置与预检。
 - 前端 `SourceMatrixPage` 生成矩阵时自动携带当前草稿/版本标识；应用组合前强制先取服务端预览，用户确认后写入并以 gateway.getDraft 回读统一购物车；手选、标题与锁定项不受影响。旧 mediaIds 保存链路保持不变，兼容既有草稿。
 - 本轮未执行运行验证，交由智谱 ZCode 和网站验收；服务可用性、真实模型注入、数据库迁移状态、保存刷新与发布预检均未在线验证。
+# 预算失败与重试版本
+
+预算模型输出未通过校验时，服务端清空本次正式方案与内容规划草案，保留已验证矩阵及可回读的重试快照。返回状态仍明确为失败；该版本不能采用到购物车，但可以只重试预算阶段。首次矩阵判断失败不获得这种重试资格。稿件身份变化仍需要重新生成矩阵，购物车修订与预算变化不改变语义矩阵。
+

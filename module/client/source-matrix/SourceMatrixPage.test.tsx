@@ -302,18 +302,22 @@ it('retains the complete matrix across budget-only responses and invalidates pla
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
-it('ignores a budget response when the user changed its budget while the request was pending',async()=>{
- liveDirectory();let finish!:(response:unknown)=>void;
+it('discards obsolete combinations but reuses the saved revision after a budget edit during generation',async()=>{
+ liveDirectory();let finish!:(response:unknown)=>void;const bodies:Array<{plan_version:string;budget:{total_cap:string}}>=[];
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
- fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/budget')?new Promise(resolve=>{finish=resolve;}):base(input,init));
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{if(!String(input).endsWith('/budget'))return base(input,init);bodies.push(JSON.parse(String(init?.body)));return bodies.length===1?new Promise(resolve=>{finish=resolve;}):Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-current-budget'}})});});
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'300'}});
- await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],attributes:{source_name:'过期响应媒体'}}]}}})}));
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-obsolete-budget',matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],attributes:{source_name:'过期响应媒体'}}]},budget_plans:[{strategy:'过期正式组合'}],content_plans:[{strategy:'过期内容组合'}]}})}));
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
  expect(screen.queryByText('过期响应媒体')).toBeNull();expect((screen.getByLabelText('总预算（CNY）') as HTMLInputElement).value).toBe('300');
+ expect(screen.queryByText('过期正式组合')).toBeNull();expect(screen.queryByText('过期内容组合')).toBeNull();
+ expect((screen.getByRole('button',{name:'导出当前版本'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
+ await waitFor(()=>expect(bodies[1]).toMatchObject({plan_version:'saved-obsolete-budget',budget:{total_cap:'300'}}));
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
@@ -325,7 +329,7 @@ it('keeps the cart footer on the distribution tab without discarding selected me
  expect(screen.getByRole('button',{name:/查看购物车/})).toBeTruthy();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
-it('keeps a persisted matrix plan version when an in-flight budget ACK becomes obsolete',async()=>{
+it('ignores an unpersisted running ACK but adopts its later authoritative revision even after a budget edit',async()=>{
  liveDirectory();let started=false,requests=0,finish!:(response:unknown)=>void;const sentVersions:string[]=[];
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{
@@ -341,7 +345,41 @@ it('keeps a persisted matrix plan version when an in-flight budget ACK becomes o
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-new-budget-version'}})}));
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
- await waitFor(()=>expect(sentVersions).toEqual(['plan-version-1','plan-version-1']));
+ await waitFor(()=>expect(sentVersions).toEqual(['plan-version-1','saved-new-budget-version']));
+});
+
+it('retains semantic edits and blocks budget generation when an old budget terminal response arrives',async()=>{
+ liveDirectory();let finish!:(response:unknown)=>void;
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/budget')?new Promise(resolve=>{finish=resolve;}):base(input,init));
+ openMatrix('draftId=draft-1&articleVersion=version-1');await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
+ fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'改变后的业务问题'}});
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'saved-before-semantic-edit'}})}));
+ await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
+ expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe('改变后的业务问题');
+ expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByText(/需求、任务或稿件版本已变化，当前矩阵仅供对照/)).toBeTruthy();
+});
+
+it('shows a retryable budget failure and retries using its saved revision without regenerating the matrix',async()=>{
+ liveDirectory();const versions:string[]=[];
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{
+  if(!String(input).endsWith('/budget'))return base(input,init);
+  versions.push(JSON.parse(String(init?.body)).plan_version);
+  const result=versions.length===1?{...matrix,status:'invalid_decisions',retryable_budget:true,plan_version:'saved-retryable-budget',errors:[{code:'invalid_content_quantity',path:'content_plans',message:'篇数建议未通过核验'}]}:{...matrix,plan_version:'successful-retry'};
+  return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result})});
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
+ await screen.findByText('组合生成未通过复核，请调整条件后重试：篇数建议未通过核验');
+ expect((screen.getByRole('button',{name:'导出当前版本'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
+ await waitFor(()=>expect(versions).toEqual(['plan-version-1','saved-retryable-budget']));
+ expect(fetcher.mock.calls.some(call=>String(call[0]).endsWith('/matrix/generate'))).toBe(false);
 });
 
 it('does not let an old cancellation clear a newly opened matrix task',async()=>{
@@ -374,7 +412,7 @@ it('pins export to the currently displayed persisted plan rather than the task l
 it('applies a server-verified budget plan into the shared cart with preview, refresh and no mediaIds overwrite',async()=>{
  liveDirectory();
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
- const applyDiff={status:'ok',task_id:'matrix-1',plan_index:0,draft:{id:'draft-1',revision:2},additions:[{mediaResourceId:'media-1',name:'可投媒体',externalResourceId:'external-1',priceTenThousandths:'1000000',offerId:'quote-1',publicationSpec:null,purpose:'standard',reason:'命中目标问题'}],alreadySelected:[],skipped:[],overLimit:false,mergedCount:1,knownTotalTenThousandths:'1000000',pendingPriced:0};
+ const applyDiff={status:'ok',task_id:'matrix-1',plan_index:0,draft:{id:'draft-1',revision:2},additions:[{mediaResourceId:'media-1',name:'可投媒体',externalResourceId:'external-1',priceTenThousandths:'1000000',totalPriceTenThousandths:'1000000',quantity:1,offerId:'quote-1',publicationSpec:null,purpose:'standard',reason:'命中目标问题'}],alreadySelected:[],skipped:[],overLimit:false,mergedCount:1,knownTotalTenThousandths:'1000000',pendingPriced:0};
  const applyBodies:unknown[]=[];
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
  const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
@@ -394,8 +432,8 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  const apply=await screen.findByRole('button',{name:'加入本组合'});
  fireEvent.click(apply);
- await screen.findByText('新增 · ¥100.00');
- fireEvent.click(screen.getByRole('button',{name:'确认合并选择'}));
+ await screen.findByText('新增 · 1 篇 · ¥100.00');
+ fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
  await screen.findByText(/已加入组合：新增 1 项/);
  expect(applyBodies).toHaveLength(2);
  expect(applyBodies[0]).toMatchObject({plan_index:0,draft_id:'draft-1',article_version_id:'version-1',expected_revision:1,preview:true});
@@ -459,10 +497,12 @@ it('shows the actual saved sample without configured services and never writes a
  const fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{throw new Error('service unavailable');});vi.stubGlobal('fetch',fetcher);
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});
- expect(screen.getByText('一航软件 · 已生成样本')).toBeTruthy();
+ expect(screen.getByText('一航软件 · 已保存样本')).toBeTruthy();
  expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
  expect(screen.getAllByRole('heading',{level:3}).filter(node=>/层$/.test(node.textContent??''))).toHaveLength(5);
+ expect(document.querySelectorAll('[data-source-id]')).toHaveLength(matrixDemo.result.matrix.layers.reduce((sum,layer)=>sum+Math.min(3,layer.candidate_ids.length),0));
+ for(const button of screen.queryAllByRole('button',{name:/更多候选/}))fireEvent.click(button);
  expect(document.querySelectorAll('[data-source-id]')).toHaveLength(matrixDemo.result.matrix.candidates.length);
  expect(screen.getAllByRole('button',{name:/^组合 [123]/})).toHaveLength(3);
  expect(screen.queryByRole('button',{name:'加入本组合'})).toBeNull();
@@ -512,7 +552,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
  expect(bodies[0]!.body).toMatchObject({industry_id:'configured-industry',brand_data:matrixDemo.form.brandDataBatchId});
  expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
- expect(screen.queryByText('一航软件 · 已生成样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
+ expect(screen.queryByText('一航软件 · 已保存样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
@@ -522,7 +562,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?{industries:[{id:'configured-industry',name:'已接入行业'}]}:url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByText('一航软件 · 已生成样本');
+ await screen.findByText('一航软件 · 已保存样本');
  fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
  for(const id of ['A','B','A']){
   await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});

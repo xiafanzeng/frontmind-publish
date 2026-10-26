@@ -1,0 +1,22 @@
+{
+  "brand_product": "示例产品（演示）",
+  "target_industry": "软件测试服务",
+  "regions": null,
+  "audience": "企业技术采购负责人（演示）",
+  "expected_publish_hours": null,
+  "material_requirement": null,
+  "target_questions": [
+    "第三方软件测试机构推荐"
+  ],
+  "sample_models": null,
+  "assumptions": [
+    {
+      "field": "target_industry",
+      "reason": "用户允许按样本主题演示，待正式确认"
+    },
+    {
+      "field": "audience",
+      "reason": "演示设定"
+    }
+  ]
+}

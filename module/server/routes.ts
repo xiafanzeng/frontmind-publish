@@ -1,3 +1,4 @@
+import { publisherDraftOutputSchema,publisherPreflightOutputSchema } from './publication-contracts.js';
 import { accountActivityInputSchema, accountActivityOutputSchema, accountActivityPageInputSchema, accountActivityPageOutputSchema } from "@frontmind/monitoring-contracts";
 import {
   adminBankTransferOutputSchema,
@@ -102,13 +103,11 @@ import {
   publisherDashboardOutputSchema,
   publisherDocxImportOutputSchema,
   publisherDraftInputSchema,
-  publisherDraftOutputSchema,
   publisherFreezeArticleInputSchema,
   publisherImportListInputSchema,
   publisherImportListOutputSchema,
   publisherImportStatusInputSchema,
   publisherPreflightInputSchema,
-  publisherPreflightOutputSchema,
   publisherRefreshDraftMediaInputSchema,
   publisherRuntimeOutputSchema,
   publisherSaveArticleInputSchema,

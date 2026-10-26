@@ -220,6 +220,7 @@ export function createServerBackedPublisherGateway(
           catalogRevision: item.selectedCatalogRevision,
         }),
         title: item.submissionTitle,
+        publication: item.publication,
       })),
       updatedAt: toIso(draft.updatedAt),
     };
@@ -1107,7 +1108,7 @@ function mapPreflight(
     const draftItem = draftItems.get(item.mediaResourceId);
     const media = draftItem
       ? mapMedia(draftItem.mediaResource, {
-          priceTenThousandths: item.priceTenThousandths,
+          priceTenThousandths: item.publication?.unitPriceTenThousandths ?? item.priceTenThousandths,
           catalogRevision: preflight.catalogRevision,
         })
       : fallbackMedia(
@@ -1135,6 +1136,7 @@ function mapPreflight(
     return {
       media,
       title: item.submissionTitle,
+      publication:item.publication,
       priceTenThousandths: item.priceTenThousandths,
       checks: [
         {

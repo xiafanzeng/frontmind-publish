@@ -1,6 +1,7 @@
 import { clone,digest,equal,identityFields,issue,list,object,priceFields,roles,rows,semantic,stableJson,strings,text,unique,type Issue,type Row } from './common.js';
 import { domain,matchIdentity } from './evidence.js';
-const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items'.split(' '));
+import { candidateCatalogMatches } from './export-research.js';
+const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items media_intro content_direction layer_rank ranking_reason'.split(' '));
 function channel(r:Row,t:Row):Row {
   const fail:string[]=[],pending:string[]=[];
   if(['unavailable','inactive','closed','not_for_sale','suspended'].includes(r.publication_status))fail.push('publication_unavailable');else if(r.publication_status!=='available')pending.push('publication_status_unknown');
@@ -28,7 +29,7 @@ function manuscriptChecks(manuscripts:Row[],catalog:Row[]):Row {
 export function prepareCandidates(request:Row,analysis:Row):Row {
   const task=request.task,manuscripts:Row[]=task.manuscripts?.length?task.manuscripts:object(task.manuscript)&&Object.keys(task.manuscript).length?[task.manuscript]:[];
   const grouped=new Map<string,Array<{index:number;row:Row}>>(),candidates:Row[]=[],actual:Row[]=analysis.actual_sources,matched=new Set<number>();
-  (request.catalog??[]).forEach((row:Row,index:number)=>{const cid=row.resource_id?'resource:'+row.resource_id:'unverified_offer:'+index;if(!grouped.has(cid))grouped.set(cid,[]);grouped.get(cid)!.push({index,row});});
+  (request.catalog??[]).forEach((row:Row,index:number)=>{const cid=row.resource_id?'resource:'+row.resource_id:row.candidate_key?'research:'+row.candidate_key:'unverified_offer:'+index;if(!grouped.has(cid))grouped.set(cid,[]);grouped.get(cid)!.push({index,row});});
   for(const [cid,group] of grouped){
     const variants:Row[]=unique(group.map(g=>semantic(g.row))).sort((a,b)=>stableJson(a).localeCompare(stableJson(b)));
     const fields=unique(variants.flatMap(Object.keys)).sort(),common:Row=Object.create(null),conflicts:string[]=[];
@@ -54,6 +55,7 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
   actual.forEach((s,i)=>{if(matched.has(i))return;const relation=s.status==='identity_conflict'?'unverified':'exact';candidates.push({candidate_id:'observed:'+digest([s.scope,s.identity,s.evidence_ids]),resource_id:null,attributes:clone(s.identity),attribute_paths:[],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['no_confirmed_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscripts),evidence_relation:relation,identity_matches:[{relation,evidence_ids:clone(s.evidence_ids),scope:clone(s.scope)}],evidence_ids:clone(s.evidence_ids),recommendation_basis:[]});});
   const aggregates:Row[]=analysis.external_aggregates;
   for(const c of candidates){
+    c.catalog_matches=candidateCatalogMatches(c,request.catalog??[],request.source_mappings??[]);
     c.aggregate_matches=[];
     for(const a of aggregates){
       const complete=text(a.aggregate_id)&&aggregates.filter(x=>x.aggregate_id===a.aggregate_id).length===1&&a.source_type==='external_data'&&['source_id','data_version','unit'].every(f=>text(a[f]))&&typeof a.count==='number'&&Number.isFinite(a.count)&&a.count>0&&a.scope?.industry===task.industry&&a.applicability?.kind==='industry_context'&&a.applicability.industry===task.industry;
@@ -63,7 +65,7 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
     }
     c.aggregate_ids=c.aggregate_matches.map((a:Row)=>a.aggregate_id);
   }
-  const version={task:semantic(task),analysis,catalog:unique<string>((request.catalog??[]).map((r:Row)=>stableJson(semantic(r)))).sort(),industry_recommendations:request.industry_recommendations??[],identity_config:request.identity_config??{}};
+  const version={task:semantic(task),analysis,catalog:unique<string>((request.catalog??[]).map((r:Row)=>stableJson(semantic(r)))).sort(),industry_recommendations:request.industry_recommendations??[],identity_config:request.identity_config??{},source_mappings:request.source_mappings??[]};
   return {matrix_version:'matrix-'+digest(version),candidates,limitations:[...['product','audience','regions'].filter(k=>!task[k]).map(k=>'missing_'+k),...(!candidates.length?['no_source_data_configured']:[])]};
 }
 function paths(v:any,prefix='',out:Row={}):Row {
@@ -80,7 +82,8 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
   const items:Row[]=d.items??[],byId=new Map<string,Row>(p.candidates.map((c:Row)=>[c.candidate_id,c])),questions=r.task.questions.map((q:Row)=>q.question_id),validPaths=paths(semantic({task:r.task,catalog:r.catalog??[],industry_recommendations:r.industry_recommendations??[]})),seen:string[]=[];
   items.forEach((item,i)=>{
     const path=`decisions.items[${i}]`,c=byId.get(item.candidate_id);
-    for(const f of ['primary_role','candidate_id','reason_summary','selection','supplemental_value','exploration_hypothesis'])if(f in item&&typeof item[f]!=='string')err('invalid_type',path+'.'+f);
+    for(const f of ['primary_role','candidate_id','reason_summary','selection','supplemental_value','exploration_hypothesis','media_intro','content_direction','ranking_reason'])if(f in item&&(typeof item[f]!=='string'||!item[f].trim()))err('invalid_type',path+'.'+f);
+    if('layer_rank' in item&&(!Number.isSafeInteger(item.layer_rank)||item.layer_rank<1))err('invalid_type',path+'.layer_rank');
     for(const f of ['auxiliary_roles','matched_questions','reason_details','unconfirmed_items','verification_items','supplemental_to'])if(f in item&&!strings(item[f]))err('invalid_type',path+'.'+f);
     if('references' in item&&!rows(item.references))err('invalid_type',path+'.references');
     for(const k of Object.keys(item))if(!decisionFields.has(k))err('untrusted_field',path+'.'+k);
@@ -124,6 +127,14 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
     }
   });
   if(!strings(d.fit_order??[])||unique(d.fit_order??[]).length!==(d.fit_order??[]).length||!equal([...(d.fit_order??[])].sort(),[...seen].sort()))err('invalid_fit_order','decisions.fit_order');
+  if(items.some(item=>'layer_rank' in item||'ranking_reason' in item)){
+    for(const role of Object.keys(roles)){
+      const members=items.filter(item=>item.primary_role===role),ranked=members.map(item=>item.layer_rank).sort((a,b)=>a-b);
+      if(members.some(item=>!text(item.ranking_reason))||!equal(ranked,members.map((_,i)=>i+1)))err('invalid_layer_ranks','decisions.items','每层序号须完整连续，且提供排序理由');
+      const ordered=(d.fit_order??[]).filter((id:string)=>members.some(item=>item.candidate_id===id));
+      if(!equal(ordered,[...members].sort((a,b)=>a.layer_rank-b.layer_rank).map(item=>item.candidate_id)))err('layer_rank_order_mismatch','decisions.fit_order');
+    }
+  }
   return errors;
 }
 export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {

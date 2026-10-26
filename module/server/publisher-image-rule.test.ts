@@ -1,3 +1,4 @@
+import {resolvePublisherQuote} from './publisher-source-matrix-catalog.js';
 import { eq } from "drizzle-orm";
 import { mysqlTable, varchar } from "drizzle-orm/mysql-core";
 import { describe, expect, it } from "vitest";
@@ -225,4 +226,25 @@ describe("image compatibility is separate from evidence and frozen-asset integri
     expect(publisherLiveImageEvidenceBlocker({ containsImages: true, imageSupport: "unsupported", assets: [validAsset] })).toContain("does not support images");
     expect(publisherLiveImageEvidenceBlocker({ containsImages: true, imageSupport: "unknown", assets: [{ ...validAsset, mimeType: "image/gif" }] })).toContain("incomplete public image evidence");
   });
+});
+
+
+describe('verified repeated publication worker allocation',()=>{
+ it('accepts the exact per-copy allocation including a one-time fee without treating it as a changed catalogue price',async()=>{
+  const {core,db,responses,resource,version}=fixture({containsImages:false});
+  resource.rawPayload={publisher_quote_v1:{offer_id:'offer-967',publication_spec:'text',provider_resource_id:'967',provider_execution:'independent_unit_orders',repeat_allowed:true,
+   pricing:{kind:'unit',amount:'1.00',currency:'CNY',quoted_at:'2026-10-01T00:00:00Z',valid_until:'2026-11-01T00:00:00Z',mandatory_fees:[{amount:'0.50',basis:'item'}]}}};
+  const quote=resolvePublisherQuote(resource,{offerId:'offer-967',publicationSpec:'text',quantity:2,purpose:'standard'},now.toISOString());
+  if(!quote.ok)throw new Error(quote.reason);
+  const publication={schemaVersion:1,source:'source_matrix_budget_plan',taskId:'task-1',planId:'plan-1',planVersion:'plan-v1',planIndex:0,
+   articleId:version.articleId,articleVersionId:version.id,articleVersion:'v1',resourceId:resource.id,offerId:'offer-967',publicationSpec:'text',quantity:2,quantityMeaning:'repeat_same_article',purpose:'standard',
+   unitPriceTenThousandths:quote.unitPriceTenThousandths,totalPriceTenThousandths:quote.totalPriceTenThousandths,quoteFingerprint:quote.quoteFingerprint,locked:false};
+  responses.set(tables.publisherItems,[{item:{id:'item-copy-1',ownerId:version.ownerId,status:'queued',articleContentHash:version.contentHash,mediaKindSnapshot:'news',externalResourceId:'967',submissionTitle:'稿件标题',attemptCount:0,submissionKey:'submission-copy-1',
+   mediaMetadataSnapshot:{publication,publicationIndex:0,allocatedPriceTenThousandths:quote.perPublicationTenThousandths[0]}},batch:{id:'batch-1',ownerId:version.ownerId,mode:'live'},version,resource,
+   snapshot:{catalogRevision:resource.catalogRevision,amountTenThousandths:BigInt(quote.perPublicationTenThousandths[0]!),providerPayloadHash:resource.payloadHash}}]);
+  responses.set(tables.publisherSubmissionGate,[{id:'kol',nextAllowedAt:new Date(0)}]);
+  const {PublisherWorkerRepository}=createPublishWorkerPersistence(core);
+  const result=await new PublisherWorkerRepository(db).preparePublisherSubmission({itemId:'item-copy-1',workerId:'worker-1',now,leaseExpiresAt:new Date(now.getTime()+60000),minimumIntervalMs:100,runtime:{mode:'live',realEnabled:true,publishEnabled:true,imageEnabled:true}});
+  expect(result.status).toBe('ready');
+ });
 });
