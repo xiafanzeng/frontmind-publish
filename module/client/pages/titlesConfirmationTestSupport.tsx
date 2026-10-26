@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import TitlesPage from "./TitlesPage";
@@ -53,7 +53,24 @@ export function taskFlow(selections: Record<string, unknown> = {}, pending = fal
     ensureTask: async () => "task-batch-confirmation", setSummary: vi.fn(), record: vi.fn(async () => undefined),
     saveSelections: vi.fn(async () => undefined), saveValues: vi.fn(async () => undefined), handoff: vi.fn(async () => undefined)};
 }
-export function setup(initial = [draft("A"), draft("B")], extraQuery = "", flow?: PublishingFlow, overrides: Partial<PublisherGateway> = {}) {
+interface SetupResult {
+  container: HTMLElement;
+  unmount: () => void;
+  rerender: (ui: React.ReactElement) => void;
+  view: (currentFlow?: PublishingFlow) => React.ReactElement;
+  gateway: PublisherGateway;
+  drafts: Map<string, PublicationDraft>;
+  events: string[];
+  location: ReturnType<typeof memoryLocation>;
+  getDraft: Mock<PublisherGateway["getDraft"]>;
+  updateDraftMedia: Mock<PublisherGateway["updateDraftMedia"]>;
+  saveDraftTitles: Mock<PublisherGateway["saveDraftTitles"]>;
+  preflightDraft: Mock<PublisherGateway["preflightDraft"]>;
+  submitDraft: Mock<PublisherGateway["submitDraft"]>;
+  getDashboard: Mock<PublisherGateway["getDashboard"]>;
+  getBatch: Mock<PublisherGateway["getBatch"]>;
+}
+export function setup(initial = [draft("A"), draft("B")], extraQuery = "", flow?: PublishingFlow, overrides: Partial<PublisherGateway> = {}): SetupResult {
   const drafts = new Map(initial.map(value => [value.id, value]));
   const originalItems = new Map(initial.map(value => [value.id, value.items]));
   const events: string[] = [];
@@ -72,8 +89,9 @@ export function setup(initial = [draft("A"), draft("B")], extraQuery = "", flow?
     const current = drafts.get(id)!;
     if (current.revision !== input.expectedRevision) throw new Error("revision conflict");
     events.push("save:" + id);
-    const next = {...current, revision: current.revision + 1, titleMode: input.mode, sharedTitle: input.sharedTitle,
-      items: current.items.map(item => ({...item, title: input.mode === "single" ? input.sharedTitle! : input.titles[item.media.id]}))};
+    const next = {...current, revision: current.revision + 1, titleMode: input.mode,
+      ...(input.mode === "single" && input.sharedTitle !== undefined ? {sharedTitle: input.sharedTitle} : {}),
+      items: current.items.map(item => ({...item, title: (input.mode === "single" ? input.sharedTitle : input.titles[item.media.id]) ?? item.title}))};
     drafts.set(id, next);
     return next;
   });

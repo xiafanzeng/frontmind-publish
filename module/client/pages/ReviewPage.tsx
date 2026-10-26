@@ -77,8 +77,8 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   const [acknowledged, setAcknowledged] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const prepareLock = useRef(false);
-  const pendingCheck = useRef<{ previous: unknown; prepared: PreparedPublishingConfiguration }>();
-  const autoDialog = useRef<{ run: number; signature: string }>();
+  const pendingCheck = useRef<{ previous: unknown; prepared: PreparedPublishingConfiguration } | undefined>(undefined);
+  const autoDialog = useRef<{ run: number; signature: string } | undefined>(undefined);
   const configurationRef = useRef(configuration);
   configurationRef.current = configuration;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -462,10 +462,21 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   });
   const titleStage = publishingTitleStage(reviseModes);
   const reviseStage = reviseIds.length && titleStage ? "media" : undefined;
-  const reviseHref = reviseStage ? publishingTaskUrl(withPublishingBatch(contextualPath(
-    "/publishing/drafts/" + encodeURIComponent(reviseIds[0]!) + "/" + reviseStage,
-    reviseStage === "media" ? {mode:"single"} : {},
-  ), reviseIds, acceptedCount ? [] : excludedDraftIds), flow?.taskId) : undefined;
+  const reviseHref = reviseStage ? publishingTaskUrl((() => {
+    const href = withPublishingBatch(contextualPath(
+      "/publishing/drafts/" + encodeURIComponent(reviseIds[0]!) + "/" + reviseStage,
+      reviseStage === "media" ? {mode:"single"} : {},
+    ), reviseIds, acceptedCount ? [] : excludedDraftIds);
+    // Partial acceptance narrows the batch to the remaining manuscripts; keep
+    // their draft ids explicit so downstream entries restore only this subset.
+    if (acceptedCount) {
+      const url = new URL(href, "https://publishing.invalid");
+      url.searchParams.delete("batchDraft");
+      for (const id of reviseIds) url.searchParams.append("batchDraft", id);
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    return href;
+  })(), flow?.taskId) : undefined;
   const reviseArticleIds = reviseIds.map(id => {
     const group = groups.find(value => value.draftId === id);
     return group?.preflight?.article.id ?? group?.draft?.articleId;
