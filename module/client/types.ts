@@ -1,3 +1,4 @@
+import type { PublicationSelection } from '../shared/publication-selection';
 export type PublishingWallet = {
   availableTenThousandths: string;
   reservedTenThousandths: string;
@@ -269,6 +270,7 @@ export type MediaList = {
 };
 
 export type PublicationDraftItem = {
+  publication?: PublicationSelection;
   media: MediaResource;
   title: string;
 };

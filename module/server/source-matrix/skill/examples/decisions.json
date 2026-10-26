@@ -1,0 +1,46 @@
+{
+  "matrix_decisions": {
+    "items": [
+      {
+        "candidate_id": "resource:r1",
+        "primary_role": "industry",
+        "auxiliary_roles": [],
+        "matched_questions": [
+          "q1"
+        ],
+        "references": [
+          {
+            "type": "attribute",
+            "path": "catalog[0].industry"
+          }
+        ],
+        "reason_summary": "软件读者匹配评估问题",
+        "reason_details": [
+          "依据可信行业属性"
+        ],
+        "unconfirmed_items": [],
+        "selection": "recommended"
+      }
+    ],
+    "fit_order": [
+      "resource:r1"
+    ]
+  },
+  "budget_plans": [
+    {
+      "strategy": "行业覆盖",
+      "reason_summary": "用一个行业渠道覆盖目标问题",
+      "items": [
+        {
+          "article_id": "a1",
+          "version": "v1",
+          "resource_id": "r1",
+          "offer_id": "o1",
+          "publication_spec": "text",
+          "quantity": 1,
+          "purpose": "standard"
+        }
+      ]
+    }
+  ]
+}

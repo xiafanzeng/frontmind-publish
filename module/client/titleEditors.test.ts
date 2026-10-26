@@ -15,6 +15,21 @@ const draft = (id = "draft-a", ids = ["shared", "other"], revision = 1): Publica
   updatedAt: "2026-10-24T00:00:00.000Z",
 });
 
+it("restores exact publication quantities and treats quote changes as a new selection", () => {
+  const current=draft('draft-a',['shared']);
+  current.items[0].publication={
+    schemaVersion:1,source:'source_matrix_budget_plan',taskId:'task',planId:'plan',planVersion:'pv',planIndex:0,
+    articleId:current.articleId,articleVersionId:current.articleVersionId,articleVersion:'1',resourceId:'shared',offerId:'offer',
+    publicationSpec:'article',quantity:3,quantityMeaning:'repeat_same_article',purpose:'standard',
+    unitPriceTenThousandths:'10000',totalPriceTenThousandths:'30000',quoteFingerprint:'a'.repeat(64),locked:false,
+  };
+  const editor=createTitleEditor(current);
+  expect(readTitleEditors(JSON.stringify({[current.id]:editor}))[current.id].items[0].publication?.quantity).toBe(3);
+  const changed={...current,items:current.items.map(item=>({...item,publication:{...item.publication!,offerId:'other-offer'}}))};
+  expect(sameDraftSelection(current,changed)).toBe(false);
+  expect(titleEditorSignature(createTitleEditor(changed))).not.toBe(editor.savedSignature);
+});
+
 describe("title editor snapshots", () => {
   it("isolates identical media IDs by draft and includes check changes in its dirty signature", () => {
     const a = createTitleEditor(draft());

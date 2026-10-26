@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { sql,type SQL } from 'drizzle-orm';
 import type { MySql2Database } from 'drizzle-orm/mysql2';
 import { digest, clone, type Row } from './common.js';
+import { loadPlannerCatalog, resolvePublisherQuote } from '../publisher-source-matrix-catalog.js';
+import { mediaRulesEvidence, mediaRulesTitleLimit } from '../providers/kol/media-rules.js';
 
 /**
  * Trusted article binding between the source matrix and the real publishing
@@ -17,6 +19,7 @@ export interface DraftSelectionRow {
   externalResourceId: string;
   selectedPriceTenThousandths: string;
   selectedCatalogRevision: string;
+  publication?: Row;
 }
 
 export interface TrustedArticleBinding {
@@ -70,7 +73,7 @@ export function bindingFingerprint(input: {
     content_hash: input.contentHash,
     draft_id: input.draftId,
     draft_revision: input.draftRevision,
-    selections: input.selections.map(selection => selection.mediaResourceId).sort(),
+    selections: input.selections.map(selection => selection).sort((a,b)=>a.mediaResourceId.localeCompare(b.mediaResourceId)),
   });
 }
 
@@ -95,10 +98,11 @@ export function bindingSelectedItems(binding: TrustedArticleBinding): Row[] {
     article_id: binding.articleId,
     version: bindingVersionKey(binding),
     resource_id: selection.mediaResourceId,
-    offer_id: null,
-    publication_spec: null,
-    quantity: 1,
-    locked: false,
+    offer_id: selection.publication?.offerId ?? null,
+    publication_spec: selection.publication?.publicationSpec ?? null,
+    quantity: selection.publication?.quantity ?? 1,
+    locked: selection.publication?.locked === true,
+    ...(selection.publication?.purpose ? {purpose:selection.publication.purpose}:{}),
   }));
 }
 
@@ -108,6 +112,9 @@ export interface ApplyAddition {
   mediaResourceId: string; name: string; externalResourceId: string;
   priceTenThousandths: string; offerId: string | null; publicationSpec: unknown;
   purpose: string | null; reason: string | null;
+  articleId: string; articleVersionId: string; articleVersion: string; quantity: number;
+  quantityMeaning: 'single' | 'repeat_same_article'; totalPriceTenThousandths: string;
+  quoteFingerprint: string; catalogRevision: string; replaceExisting?: boolean;
 }
 
 export interface ApplyDiff {
@@ -146,59 +153,53 @@ function rowsOf(result: unknown): Row[] {
  * being merged by media name.
  */
 export function resolvePlanItems(
-  plan: { items?: unknown; details?: unknown },
-  binding: TrustedArticleBinding,
-  existingItems: ExistingDraftItem[],
-  resources: Map<string, BindingMediaResource>,
+  plan: { items?: unknown; details?: unknown }, binding: TrustedArticleBinding,
+  existingItems: ExistingDraftItem[], resources: Map<string, BindingMediaResource>,
   imageBlocker: (resource: BindingMediaResource) => string | null,
+  options: {publicationIntent?:string;asOf?:string;taskId?:string} = {},
 ): ApplyDiff {
-  const items = Array.isArray(plan.items) ? plan.items as PlanItemInput[] : [];
-  const details = Array.isArray(plan.details) ? plan.details as Row[] : [];
-  const existingByMedia = new Map(existingItems.map(item => [item.mediaResourceId, item]));
-  const additions: ApplyAddition[] = [];
-  const alreadySelected: ApplyDiff['alreadySelected'] = [];
-  const skipped: ApplyDiff['skipped'] = [];
-  const versionKey = bindingVersionKey(binding);
-  const seen = new Set<string>();
-  items.forEach((raw, index) => {
-    const row: PlanItemInput = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-    const resourceId = typeof row.resource_id === 'string' ? row.resource_id : '';
-    const key = resourceId || 'item-' + index;
-    if (seen.has(key)) { skipped.push({ key, reason: '组合内同一资源出现多次，未重复加入' }); return; }
-    seen.add(key);
-    if (row.article_id !== binding.articleId || String(row.version ?? '') !== versionKey) {
-      skipped.push({ key, reason: '组合发布项与当前绑定稿件或版本不一致' }); return;
-    }
-    const quantity = row.quantity;
-    if (quantity !== 1 && quantity !== '1') { skipped.push({ key, reason: '发布数量 ' + String(quantity ?? '未知') + ' 暂不支持一键加入，请单独处理' }); return; }
-    const resource = resources.get(resourceId) ?? [...resources.values()].find(candidate => candidate.externalResourceId === resourceId);
-    if (!resource) { skipped.push({ key, reason: '未映射到当前可售媒体目录' }); return; }
-    if (!validPrice(resource.priceTenThousandths)) { skipped.push({ key, reason: '媒体当前无有效报价，需先询价' }); return; }
-    const blocked = imageBlocker(resource);
-    if (blocked) { skipped.push({ key, reason: blocked }); return; }
-    if (existingByMedia.has(resource.id)) {
-      alreadySelected.push({ mediaResourceId: resource.id, name: resource.name, reason: '已在购物车，保留原选择与报价身份' });
-      return;
-    }
-    const detail = details[index];
-    additions.push({
-      mediaResourceId: resource.id, name: resource.name, externalResourceId: resource.externalResourceId,
-      priceTenThousandths: resource.priceTenThousandths,
-      offerId: typeof row.offer_id === 'string' && row.offer_id ? row.offer_id : null,
-      publicationSpec: row.publication_spec ?? null,
-      purpose: typeof row.purpose === 'string' ? row.purpose : null,
-      reason: detail && typeof detail.reason === 'string' ? detail.reason : null,
-    });
-  });
-  const mergedCount = existingItems.length + additions.length;
-  const priced = [...existingItems.map(item => item.selectedPriceTenThousandths), ...additions.map(addition => addition.priceTenThousandths)];
-  const pendingPriced = priced.filter(value => !validPrice(value)).length;
-  const knownTotal = priced.filter(validPrice).reduce((sum, value) => sum + BigInt(value), 0n).toString();
-  return { additions, alreadySelected, skipped, overLimit: mergedCount > 20, mergedCount, knownTotalTenThousandths: knownTotal, pendingPriced };
+  const items=Array.isArray(plan.items)?plan.items as PlanItemInput[]:[];
+  const details=Array.isArray(plan.details)?plan.details as Row[]:[];
+  const additions:ApplyAddition[]=[],alreadySelected:ApplyDiff['alreadySelected']=[],skipped:ApplyDiff['skipped']=[];
+  const existingByMedia=new Map(existingItems.map(item=>[item.mediaResourceId,item]));
+  const seen=new Set<string>();
+  for(const [index,row] of items.entries()){
+    const key=typeof row?.resource_id==='string'?row.resource_id:'item-'+index;
+    if(seen.has(key)){skipped.push({key,reason:'同一媒体不同规格或重复发布项须明确修订，不能自动合并'});continue;}seen.add(key);
+    if(row.article_id!==binding.articleId||String(row.version??'')!==bindingVersionKey(binding)){skipped.push({key,reason:'组合发布项与当前绑定稿件或版本不一致'});continue;}
+    if(typeof row.quantity!=='number'||!Number.isSafeInteger(row.quantity)||row.quantity<1){skipped.push({key,reason:'发布数量须为正整数'});continue;}
+    if(row.quantity>1&&options.publicationIntent!=='repeat_existing_article'){skipped.push({key,reason:'多篇新内容尚待逐篇绑定；只有明确重复发布当前冻结稿件的要求可采用多数量'});continue;}
+    const resource=resources.get(key);
+    if(!resource){skipped.push({key,reason:'未映射到当前可售媒体的准确内部身份'});continue;}
+    const blocked=imageBlocker(resource);if(blocked){skipped.push({key,reason:blocked});continue;}
+    const quote=resolvePublisherQuote(resource,{offerId:String(row.offer_id??''),publicationSpec:row.publication_spec,quantity:row.quantity,purpose:String(row.purpose??'')},options.asOf);
+    if(!quote.ok){skipped.push({key,reason:quote.reason});continue;}
+    const previous=existingByMedia.get(resource.id),publication=previous?parseRawPayload(previous.mediaSnapshot.publication):{};
+    const same=previous&&publication.articleVersionId===binding.articleVersionId&&publication.offerId===row.offer_id&&digest(publication.publicationSpec)===digest(row.publication_spec)&&publication.purpose===row.purpose;
+    if(previous&&same&&publication.quantity===row.quantity&&publication.quoteFingerprint===quote.quoteFingerprint){alreadySelected.push({mediaResourceId:resource.id,name:resource.name,reason:'相同发布项已存在，未累计数量'});continue;}
+    if(previous&&(!same||publication.locked===true||!options.taskId||publication.taskId!==options.taskId)){skipped.push({key,reason:'保留现有手动项、锁定项或不同报价规格；请先明确处理购物车冲突'});continue;}
+    additions.push({mediaResourceId:resource.id,name:resource.name,externalResourceId:resource.externalResourceId,
+      priceTenThousandths:quote.unitPriceTenThousandths,totalPriceTenThousandths:quote.totalPriceTenThousandths,
+      offerId:String(row.offer_id),publicationSpec:clone(row.publication_spec),purpose:String(row.purpose),reason:previous?`修订现有发布项：${String(publication.quantity)} 篇 → ${row.quantity} 篇；按最新确认费用替换，不累计篇数`:typeof details[index]?.reason==='string'?details[index]!.reason as string:'新增完整发布项',
+      articleId:binding.articleId,articleVersionId:binding.articleVersionId,articleVersion:bindingVersionKey(binding),quantity:row.quantity,
+      quantityMeaning:row.quantity>1?'repeat_same_article':'single',quoteFingerprint:quote.quoteFingerprint,catalogRevision:resource.catalogRevision??'',replaceExisting:!!previous});
+  }
+  const mergedCount=existingItems.length+additions.filter(a=>!a.replaceExisting).length;
+  const replaced=new Set(additions.filter(a=>a.replaceExisting).map(a=>a.mediaResourceId));
+  const prices=[...existingItems.filter(i=>!replaced.has(i.mediaResourceId)).map(i=>{
+    const total=parseRawPayload(i.mediaSnapshot.publication).totalPriceTenThousandths;
+    return typeof total==='string'&&/^\d+$/.test(total)?total:validPrice(i.selectedPriceTenThousandths)?i.selectedPriceTenThousandths:null;
+  }),...additions.map(a=>a.totalPriceTenThousandths)];
+  const known=prices.filter((v):v is string=>v!==null&&/^\d+$/.test(v));
+  const pendingPriced=prices.length-known.length;
+  // The merged-cart total includes preserved manual rows; it is not the plan's separate budget feasibility.
+  return {additions,alreadySelected,skipped,overLimit:mergedCount>20,mergedCount,knownTotalTenThousandths:known.reduce((sum,v)=>sum+BigInt(v),0n).toString(),pendingPriced};
 }
 
 export class BindingStore {
   constructor(private db: MySql2Database<any>, readonly ctx: BindingOwnerContext) {}
+
+  async loadPlannerCatalog() { return loadPlannerCatalog(this.db,this.ctx.ownerId,this.ctx.enterpriseProjectId); }
 
   private async rows(statement: SQL): Promise<Row[]> {
     const result = await this.db.execute(statement) as unknown;
@@ -240,7 +241,7 @@ export class BindingStore {
       selectedPriceTenThousandths: String(row.price ?? ''),
       selectedCatalogRevision: String(row.selected_catalog_revision ?? ''),
       mediaKindSnapshot: String(row.media_kind_snapshot ?? 'unknown'),
-      mediaSnapshot: (row.media_snapshot && typeof row.media_snapshot === 'object' ? row.media_snapshot : {}) as Record<string, unknown>,
+      mediaSnapshot: parseRawPayload(row.media_snapshot),
     }));
   }
 
@@ -264,6 +265,7 @@ export class BindingStore {
       selections: selections.map(item => ({
         mediaResourceId: item.mediaResourceId, externalResourceId: item.externalResourceId,
         selectedPriceTenThousandths: item.selectedPriceTenThousandths, selectedCatalogRevision: item.selectedCatalogRevision,
+        publication:parseRawPayload(item.mediaSnapshot.publication),
       })),
       fingerprint: '',
     };
@@ -279,7 +281,7 @@ export class BindingStore {
     const rows = await this.rows(sql`select r.id, r.name, r.external_resource_id, r.media_kind,
       cast(r.price_ten_thousandths as char) as price, r.catalog_revision, r.remark, r.title_limit, r.raw_payload, c.image_support
       from publisher_media_resources r left join publisher_media_capabilities c on c.media_resource_id = r.id
-      where (r.id in (${placeholders}) or r.external_resource_id in (${placeholders})) and r.is_active = 1 and r.media_kind is not null`);
+      where r.id in (${placeholders}) and r.is_active = 1 and r.media_kind is not null`);
     const map = new Map<string, BindingMediaResource>();
     for (const row of rows) {
       const resource: BindingMediaResource = {
@@ -302,12 +304,22 @@ export class BindingStore {
    * a merge can never silently replace a manual selection.
    */
   async insertPlanItems(input: {
-    draftId: string; expectedRevision: number; additions: ApplyAddition[];
+    tenantId: string; draftId: string; expectedRevision: number; additions: ApplyAddition[];
     mediaSnapshotFor: (resource: BindingMediaResource, addition: ApplyAddition) => Record<string, unknown>;
+    resourceBlocker?: (resource: BindingMediaResource) => string | null;
     planIdentity: { taskId: string; planId: string; planVersion: string; planIndex: number };
-  }): Promise<{ ok: true; revision: number } | { ok: false; reason: 'draft_changed' | 'revision_conflict' }> {
+  }): Promise<{ ok: true; revision: number } | { ok: false; reason: 'draft_changed' | 'revision_conflict' | 'plan_changed' }> {
     return this.db.transaction(async tx => {
-      const locked: unknown = await tx.execute(sql`select id, revision, status from publisher_drafts
+      // Serialize adoption with budget begin/save/cancel, not just cart writes.
+      // tenantId comes from the authenticated MatrixRepository, never the body.
+      const taskRows: unknown = await tx.execute(sql`select state, latest from publisher_source_matrix_tasks
+        where tenant_id = ${input.tenantId} and task_id = ${input.planIdentity.taskId} for update`);
+      const task = rowsOf(taskRows)[0], latest = parseRawPayload(task?.latest);
+      if (!task || task.state !== 'complete' || latest.status !== 'complete'
+        || latest.plan_id !== input.planIdentity.planId || latest.plan_version !== input.planIdentity.planVersion) {
+        return { ok: false, reason: 'plan_changed' } as const;
+      }
+      const locked: unknown = await tx.execute(sql`select id, revision, status, article_version_id from publisher_drafts
         where id = ${input.draftId} and owner_id = ${this.ctx.ownerId}
           and (enterprise_project_id is null or enterprise_project_id = ${this.ctx.enterpriseProjectId}) for update`);
       const rows = rowsOf(locked);
@@ -332,27 +344,40 @@ export class BindingStore {
           imageSupport: ['unknown', 'verified', 'unsupported'].includes(String(row.image_support)) ? String(row.image_support) as BindingMediaResource['imageSupport'] : 'unknown',
         });
       }
-      const existing: unknown = await tx.execute(sql`select media_resource_id from publisher_draft_items where draft_id = ${input.draftId} and owner_id = ${this.ctx.ownerId}`);
-      const existingIds = new Set(rowsOf(existing).map(row => String(row.media_resource_id)));
+      const existing: unknown = await tx.execute(sql`select media_resource_id,media_snapshot from publisher_draft_items where draft_id = ${input.draftId} and owner_id = ${this.ctx.ownerId} for update`);
+      const previous=new Map(rowsOf(existing).map(row=>[String(row.media_resource_id),parseRawPayload(parseRawPayload(row.media_snapshot).publication)]));
+      // Validate every item before the first write; returning a business error may commit a transaction.
+      for(const addition of input.additions){
+        const resource=resources.get(addition.mediaResourceId);
+        if(!resource||String(draft.article_version_id)!==addition.articleVersionId||resource.catalogRevision!==addition.catalogRevision) return {ok:false,reason:'draft_changed'} as const;
+        if(input.resourceBlocker?.(resource)) return {ok:false,reason:'draft_changed'} as const;
+        const current=resolvePublisherQuote(resource,{offerId:addition.offerId??'',publicationSpec:addition.publicationSpec,quantity:addition.quantity,purpose:addition.purpose??''});
+        if(!current.ok||current.quoteFingerprint!==addition.quoteFingerprint||current.totalPriceTenThousandths!==addition.totalPriceTenThousandths) return {ok:false,reason:'draft_changed'} as const;
+        const old=previous.get(addition.mediaResourceId);
+        if(old&&(!addition.replaceExisting||old.locked===true||old.taskId!==input.planIdentity.taskId||old.articleVersionId!==addition.articleVersionId||old.offerId!==addition.offerId||digest(old.publicationSpec)!==digest(addition.publicationSpec)||old.purpose!==addition.purpose)) return {ok:false,reason:'draft_changed'} as const;
+        if(!old&&addition.replaceExisting) return {ok:false,reason:'draft_changed'} as const;
+      }
+      if(previous.size+input.additions.filter(a=>!a.replaceExisting).length>20) return {ok:false,reason:'draft_changed'} as const;
       const selectedAt = new Date().toISOString().slice(0, 23).replace('T', ' ');
       for (const addition of input.additions) {
-        if (existingIds.has(addition.mediaResourceId)) continue;
-        const resource = resources.get(addition.mediaResourceId);
-        if (!resource || !validPrice(resource.priceTenThousandths)) return { ok: false, reason: 'draft_changed' } as const;
+        const resource = resources.get(addition.mediaResourceId)!;
         const snapshot = input.mediaSnapshotFor(resource, addition);
-        await tx.execute(sql`insert into publisher_draft_items
-          (id, enterprise_project_id, owner_id, draft_id, media_resource_id, external_resource_id, submission_title,
-           selected_price_ten_thousandths, selected_catalog_revision, media_kind_snapshot, media_snapshot, selected_at)
-          values (${randomUUID()}, ${this.ctx.enterpriseProjectId}, ${this.ctx.ownerId}, ${input.draftId}, ${resource.id},
-            ${resource.externalResourceId}, '', ${resource.priceTenThousandths}, ${resource.catalogRevision ?? ''},
-            ${resource.mediaKind}, ${JSON.stringify(snapshot)}, ${selectedAt})`);
-        existingIds.add(resource.id);
+        if(addition.replaceExisting){
+          await tx.execute(sql`update publisher_draft_items set selected_price_ten_thousandths=${addition.priceTenThousandths},selected_catalog_revision=${resource.catalogRevision??''},media_snapshot=${JSON.stringify(snapshot)},selected_at=${selectedAt} where draft_id=${input.draftId} and owner_id=${this.ctx.ownerId} and media_resource_id=${resource.id}`);
+        }else{
+          await tx.execute(sql`insert into publisher_draft_items
+            (id, enterprise_project_id, owner_id, draft_id, media_resource_id, external_resource_id, submission_title,
+             selected_price_ten_thousandths, selected_catalog_revision, media_kind_snapshot, media_snapshot, selected_at)
+            values (${randomUUID()}, ${this.ctx.enterpriseProjectId}, ${this.ctx.ownerId}, ${input.draftId}, ${resource.id},
+              ${resource.externalResourceId}, '', ${addition.priceTenThousandths}, ${resource.catalogRevision ?? ''},
+              ${resource.mediaKind}, ${JSON.stringify(snapshot)}, ${selectedAt})`);
+        }
       }
       const updated: unknown = await tx.execute(sql`update publisher_drafts set revision = revision + 1, status = 'draft', updated_at = now(3)
         where id = ${input.draftId} and owner_id = ${this.ctx.ownerId} and revision = ${input.expectedRevision}`);
       const header = (Array.isArray(updated) ? updated[0] : updated) as { affectedRows?: unknown } | undefined;
       const affected = header && typeof header.affectedRows === 'number' ? header.affectedRows : 1;
-      if (affected !== 1) return { ok: false, reason: 'revision_conflict' } as const;
+      if (affected !== 1) throw new Error('Draft revision changed during locked publication merge');
       return { ok: true, revision: input.expectedRevision + 1 } as const;
     });
   }
@@ -366,19 +391,17 @@ export function publicationSnapshot(resource: BindingMediaResource, addition: Ap
     kind: resource.mediaKind,
     priceTenThousandths: resource.priceTenThousandths,
     catalogRevision: resource.catalogRevision,
-    remark: resource.remark,
-    titleLimit: resource.titleLimit,
+    remark: mediaRulesEvidence(resource.remark,resource.titleLimit,resource.rawPayload).remark,
+    titleLimit: Math.max(1,mediaRulesTitleLimit(resource.remark,resource.titleLimit,resource.rawPayload)),
     imageSupport: resource.imageSupport,
     publication: {
-      source: 'source_matrix_budget_plan',
-      task_id: planIdentity.taskId,
-      plan_id: planIdentity.planId,
-      plan_version: planIdentity.planVersion,
-      plan_index: planIdentity.planIndex,
-      offer_id: addition.offerId,
-      publication_spec: addition.publicationSpec === undefined ? null : clone(addition.publicationSpec),
-      quantity: 1,
-      purpose: addition.purpose,
+      schemaVersion:1,source:'source_matrix_budget_plan',taskId:planIdentity.taskId,planId:planIdentity.planId,
+      planVersion:planIdentity.planVersion,planIndex:planIdentity.planIndex,
+      articleId:addition.articleId,articleVersionId:addition.articleVersionId,articleVersion:addition.articleVersion,
+      resourceId:resource.id,offerId:addition.offerId,publicationSpec:clone(addition.publicationSpec),
+      quantity:addition.quantity,quantityMeaning:addition.quantityMeaning,purpose:addition.purpose,
+      unitPriceTenThousandths:addition.priceTenThousandths,totalPriceTenThousandths:addition.totalPriceTenThousandths,
+      quoteFingerprint:addition.quoteFingerprint,locked:false,
     },
   };
 }

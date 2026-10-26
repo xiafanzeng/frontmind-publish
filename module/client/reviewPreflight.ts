@@ -1,4 +1,5 @@
 import type { PublicationDraft, PublicationPreflight } from "./types";
+import { publicationIdentity } from "./publicationAmounts";
 
 /** A result belongs to the exact selected draft and its immutable article.
  * Never share a result by media ID, or mutate the server's approval snapshot. */
@@ -6,7 +7,7 @@ export function reviewDraftContext(draft: PublicationDraft): string {
   return JSON.stringify([draft.id, draft.revision, draft.articleId, draft.articleVersionId,
     draft.articleVersionHash, draft.titleMode, draft.sharedTitle,
     draft.items.map(item => [item.media.id, item.title, item.media.catalogRevision,
-      item.media.priceTenThousandths, item.media.kind, item.media.titleLimit, item.media.capability])]);
+      item.media.priceTenThousandths, item.media.kind, item.media.titleLimit, item.media.capability, publicationIdentity(item)])]);
 }
 
 export function preflightMatchesReviewDraft(draft: PublicationDraft, result: PublicationPreflight): boolean {
@@ -14,7 +15,8 @@ export function preflightMatchesReviewDraft(draft: PublicationDraft, result: Pub
     result.article.versionId === draft.articleVersionId && result.article.hash === draft.articleVersionHash &&
     (result.titleMode === undefined || result.titleMode === draft.titleMode) &&
     result.items.length === draft.items.length &&
-    draft.items.every(item => result.items.some(next => next.media.id === item.media.id && next.title === item.title));
+    draft.items.every(item => result.items.some(next => next.media.id === item.media.id && next.title === item.title &&
+      publicationIdentity(next) === publicationIdentity(item)));
 }
 
 export type ManualReviewCheck = {

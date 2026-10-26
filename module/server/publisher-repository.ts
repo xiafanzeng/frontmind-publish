@@ -1,3 +1,6 @@
+import { publicationSelection, publicationCount } from '../shared/publication-selection.js';
+import { publicationPricing } from './publication-pricing.js';
+import type { PublisherQuantityPreflightOutput } from './publication-contracts.js';
 import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
 import { MediaCatalogPromiseCache } from "./media-catalog-cache.js";
 import { aiPlatformRawValues, coverageRawValues, normalizedCoverageFacets, normalizedTagFacets, recommendationRawValues } from "../shared/media-catalog-filters.js";
@@ -1536,6 +1539,7 @@ class PublishingRepository {
       items: selections.map(({ draftItem, resource, imageSupport }) => ({
         id: draftItem.id,
         submissionTitle: draftItem.submissionTitle,
+        publication: publicationSelection(draftItem.mediaSnapshot),
         selectedPriceTenThousandths:
           draftItem.selectedPriceTenThousandths.toString(),
         selectedCatalogRevision: draftItem.selectedCatalogRevision,
@@ -2928,6 +2932,7 @@ class PublishingRepository {
         previousItemByMedia = new Map(
           previousItems.map((item) => [item.mediaResourceId, item]),
         );
+        if(previousItems.some(item=>publicationSelection(item.mediaSnapshot)?.locked&&!uniqueMediaIds.has(item.mediaResourceId)))throw new RepositoryError("INVALID_STATE","不能通过媒体更新移除锁定发布项");
         nextRevision = draft.revision + 1;
         await tx
           .delete(publisherDraftItems)
@@ -2983,6 +2988,8 @@ class PublishingRepository {
           throw new RepositoryError("INVALID_STATE", "Media disappeared");
         const resource = selected.resource;
         const previousItem = previousItemByMedia.get(item.mediaResourceId);
+        const priorPublication=previousItem?publicationSelection(previousItem.mediaSnapshot):undefined;
+        if(priorPublication&&priorPublication.articleVersionId!==input.articleVersionId)throw new RepositoryError("INVALID_STATE","稿件版本已变化，请重新绑定并采用媒体组合");
         const submissionTitle =
           titleMode === "single" && sharedTitle
             ? sharedTitle
@@ -3123,16 +3130,19 @@ class PublishingRepository {
 
       const refreshedAt = new Date();
       for (const { draftItem, resource, imageSupport } of selections) {
+        const quantityPrice=publicationPricing(draftItem.mediaSnapshot,resource,draft.articleVersionId,refreshedAt.toISOString());
+        if(quantityPrice.blocker)throw new RepositoryError("INVALID_STATE",quantityPrice.blocker);
         await tx
           .update(publisherDraftItems)
           .set({
             externalResourceId: resource.externalResourceId,
-            selectedPriceTenThousandths: resource.priceTenThousandths,
+            selectedPriceTenThousandths: quantityPrice.publication ? BigInt(quantityPrice.publication.unitPriceTenThousandths) : resource.priceTenThousandths,
             selectedCatalogRevision: resource.catalogRevision,
             mediaKindSnapshot: resource.mediaKind!,
             mediaSnapshot: {
               ...customerSafeMediaSnapshot(resource),
               imageSupport: imageSupport ?? "unknown",
+              ...(quantityPrice.publication?{publication:quantityPrice.publication}:{}),
             },
             selectedAt: refreshedAt,
           })
@@ -3282,7 +3292,7 @@ class PublishingRepository {
     draftId: string,
     expectedDraftRevision: number,
     options: PublisherExecutionOptions = new Date(),
-  ): Promise<PublisherPreflightOutput> {
+  ): Promise<PublisherQuantityPreflightOutput> {
     const { now, requiredMode } = publisherExecutionOptions(options);
     await core.ensureWallet(this.db, ownerId);
     return this.db.transaction(async (tx) => {
@@ -3483,10 +3493,13 @@ class PublishingRepository {
         preflight.items.map((item) => [item.mediaResourceId, item]),
       );
       for (const selected of selectedItems) {
+        const quantityPrice=publicationPricing(selected.draftItem.mediaSnapshot,selected.resource,draft.articleVersionId,now.toISOString());
+        if(quantityPrice.blocker)throw new RepositoryError("CONFLICT",quantityPrice.blocker);
+        for(const [publicationIndex,allocatedPrice] of quantityPrice.allocation.entries()){
         const itemId = randomUUID();
-        const price = selected.resource.priceTenThousandths;
+        const price = BigInt(allocatedPrice);
         const submissionKey = sha256(
-          stableJson({ batchId, mediaResourceId: selected.resource.id }),
+          stableJson({ batchId, mediaResourceId: selected.resource.id, draftItemId:selected.draftItem.id,publicationIndex,publication:quantityPrice.publication }),
         );
         const itemPreflight = preflightByMedia.get(selected.resource.id);
         if (!itemPreflight) {
@@ -3500,7 +3513,7 @@ class PublishingRepository {
           externalResourceId: selected.resource.externalResourceId,
           mediaNameSnapshot: selected.resource.name,
           mediaKindSnapshot: selected.resource.mediaKind ?? "unknown",
-          mediaMetadataSnapshot: customerSafeMediaSnapshot(selected.resource),
+          mediaMetadataSnapshot: {...customerSafeMediaSnapshot(selected.resource),...(quantityPrice.publication?{publication:quantityPrice.publication,publicationIndex,allocatedPriceTenThousandths:allocatedPrice}:{})},
           submissionTitle: selected.draftItem.submissionTitle,
           articleContentHash: preflight.articleContentHash,
           catalogRevision: preflight.catalogRevision,
@@ -3535,6 +3548,7 @@ class PublishingRepository {
           payload: { itemId },
           availableAt: now,
         });
+      }
       }
       await core.commitReservation(tx, { ownerId, total, reservationId, batchId, nextWallet });
       await tx
@@ -3595,7 +3609,7 @@ async function computePreflight(
     expiresAt: Date;
   },
   requiredMode?: RealPublicationMode,
-): Promise<PublisherPreflightOutput> {
+): Promise<PublisherQuantityPreflightOutput> {
   const draftQuery = tx
     .select()
     .from(publisherDrafts)
@@ -3728,10 +3742,15 @@ async function computePreflight(
   const whitelistByMedia = new Map(
     whitelist.map((entry) => [entry.mediaResourceId, entry]),
   );
-  const total = selections.reduce(
-    (sum, { resource }) => sum + resource.priceTenThousandths,
-    0n,
-  );
+  const pricedSelections=new Map(selections.map(({draftItem,resource})=>[draftItem.id,publicationPricing(draftItem.mediaSnapshot,resource,version.id,now.toISOString())]));
+  const total = [...pricedSelections.values()].reduce((sum,price)=>sum+price.total,0n);
+  const publicationTotal=selections.reduce((sum,{draftItem})=>sum+publicationCount(draftItem.mediaSnapshot),0);
+  if(publicationTotal>selections.length){
+    const indexResult=await tx.execute(sql`select count(*) as remaining from information_schema.statistics where table_schema=database() and table_name='publisher_items' and index_name='pub_items_batch_media_uq'`);
+    const indexRows=(Array.isArray(indexResult)?indexResult[0]:[]) as Array<{remaining:unknown}>;
+    if(!indexRows.length||Number(indexRows[0]?.remaining)>0)globalBlockers.push({code:'QUANTITY_MIGRATION_REQUIRED',message:'多篇发布数据迁移尚未完成，请先应用 publication-quantity-v1 迁移'});
+  }
+
   const matchingCanaryResources =
     mode === "live" && !runtime?.imagePublishEnabled
       ? await tx
@@ -3773,6 +3792,8 @@ async function computePreflight(
         message: string;
         itemId: string;
       }> = [];
+      const quantityPrice=pricedSelections.get(draftItem.id)!;
+      if(quantityPrice.blocker)blockers.push({code:"PUBLICATION_QUOTE_CHANGED",message:quantityPrice.blocker,itemId:draftItem.id});
       if (!resource.isActive) {
         blockers.push({
           code: "MEDIA_INACTIVE",
@@ -3802,7 +3823,7 @@ async function computePreflight(
         });
       }
       if (
-        draftItem.selectedPriceTenThousandths !== resource.priceTenThousandths
+        !quantityPrice.publication && draftItem.selectedPriceTenThousandths !== resource.priceTenThousandths
       ) {
         blockers.push({
           code: "PRICE_CHANGED",
@@ -3868,7 +3889,7 @@ async function computePreflight(
         version.containsImages &&
         !runtime?.imagePublishEnabled
           ? publisherLiveImageCanaryBlocker({
-              batchItemCount: selections.length,
+              batchItemCount: publicationTotal,
               matchingActiveResourceCount: matchingCanaryResources.length,
               resourceName: resource.name,
               totalTenThousandths: total,
@@ -3941,9 +3962,8 @@ async function computePreflight(
         mediaName: resource.name,
         mediaKind: resource.mediaKind!,
         submissionTitle: draftItem.submissionTitle,
-        priceTenThousandths: publisherMoneyToApiString(
-          resource.priceTenThousandths,
-        ),
+        priceTenThousandths: publisherMoneyToApiString(quantityPrice.total),
+        publication:quantityPrice.publication,
         imageSupport,
         warnings: [],
         blockers,
@@ -3965,6 +3985,7 @@ async function computePreflight(
           mediaKind: resource.mediaKind,
           title: draftItem.submissionTitle,
           priceTenThousandths: resource.priceTenThousandths.toString(),
+          publication:publicationSelection(draftItem.mediaSnapshot),
         }))
         .sort((left, right) =>
           left.mediaResourceId.localeCompare(right.mediaResourceId),
@@ -3989,11 +4010,8 @@ async function computePreflight(
     blockers: globalBlockers,
     totalTenThousandths: publisherMoneyToApiString(total),
     kindCounts: {
-      news: selections.filter(({ resource }) => resource.mediaKind === "news")
-        .length,
-      selfMedia: selections.filter(
-        ({ resource }) => resource.mediaKind === "self_media",
-      ).length,
+      news: selections.filter(({ resource }) => resource.mediaKind === "news").reduce((n,{draftItem})=>n+publicationCount(draftItem.mediaSnapshot),0),
+      selfMedia: selections.filter(({ resource }) => resource.mediaKind === "self_media").reduce((n,{draftItem})=>n+publicationCount(draftItem.mediaSnapshot),0),
     },
     availableTenThousandths: publisherMoneyToApiString(available),
     availableAfterReservationTenThousandths: publisherMoneyToApiString(

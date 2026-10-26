@@ -1047,7 +1047,7 @@ const publisherItems = mysqlTable(
     ),
     uniqueIndex("pub_items_id_owner_uq").on(table.id, table.ownerId),
     uniqueIndex("pub_items_submission_key_uq").on(table.submissionKey),
-    uniqueIndex("pub_items_batch_media_uq").on(
+    index("pub_items_batch_media_idx").on(
       table.batchId,
       table.mediaResourceId,
     ),

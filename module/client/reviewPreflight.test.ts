@@ -38,3 +38,20 @@ it("rejects results for stale revisions, frozen versions, titles, mode or media"
     {...value,items:value.items.map(item=>({...item,media:{...item.media,id:"other"}}))},
   ]) expect(preflightMatchesReviewDraft(current,stale)).toBe(false);
 });
+
+it("invalidates an approval when publication quantity or exact offer changes at the same amount", () => {
+  const current=draft(), value=preflight();
+  const publication: NonNullable<PublicationDraft['items'][number]['publication']> = {
+    schemaVersion:1,source:'source_matrix_budget_plan',taskId:'task',planId:'plan',planVersion:'pv',planIndex:0,
+    articleId:'article-a',articleVersionId:'version-a',articleVersion:'1',resourceId:'shared-media',offerId:'offer-a',
+    publicationSpec:'article',quantity:2,quantityMeaning:'repeat_same_article',purpose:'standard',
+    unitPriceTenThousandths:'10000',totalPriceTenThousandths:'20000',quoteFingerprint:'a'.repeat(64),locked:false,
+  };
+  current.items[0].publication=publication;value.items[0].publication={...publication};
+  expect(preflightMatchesReviewDraft(current,value)).toBe(true);
+  const context=reviewDraftContext(current);
+  value.items[0].publication.quantity=3;
+  expect(preflightMatchesReviewDraft(current,value)).toBe(false);
+  current.items[0].publication={...publication,offerId:'offer-b'};
+  expect(reviewDraftContext(current)).not.toBe(context);
+});

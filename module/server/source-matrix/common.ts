@@ -15,7 +15,7 @@ export const unique = <T>(values:T[]):T[] => [...new Map(values.map(v=>[stableJs
 export const digest = (v:unknown) => sha256Hex(stableJson(v)).slice(0,24);
 export { stableJson };
 export const roles:Record<string,string> = {authority:'权威参考',industry:'行业核心',regional:'地域覆盖',supplement:'覆盖补充',exploration:'探索验证'};
-export const priceFields = new Set('publication_spec allowed_purposes budget selected_items offer_id supplier supplier_id price unit_price currency quote_date quoted_at quote_valid_until valid_until expires_at pricing_basis billing_basis billing_unit pricing fees mandatory_fees tax taxes service_fee price_min price_max quote quotes total_cap exploration_cap unit_price_min unit_price_max quantity article_quantity'.split(' '));
+export const priceFields = new Set('publication_spec allowed_purposes budget selected_items offer_id supplier supplier_id price unit_price currency quote_date quoted_at quote_valid_until valid_until expires_at pricing_basis billing_basis billing_unit pricing fees mandatory_fees tax taxes service_fee price_min price_max quote quotes total_cap exploration_cap unit_price_min unit_price_max quantity article_quantity min_quantity max_quantity repeat_allowed provider_execution provider_resource_id catalog_revision quote_fingerprint quote_status publication_intent'.split(' '));
 export const identityFields = ['source_name','domain','account_id','channel_id','source_identity','url','citation_url'];
 export function semantic(v:any):any {
   if (Array.isArray(v)) return v.map(semantic);

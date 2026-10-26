@@ -1,3 +1,4 @@
+import {publicationPricing} from './publication-pricing.js';
 import { createHash, randomUUID } from "node:crypto";
 import {
   and,
@@ -3013,6 +3014,12 @@ async function submissionBlocker(
   if (row.version.contentHash !== row.item.articleContentHash)
     return "Article hash changed";
   if (!row.resource.isActive) return "Media resource is inactive";
+  const quantityPrice=publicationPricing(row.item.mediaMetadataSnapshot,row.resource,row.version.id,input.now.toISOString());
+  if(quantityPrice.blocker)return quantityPrice.blocker;
+  const copyIndex=row.item.mediaMetadataSnapshot?.publicationIndex;
+  const allocated=quantityPrice.publication&&typeof copyIndex==='number'&&Number.isSafeInteger(copyIndex)?quantityPrice.allocation[copyIndex]:undefined;
+  if(quantityPrice.publication&&(!allocated||BigInt(allocated)!==row.snapshot.amountTenThousandths||row.item.mediaMetadataSnapshot.allocatedPriceTenThousandths!==allocated))return 'Publication copy identity or allocated charge changed';
+
   const imageRulesBlocker = mediaRulesImageBlocker(
     row.resource.remark,
     row.resource.titleLimit,
@@ -3028,7 +3035,7 @@ async function submissionBlocker(
     (row.item.mediaKindSnapshot !== "unknown" &&
       row.item.mediaKindSnapshot !== row.resource.mediaKind) ||
     row.resource.catalogRevision !== row.snapshot.catalogRevision ||
-    row.resource.priceTenThousandths !== row.snapshot.amountTenThousandths ||
+    (!quantityPrice.publication && row.resource.priceTenThousandths !== row.snapshot.amountTenThousandths) ||
     row.resource.payloadHash !== row.snapshot.providerPayloadHash
   ) {
     return "Media catalog or price changed";

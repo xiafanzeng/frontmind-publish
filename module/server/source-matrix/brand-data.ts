@@ -29,6 +29,12 @@ export interface BrandDataBatch {
 
 const batch = (source as { batch?: { id?: string; label?: string; version?: string; sourceFile?: string | null; sourceSha256?: string; industryId?: string | null; industryName?: string | null; period?: { start?: string | null; end?: string | null }; records?: SampleRecord[]; limitations?: string[] } }).batch ?? {};
 
+/** Preserved workbook JSON for the native export_research lane. No synthetic
+ * evidence ids are added; callers keep the original sheet/row provenance. */
+export function brandExportBatch(batchId:string):Row|undefined {
+  return BRAND_DATA_BATCHES.some(item=>item.id===batchId)?structuredClone(batch):undefined;
+}
+
 function batchModels(records: unknown): string[] {
   return [...new Set((Array.isArray(records) ? records as SampleRecord[] : []).map(record => record.model).filter((model): model is string => !!model))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 }

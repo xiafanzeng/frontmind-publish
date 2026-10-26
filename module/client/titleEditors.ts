@@ -1,4 +1,5 @@
 import type { PublicationDraft, PublicationDraftItem, PublisherTitleMode } from "./types";
+import { publicationIdentity, publicationLineTotal, publicationQuantity } from "./publicationAmounts";
 
 /** Each draft owns its complete media snapshot, including rows excluded at review. */
 export type TitleEditor = {
@@ -17,7 +18,7 @@ export function titleEditorSignature(editor: TitleEditor) {
   return JSON.stringify([
     editor.mode,
     editor.sharedTitle,
-    editor.items.map(({ media }) => [media.id, editor.titles[media.id] ?? ""]),
+    editor.items.map(item => [item.media.id, editor.titles[item.media.id] ?? "", publicationIdentity(item)]),
     [...editor.checked].sort(),
   ]);
 }
@@ -41,7 +42,8 @@ export function sameDraftSelection(left: PublicationDraft, right: PublicationDra
   return left.articleVersionId === right.articleVersionId &&
     left.titleMode === right.titleMode && left.sharedTitle === right.sharedTitle &&
     left.revision === right.revision && ids.size === right.items.length &&
-    right.items.every(item => ids.has(item.media.id));
+    right.items.every(item => ids.has(item.media.id) && publicationIdentity(item) ===
+      publicationIdentity(left.items.find(previous => previous.media.id === item.media.id)!));
 }
 
 /** Preserve local edits, but respect newly added/removed server membership.
@@ -117,7 +119,8 @@ function validSnapshotItem(value: unknown): value is PublicationDraftItem {
   return typeof item.title === "string" && Boolean(item.media) &&
     typeof item.media.id === "string" && typeof item.media.name === "string" &&
     typeof item.media.shortName === "string" &&
-    typeof item.media.priceTenThousandths === "string" && /^\d+$/.test(item.media.priceTenThousandths);
+    typeof item.media.priceTenThousandths === "string" && /^\d+$/.test(item.media.priceTenThousandths) &&
+    (!item.publication || publicationQuantity(item) !== null && publicationLineTotal(item) !== null);
 }
 
 /** Task values are untrusted persisted JSON, and may be from an older editor. */

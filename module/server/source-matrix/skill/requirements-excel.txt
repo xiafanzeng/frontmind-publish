@@ -1,0 +1,2 @@
+# Optional Excel import only; original planner uses stdlib.
+openpyxl>=3.1,<4

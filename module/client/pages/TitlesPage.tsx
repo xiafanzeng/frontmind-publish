@@ -17,6 +17,7 @@ import { acceptTitleEditorSave, readTitleEditors, reconcileTitleEditor, sameDraf
 import { publishingTitleStage, saveUpstreamDraftTitles } from "../titleFlow";
 import { hasProtectedReviewDraft } from "../reviewSession";
 import { usePreparationEntryScroll } from "../usePreparationEntryScroll";
+import { publicationLineTotal, publicationQuantity } from "../publicationAmounts";
 
 // Hosts without task-value persistence still retain edits while moving between steps.
 // Never share private snapshots between authenticated gateway instances.
@@ -291,7 +292,9 @@ export default function PublishingTitlesPage({ draftId, onSaved }: {
             const id = editor.draft.id;
             const states = validation[id] ?? new Map<string, { value: string; length: number; limit: number; message: string }>();
             const invalid = [...states.values()].filter(item => item.message).length;
-            const checkedTotal = editor.items.filter(item => editor.checked.includes(item.media.id)).reduce((sum, item) => sum + BigInt(item.media.priceTenThousandths), 0n);
+            const checkedAmounts = editor.items.filter(item => editor.checked.includes(item.media.id)).map(publicationLineTotal);
+            const checkedTotal = checkedAmounts.reduce<bigint>((sum, amount) => sum + BigInt(amount ?? '0'), 0n);
+            const unknownAmount = checkedAmounts.some(amount => amount === null);
             const visible = editor.items.filter(item => !editor.onlyErrors || states.get(item.media.id)?.message);
             const domId = `title-draft-${encodeURIComponent(id)}`;
             return (
@@ -302,7 +305,7 @@ export default function PublishingTitlesPage({ draftId, onSaved }: {
                   <span className="publishing-title-card-status">{editor.checked.length ? `已选 ${editor.checked.length} 家` : "本篇未参与本次发布"}</span>
                 </header>
                 <div className="publishing-title-tools">
-                  <p className="publishing-title-selection" role="status">已选 <strong>{editor.checked.length} 家媒体</strong> · 有效费用 <strong>{formatPublishingMoney(checkedTotal.toString())}</strong></p>
+                  <p className="publishing-title-selection" role="status">已选 <strong>{editor.checked.length} 家媒体</strong> · 已知费用 <strong>{unknownAmount && checkedAmounts.every(amount => amount === null) ? "待确认" : formatPublishingMoney(checkedTotal.toString())}</strong>{unknownAmount ? ' · 部分费用待确认' : ''}</p>
                   <label className="publishing-title-error-filter"><input type="checkbox" checked={editor.onlyErrors} disabled={busy} onChange={event => updateEditor(id, current => ({ ...current, onlyErrors: event.target.checked }))} />只看错误项 ({invalid})</label>
                   <button className="publishing-button publishing-button-secondary" type="button" disabled={busy} onClick={() => applyTitleToAll(id, editor.draft.articleTitle)}><WandSparkles size={15} />用稿件标题填充本稿全部媒体</button>
                 </div>
@@ -317,7 +320,7 @@ export default function PublishingTitlesPage({ draftId, onSaved }: {
                       const inputId = `${domId}-${encodeURIComponent(item.media.id)}`;
                       return <tr key={item.media.id} className={included ? "" : "is-excluded"}>
                         <td><label className="publishing-title-check"><input type="checkbox" checked={included} disabled={busy} onChange={() => updateEditor(id, current => ({ ...current, checked: current.checked.includes(item.media.id) ? current.checked.filter(mediaId => mediaId !== item.media.id) : [...current.checked, item.media.id] }))} aria-label={`${editor.draft.articleTitle} · ${item.media.name}参与本次发布`} /></label></td>
-                        <th scope="row"><span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>{item.media.kind === "self_media" ? "自媒体" : "软文媒体"} · {formatPublishingMoney(item.media.priceTenThousandths)}</small></span></span></th>
+                        <th scope="row"><span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>{item.media.kind === "self_media" ? "自媒体" : "软文媒体"} · 单价 {formatPublishingMoney(item.media.priceTenThousandths)}</small>{item.publication ? <small>{publicationQuantity(item) ?? '待确认'} 次发布 · 小计 {publicationLineTotal(item) === null ? '待确认' : formatPublishingMoney(publicationLineTotal(item)!)}{item.publication.quantityMeaning === 'repeat_same_article' ? ' · 同稿同标题重复发布' : ''}</small> : null}</span></span></th>
                         <td className="publishing-title-original">{editor.draft.articleTitle}</td>
                         <td><label className="publishing-title-input-label" htmlFor={inputId}>实际发布标题</label><input type="text" id={inputId} value={result.value} disabled={busy || !included} aria-invalid={Boolean(result.message)} aria-describedby={`${inputId}-state`} aria-label={`${editor.draft.articleTitle} · ${item.media.name}独立标题`} onChange={event => updateEditor(id, current => ({ ...current, titles: { ...current.titles, [item.media.id]: event.target.value } }))} /><button type="button" className="publishing-title-copy" disabled={busy || !included} onClick={() => applyTitleToAll(id, result.value)}>应用到本稿全部媒体</button></td>
                         <td id={`${inputId}-state`} className={result.message ? "publishing-title-requirement is-error" : "publishing-title-requirement"}><strong>上限 ≤ {result.limit} 字</strong><small>{included ? `${result.length} / ${result.limit} 字` : "未纳入本次发布"}</small><span>{!included ? "重新勾选后恢复" : result.message || "长度有效"}</span></td>

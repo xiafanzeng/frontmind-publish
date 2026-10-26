@@ -1,3 +1,4 @@
+import { publicationIdentity } from "./publicationAmounts";
 import { PublisherGatewayError, type PublisherGateway } from "./gateway";
 import { publisherSubmitIdempotencyKey } from "./queryState";
 import type { PublicationBatch, PublicationPreflight, PublisherSubmitInput } from "./types";
@@ -37,7 +38,8 @@ function sameApprovedItems(approved: PublicationPreflight, fresh: PublicationPre
     fresh.article.hash === approved.article.hash && fresh.titleMode === approved.titleMode &&
     fresh.catalogRevision === approved.catalogRevision && fresh.items.length === items.length &&
     items.every(item => fresh.items.some(next => next.media.id === item.media.id && next.title === item.title &&
-      next.priceTenThousandths === item.priceTenThousandths && next.media.kind === item.media.kind));
+      next.priceTenThousandths === item.priceTenThousandths && next.media.kind === item.media.kind &&
+      publicationIdentity(next) === publicationIdentity(item)));
 }
 
 function definitiveFailure(reason: unknown) {

@@ -1,0 +1,92 @@
+{
+  "task_id": "fictional-task",
+  "task": {
+    "industry": "软件",
+    "questions": [
+      {
+        "question_id": "q1",
+        "text": "如何评估软件？"
+      }
+    ],
+    "manuscripts": [
+      {
+        "article_id": "a1",
+        "version": "v1"
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "resource_id": "r1",
+      "offer_id": "o1",
+      "source_name": "虚构软件刊物",
+      "industry": [
+        "软件"
+      ],
+      "publication_status": "available",
+      "publication_spec": "text",
+      "allowed_purposes": [
+        "standard"
+      ],
+      "manuscript_checks": [
+        {
+          "article_id": "a1",
+          "version": "v1",
+          "status": "pass"
+        }
+      ],
+      "pricing": {
+        "kind": "unit",
+        "amount": "100.00",
+        "currency": "CNY",
+        "quoted_at": "2026-10-01T00:00:00Z",
+        "valid_until": "2026-11-01T00:00:00Z",
+        "mandatory_fees": []
+      },
+      "domain": "publication.example",
+      "source_identity": "fictional-publication"
+    }
+  ],
+  "budget": {
+    "currency": "CNY",
+    "total_cap": "500.00",
+    "exploration_enabled": true,
+    "exploration_cap": "50.00"
+  },
+  "scope": {
+    "tenant_id": "t",
+    "question_id": "q1",
+    "platform": "ai",
+    "model": "m",
+    "model_version": "v",
+    "period": {
+      "end": "2026-10-11"
+    }
+  },
+  "citations": [
+    {
+      "aggregate_id": "ag1",
+      "data_kind": "aggregate",
+      "source_type": "external_data",
+      "data_version": "2026-09",
+      "source_id": "fictional-study",
+      "source_identity": "fictional-publication",
+      "source_name": "虚构软件刊物",
+      "domain": "publication.example",
+      "scope": {
+        "industry": "软件",
+        "question_id": "industry-question",
+        "period": {
+          "end": "2026-09-30"
+        },
+        "model": "industry-model"
+      },
+      "applicability": {
+        "kind": "industry_context",
+        "industry": "软件"
+      },
+      "count": 12,
+      "unit": "研究报告原始引用次数"
+    }
+  ]
+}
