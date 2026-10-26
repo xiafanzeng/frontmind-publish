@@ -1330,10 +1330,11 @@ function BatchUnitsEditor({
     <>
       <section className="publishing-article-stack" aria-label="批量稿件单元">
         {units.map((unit, index) => (
-          <article className="publishing-article-stack-card publishing-batch-unit" key={unit.key}>
-            <div className="publishing-batch-unit-head">
+          <article className="publishing-batch-unit" key={unit.key}>
+            <header className="publishing-batch-unit-head">
               <span className="publishing-article-stack-number">文章 {index + 1}</span>
-              <div className="publishing-batch-unit-actions">
+            </header>
+            <div className="publishing-batch-unit-actions">
                 <button
                   type="button"
                   className="publishing-button publishing-button-secondary"
@@ -1364,7 +1365,6 @@ function BatchUnitsEditor({
                     <Trash2 size={16} />
                   </button>
                 ) : null}
-              </div>
             </div>
             <label className="publishing-title-field">
               <span>稿件标题</span>
