@@ -82,9 +82,18 @@ export function resolvePublisherQuote(resource:PublisherCatalogResource,choice:P
 }
 
 /** Shared catalogue access follows the same authorized customer route boundary as media.list. */
+/**
+ * Deterministic planner directory window. The full shared catalogue holds
+ * ~90k rows; feeding it whole into per-candidate match construction exhausts
+ * the module container heap (observed V8 MapGrow OOM at 480MB). The planner
+ * works on a stable id-ordered prefix; consumers must treat the window as a
+ * bounded candidate pool, never as the full catalogue.
+ */
+export const PLANNER_CATALOG_LIMIT = 800;
+
 export async function loadPlannerCatalog(db:MySql2Database<any>,ownerId:string,enterpriseProjectId:string):Promise<Row[]> {
   if(!ownerId||!enterpriseProjectId) throw new Error('Authorized publishing owner and project are required');
-  const result=await db.execute(sql`select r.id,r.name,r.external_resource_id,cast(r.price_ten_thousandths as char) as price,r.catalog_revision,r.raw_payload,r.media_kind,r.platform,r.description,c.image_support from publisher_media_resources r left join publisher_media_capabilities c on c.media_resource_id=r.id where r.is_active=1 and r.media_kind is not null`);
+  const result=await db.execute(sql`select r.id,r.name,r.external_resource_id,cast(r.price_ten_thousandths as char) as price,r.catalog_revision,r.raw_payload,r.media_kind,r.platform,r.description,c.image_support from publisher_media_resources r left join publisher_media_capabilities c on c.media_resource_id=r.id where r.is_active=1 and r.media_kind is not null order by r.id limit ${PLANNER_CATALOG_LIMIT}`);
   const rows=(Array.isArray(result)?result[0]:[]) as Row[];
   return rows.flatMap(row=>{let raw=object(row.raw_payload);if(typeof row.raw_payload==='string'){try{raw=object(JSON.parse(row.raw_payload));}catch{raw={};}}
     return publisherPlannerCatalogRows({id:String(row.id),name:String(row.name),externalResourceId:String(row.external_resource_id),priceTenThousandths:String(row.price),catalogRevision:row.catalog_revision==null?null:String(row.catalog_revision),rawPayload:raw,mediaKind:String(row.media_kind),platform:row.platform==null?null:String(row.platform),description:row.description==null?null:String(row.description),imageSupport:['verified','unsupported'].includes(String(row.image_support))?row.image_support as 'verified'|'unsupported':'unknown'});});
