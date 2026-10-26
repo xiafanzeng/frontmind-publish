@@ -40,7 +40,7 @@ it.each(["single", "multi"])("opens the media overview from an already frozen %s
   render(<Router hook={location.hook} searchHook={location.searchHook}><PublishingGatewayProvider gateway={gateway}><ArticleEditorPage articleId="article-1"/></PublishingGatewayProvider></Router>);
   const choose = await screen.findByTitle("进入媒体选择首页");
   await waitFor(() => expect((choose as HTMLButtonElement).disabled).toBe(false));
-  expect(screen.getByRole("list", { name: "发布步骤" }).children).toHaveLength(mode === "single" ? 3 : 4);
+  // V4/2 反馈：编辑页不再渲染发布步骤文字行，步骤信息由媒体库页面提供。
   fireEvent.click(choose);
   await waitFor(() => expect(new URL(location.history.at(-1)!, window.location.origin).pathname).toBe("/publishing/media"));
   const destination = new URL(location.history.at(-1)!, window.location.origin);

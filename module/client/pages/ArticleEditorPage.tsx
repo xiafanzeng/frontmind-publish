@@ -35,7 +35,7 @@ import {
 } from "../host";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
-import { flowStagesForMode, titleModeForFlowMode } from "../components/PublishingFlowSteps";
+import { titleModeForFlowMode } from "../components/PublishingFlowSteps";
 import {
   PublishingBreadcrumbs,
   PublishingError,
@@ -483,29 +483,6 @@ export default function PublishingArticleEditorPage({
   /** 编辑页统一结构：步骤提示 + 上传行 + 模式切换（嵌入单元内不重复渲染）。 */
   const editorChrome = (
     <>
-      <ol className="publishing-publish-steps" aria-label="发布步骤">
-        {flowStagesForMode(editorMode).map((label, index) => {
-          const step = `${index + 1}. ${label === "预检发布" ? "预检与发布" : label}`;
-          return (
-          <li
-            key={step}
-            className={
-              article?.currentVersionId
-                ? index === 0
-                  ? "is-done"
-                  : index === 1
-                    ? "is-active"
-                    : undefined
-                : index === 0
-                  ? "is-active"
-                  : undefined
-            }
-          >
-            <b>{index + 1}</b>
-            {step.replace(/^\d+\.\s*/u, "")}
-          </li>
-        ); })}
-      </ol>
       <div className="publishing-publish-uploads" aria-label="素材上传">
         {isNew ? (
           <button
