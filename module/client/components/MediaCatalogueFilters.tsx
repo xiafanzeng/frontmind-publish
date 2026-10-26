@@ -31,6 +31,8 @@ type Props = {
   filters: MediaFilters;
   facets?: MediaFacets;
   facetsLoading: boolean;
+  facetsRefreshing?: boolean;
+  facetsVersionMismatch?: boolean;
   facetsError?: string;
   onRetry: () => void;
   onChange: (filters: MediaFilters) => void;
@@ -38,7 +40,7 @@ type Props = {
 };
 
 export default function MediaCatalogueFilters(props: Props) {
-  const { filters, facets, facetsLoading, facetsError, onRetry, onChange, onReset } = props;
+  const { filters, facets, facetsLoading, facetsRefreshing, facetsVersionMismatch, facetsError, onRetry, onChange, onReset } = props;
   const [query, setQuery] = useState(filters.query);
   const [queryError, setQueryError] = useState("");
   const [composing, setComposing] = useState(false);
@@ -147,6 +149,8 @@ export default function MediaCatalogueFilters(props: Props) {
   const provinceValue = filters.province || (legacyArea ? "__legacy_area" : "");
   const chooseProvince = (province: string) => change({ province, city: "", area: "", region: "" });
   return <section className="panel mc-filters" aria-label="第三方媒体筛选">
+    {facetsVersionMismatch && <p className="mc-status" role="status">媒体目录版本已变化，旧版筛选选项暂不展示。{facetsRefreshing ? "正在更新选项。" : "请重新读取选项。"}<button type="button" className="link" onClick={onRetry}>重新读取</button></p>}
+    {!facetsVersionMismatch && facetsRefreshing && facets && <p className="mc-status" role="status">正在更新筛选选项；当前显示上次读取的真实选项，更新后以当前目录版本为准。</p>}
     {facetsError && <p className="mc-status" role="alert">筛选选项读取失败：{facetsError}。{facets ? "下方保留上次读取的选项。" : "请重试。"}<button type="button" className="link" onClick={onRetry}>重试</button></p>}
     <OptionChips label="频道类型" value={filters.taxonomy ?? ""} options={orderedOptions(facets?.taxonomies, channels)} onChange={taxonomy => change({ taxonomy, channel: "" })} disabled={facetsLoading} />
     <OptionChips label="综合门户" value={filters.platform ?? ""} options={orderedOptions(facets?.platforms, portals)} onChange={platform => change({ platform })} disabled={facetsLoading} />

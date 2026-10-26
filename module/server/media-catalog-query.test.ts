@@ -83,4 +83,36 @@ describe("catalog query scope and snapshot semantics", () => {
     expect(incomplete.catalogCounts).toBeNull();
     expect(incomplete.catalogCountStatus).toBe("unavailable");
   });
+
+  it("reads price bounds and advanced thresholds in one capability-scoped aggregate", async () => {
+    const selections: Array<{ keys: string[]; joins: number }> = [];
+    const runtime = { activeCatalogRevision: "revision-1", catalogSyncedAt: new Date("2026-10-24T10:00:00Z"), catalogKindComplete: true };
+    const database = {
+      select(fields?: Record<string, unknown>) {
+        const selection = { keys: Object.keys(fields ?? {}), joins: 0 };
+        selections.push(selection);
+        const rows = selection.keys.includes("news") ? [{ news: 3, selfMedia: 9 }]
+          : selection.keys.includes("minimum") ? [{ minimum: 10000n, maximum: 30000n, pcWeight1: 2 }]
+          : selection.keys.includes("value") || selection.keys.includes("tags") ? [] : [runtime];
+        const query = {
+          from() { return query; }, where() { return query; }, limit() { return query; },
+          groupBy() { return query; }, orderBy() { return query; },
+          leftJoin() { selection.joins += 1; return query; },
+          then(resolve: (result: unknown[]) => unknown) { return Promise.resolve(rows).then(resolve); },
+        };
+        return query;
+      },
+    };
+    const repository = new PublishingRepository(database as unknown as PublishDatabase);
+    const result = await repository.getPublisherMediaFacets({ imageSupport: "verified" });
+    const aggregates = selections.filter(({ keys }) => keys.includes("minimum") || keys.includes("pcWeight1"));
+
+    expect(aggregates).toHaveLength(1);
+    expect(aggregates[0]).toMatchObject({ joins: 1 });
+    expect(aggregates[0].keys).toEqual(expect.arrayContaining(["minimum", "maximum", "pcWeight1"]));
+    expect(result.minimumPriceTenThousandths).toBe("10000");
+    expect(result.maximumPriceTenThousandths).toBe("30000");
+    expect(result.pcWeightThresholds).toEqual([{ value: "1", count: 2 }]);
+    expect(result.catalogCounts).toEqual({ all: 12, news: 3, selfMedia: 9 });
+  });
 });

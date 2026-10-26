@@ -38,6 +38,15 @@ function harness(initial: Partial<MediaFilters> = {}) {
 }
 
 describe("media catalogue filter interaction contract", () => {
+  it("keeps same-version cached options usable while showing their refresh state", () => {
+    render(<MediaCatalogueFilters filters={{ ...DEFAULT_MEDIA_FILTERS, kind: undefined }}
+      facets={facets} facetsLoading={false} facetsRefreshing onRetry={() => {}}
+      onChange={() => {}} onReset={() => {}} />);
+    expect(screen.getByText(/正在更新筛选选项；当前显示上次读取的真实选项/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "展开频道类型选项" }));
+    expect((screen.getByRole("button", { name: "财经商业" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("does not search during IME composition and clears immediately without a stale timer", () => {
     vi.useFakeTimers();
     const changed = harness();
