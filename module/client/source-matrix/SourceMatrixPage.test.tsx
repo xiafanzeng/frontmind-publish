@@ -435,8 +435,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:45000});
  await waitFor(()=>expect((apply as HTMLButtonElement).disabled).toBe(false), { timeout: 45000 });
  fireEvent.click(apply);
- // @ts-expect-error custom function matcher typing varies across testing-library versions
- await screen.findByText((_, element) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', { timeout: 45000 });
+ await screen.findByText((_, element) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', undefined, { timeout: 45000 });
  fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
  await screen.findByText(/已加入组合：新增 1 项/);
  expect(applyBodies).toHaveLength(2);
