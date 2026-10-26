@@ -4,8 +4,8 @@ import type { PublisherGateway } from "./gateway";
 import type { PublicationDraft } from "./types";
 
 describe("upstream title flow", () => {
-  it("routes by every draft's saved title mode, not manuscript count", () => {
-    expect(publishingTitleStage([{ titleMode: "single" }, { titleMode: "single" }])).toBe("review");
+  it("routes every saved title mode to the combined titles page", () => {
+    expect(publishingTitleStage([{ titleMode: "single" }, { titleMode: "single" }])).toBe("titles");
     expect(publishingTitleStage([{ titleMode: "single" }, { titleMode: "per_media" }])).toBe("titles");
     expect(publishingTitleStage([])).toBeUndefined();
     expect(publishingTitleStage([{ titleMode: "single" }, {}])).toBeUndefined();
@@ -21,7 +21,7 @@ describe("upstream title flow", () => {
     expect(await saveUpstreamDraftTitles(gateway, current)).toBe(current);
     expect(gateway.saveDraftTitles).not.toHaveBeenCalled();
   });
-  it("saves the explicit upstream title and mode before allowing a direct review transition", async () => {
+  it("saves the explicit upstream title and mode before entering title configuration", async () => {
     const gateway = { saveDraftTitles: vi.fn<PublisherGateway["saveDraftTitles"]>(async () => draft({ revision: 5 })) };
     await saveUpstreamDraftTitles(gateway, draft({ titleMode: "per_media" }), "single", "新上游确认标题");
     expect(gateway.saveDraftTitles).toHaveBeenCalledWith("draft-a", {

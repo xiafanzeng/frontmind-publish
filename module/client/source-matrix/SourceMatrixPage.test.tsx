@@ -326,7 +326,52 @@ it('keeps the cart footer on the distribution tab without discarding selected me
  window.history.replaceState({},'', '/publishing/source-matrix?tab=analysis&task=matrix-1&draftId=draft-1&articleVersion=version-1');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('link',{name:'购物车 1 · ¥100.00'});expect(screen.getByText('真实行业分布')).toBeTruthy();
- expect(screen.getByRole('button',{name:/查看购物车/})).toBeTruthy();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:/配置标题/})).toBeTruthy();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it.each([
+ ['analysis','single'],['analysis','per_media'],['matrix','single'],['matrix','per_media'],
+] as const)('opens titles from the %s cart for %s mode without writing or submitting',async(tab,titleMode)=>{
+ liveDirectory();mediaGateway.getDraft.mockResolvedValue({...draft('draft-1',1,[media]),titleMode,sharedTitle:'当前稿件'});
+ window.history.replaceState({},'',`/publishing/source-matrix?tab=${tab}&task=matrix-1&draftId=draft-1&articleVersion=version-1&workbenchTask=workbench-1&enterpriseProjectId=project-1#selection`);
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ const next=await screen.findByRole('button',{name:/配置标题/});
+ await waitFor(()=>expect((next as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(next);
+ await waitFor(()=>expect(window.location.pathname).toBe('/publishing/drafts/draft-1/titles'));
+ const params=new URLSearchParams(window.location.search);
+ expect(params.get('articleVersion')).toBe('version-1');expect(params.get('workbenchTask')).toBe('workbench-1');
+ expect(params.get('matrixTask')).toBe('matrix-1');expect(params.get('enterpriseProjectId')).toBe('project-1');
+ expect(window.location.hash).toBe('#selection');expect(params.has('task')).toBe(false);
+ expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();expect(mediaGateway.createDraft).not.toHaveBeenCalled();
+});
+
+it('hands off the complete matrix batch and exclusions to titles without adding stale task resources',async()=>{
+ liveDirectory();const owner=flow();
+ const first=draft('draft-1',1,[media]),second={...draft('draft-2',1,[media]),articleId:'article-2',articleVersionId:'version-2'};
+ owner.resources=[{kind:'article_version',id:'version-1'},{kind:'article_version',id:'version-2'},{kind:'publication_draft',id:'draft-1'},{kind:'publication_draft',id:'draft-2'},{kind:'publication_draft',id:'stale-draft'}];
+ owner.records=[{id:'media-draft:draft-1',label:'已保存',status:'completed',timestamp:1}];
+ mediaGateway.getDraft.mockImplementation(async(id:string)=>id==='draft-1'?first:id==='draft-2'?second:Promise.reject(new Error('不应恢复旧稿')));
+ openMatrix('draftId=draft-1&articleVersion=version-1&mode=batch&batchDraft=draft-1&batchDraft=draft-2&batchArticleVersion=version-1&batchArticleVersion=version-2&excludedDraft=draft-2&workbenchTask=workbench-1',owner);
+ const next=await screen.findByRole('button',{name:/配置标题/});await waitFor(()=>expect((next as HTMLButtonElement).disabled).toBe(false));fireEvent.click(next);
+ await waitFor(()=>expect(owner.handoff).toHaveBeenCalledTimes(1));
+ const handoff=vi.mocked(owner.handoff).mock.calls[0]![0];const route=new URL(handoff.route,window.location.origin);
+ expect(route.pathname).toBe('/publishing/drafts/draft-1/titles');
+ expect(route.searchParams.getAll('batchDraft')).toEqual(['draft-1','draft-2']);expect(route.searchParams.getAll('excludedDraft')).toEqual(['draft-2']);
+ expect(route.searchParams.getAll('batchArticleVersion')).toEqual(['version-1','version-2']);
+ expect(handoff.resources.filter(resource=>resource.kind==='publication_draft').map(resource=>resource.id)).toEqual(['draft-1','draft-2']);
+ expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();expect(mediaGateway.createDraft).not.toHaveBeenCalled();
+});
+
+it('stays in the matrix after a failed title handoff and allows an explicit retry',async()=>{
+ liveDirectory();mediaGateway.getDraft.mockResolvedValue(draft('draft-1',1,[media]));
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ const next=await screen.findByRole('button',{name:/配置标题/});await waitFor(()=>expect((next as HTMLButtonElement).disabled).toBe(false));
+ mediaGateway.getDraft.mockRejectedValueOnce(new Error('草稿暂不可读取'));
+ fireEvent.click(next);await screen.findByText('草稿暂不可读取');
+ expect(window.location.pathname).toBe('/publishing/source-matrix');
+ await waitFor(()=>expect((next as HTMLButtonElement).disabled).toBe(false));fireEvent.click(next);
+ await waitFor(()=>expect(window.location.pathname).toBe('/publishing/drafts/draft-1/titles'));
 });
 
 it('ignores an unpersisted running ACK but adopts its later authoritative revision even after a budget edit',async()=>{

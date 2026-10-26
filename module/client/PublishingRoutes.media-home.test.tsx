@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -11,8 +11,9 @@ vi.mock("./pages/MediaLibraryPage", () => ({ default: ({ view = "third", draftId
 vi.mock("./pages/ArticlesPage", () => ({ default: () => <h1>稿件管理入口</h1> }));
 vi.mock("./pages/ArticleEditorPage", () => ({ default: ({ articleId }: {articleId: string}) => <h1>稿件编辑 {articleId}</h1> }));
 vi.mock("./source-matrix/SourceMatrixPage", () => ({ default: () => <h1>信源矩阵入口</h1> }));
+vi.mock("./pages/DraftConversationPage", () => ({ default: ({ draftId, initialStage }: { draftId: string; initialStage: string }) => <output data-testid="titles-route">{draftId}:{initialStage}</output> }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 
 function open(path: string) {
   const location = memoryLocation({ path, record: true });
@@ -33,6 +34,22 @@ it.each([
   const location = open(`${path}?articleVersion=v1&mode=multi&workbenchTask=f1`);
   expect((await screen.findByTestId("media-route")).textContent).toBe(expected);
   expect(location.history.at(-1)).toBe(`${path}?articleVersion=v1&mode=multi&workbenchTask=f1`);
+});
+
+it.each(["/publishing/drafts/d1/review", "/publishing/review/d1"])("replaces legacy %s with titles and preserves repeated and recovery context", async path => {
+  const query = "workbenchTask=task-1&task=matrix-1&batchDraft=d1&batchDraft=d2&excludedDraft=d2&batchArticleVersion=v1&batchArticleVersion=v2&articleVersion=v1&mode=batch&enterpriseProjectId=p1&operatorOwnerId=o1";
+  const location = open(`${path}?${query}`);
+  expect((await screen.findByTestId("titles-route")).textContent).toBe("d1:titles");
+  const destination = new URL(location.history.at(-1)!, "https://workspace.invalid");
+  expect(destination.pathname).toBe("/publishing/drafts/d1/titles");
+  expect([...destination.searchParams]).toEqual([...new URLSearchParams(query)]);
+  expect(location.history).toHaveLength(1);
+});
+
+it("retains the hash when replacing a legacy review deep link", async () => {
+  window.history.replaceState({}, "", "/publishing/review/d1#receipt");
+  const location = open("/publishing/review/d1?workbenchTask=task-1");
+  await waitFor(() => expect(location.history.at(-1)).toBe("/publishing/drafts/d1/titles?workbenchTask=task-1#receipt"));
 });
 
 it("keeps the articles menu at manuscript management", async () => {

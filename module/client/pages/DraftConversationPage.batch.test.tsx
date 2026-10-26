@@ -1,56 +1,26 @@
 // @vitest-environment jsdom
-import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { Router, useLocation, useSearch } from "wouter";
+import { Router, useSearch } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import DraftConversationPage from "./DraftConversationPage";
 
-vi.mock("../PublishingFlowContext", () => ({
-  usePublishingFlow: () => ({ taskId: "task-1", selections: { "publishingStage:a": "review" } }),
-  publishingTaskUrl: (path: string) => path,
-}));
-vi.mock("../host", () => ({
-  requestWorkspaceNavigation: (action: () => void) => action(),
-  WorkflowCompleted: ({summary, onRevise}: {summary:string;onRevise?:()=>void}) => <div>{summary}{onRevise && <button onClick={onRevise}>修改标题</button>}</div>,
-  WorkflowSection: ({children}: {children:React.ReactNode}) => <section>{children}</section>,
-}));
-vi.mock("./TitlesPage", () => ({default: ({onSaved}: {onSaved:(path:string)=>void}) =>
-  <button onClick={() => onSaved("/publishing/drafts/a/review?batchDraft=a&batchDraft=b&excludedDraft=b&mode=batch")}>保存全部标题</button>,
-}));
-vi.mock("./ReviewPage", () => ({default: ({onRevise}: {onRevise:(href:string)=>void}) => {
-  const search=useSearch();
-  return <div>两稿预检<button onClick={()=>onRevise("/publishing/drafts/a/titles?"+search)}>修改标题</button><button onClick={()=>onRevise("/publishing/drafts/a/media?"+search)}>修改单标题媒体</button></div>;
-}}));
+vi.mock("./TitlesPage", () => ({ default: ({ draftId, onSaved }: { draftId: string; onSaved?: unknown }) => {
+  const search = useSearch();
+  return <output data-testid="combined-titles">{JSON.stringify({ draftId, search, hasNavigationCallback: Boolean(onSaved) })}</output>;
+} }));
+vi.mock("./ReviewPage", () => ({ default: () => <output data-testid="separate-review" /> }));
 afterEach(cleanup);
 
-it("navigates to the saved review route and returns with the complete group, ignoring stale stage choices", () => {
-  const location = memoryLocation({path: "/publishing/drafts/a/titles?batchDraft=a&batchDraft=b&mode=batch", record: true});
-  function Harness() {
-    const [path] = useLocation();
-    const search = useSearch();
-    return <><output data-testid="route">{path}?{search}</output><DraftConversationPage draftId="a" initialStage={path.endsWith("review") ? "review" : "titles"}/></>;
-  }
-  render(<Router hook={location.hook} searchHook={location.searchHook}><Harness/></Router>);
-  fireEvent.click(screen.getByText("保存全部标题"));
-  expect(screen.getByTestId("route").textContent).toContain("/review?batchDraft=a&batchDraft=b&excludedDraft=b");
-  expect(screen.getByText("两稿预检")).toBeTruthy();
+it.each(["titles", "review"] as const)("renders the combined page for the embedded %s stage with the full batch context", stage => {
+  const query = "batchDraft=a&batchDraft=b&excludedDraft=b&batchArticleVersion=v1&batchArticleVersion=v2&workbenchTask=task-1&mode=batch";
+  const path = `/publishing/drafts/a/${stage}?${query}`;
+  const location = memoryLocation({ path, record: true });
+  render(<Router hook={location.hook} searchHook={location.searchHook}><DraftConversationPage draftId="a" initialStage={stage} /></Router>);
+  const rendered = JSON.parse(screen.getByTestId("combined-titles").textContent!);
+  expect(rendered).toEqual({ draftId: "a", search: query, hasNavigationCallback: false });
+  expect(screen.queryByTestId("separate-review")).toBeNull();
+  expect(screen.queryByLabelText("发布流程")).toBeNull();
   expect(screen.queryByText(/稿件与媒体已准备好/)).toBeNull();
-  expect(screen.queryByText("发布标题已确认")).toBeNull();
-  fireEvent.click(screen.getByText("修改标题"));
-  expect(screen.getByTestId("route").textContent).toContain("/titles?");
-  expect(screen.getByTestId("route").textContent).toContain("batchDraft=b");
-  expect(screen.getByTestId("route").textContent).toContain("excludedDraft=b");
-  expect(screen.getByText("保存全部标题")).toBeTruthy();
-});
-
-it("uses the review page's mode-aware destination instead of forcing a titles return", () => {
-  const location=memoryLocation({path:"/publishing/drafts/a/review?batchDraft=a&batchDraft=b",record:true});
-  function Harness() {
-    const [path]=useLocation();
-    return <><output data-testid="route">{path}</output><DraftConversationPage draftId="a" initialStage="review"/></>;
-  }
-  render(<Router hook={location.hook} searchHook={location.searchHook}><Harness/></Router>);
-  fireEvent.click(screen.getByText("修改单标题媒体"));
-  expect(screen.getByTestId("route").textContent).toBe("/publishing/drafts/a/media");
+  expect(location.history.at(-1)).toBe(path);
 });

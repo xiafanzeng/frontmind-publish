@@ -13,6 +13,7 @@ import {usePublisherGateway} from '../PublishingContext';
 import {publishingDraftRequestKey,usePublishingFlow} from '../PublishingFlowContext';
 import {useMediaSelectionTask} from '../useMediaSelectionTask';
 import {uniqueBatchIds} from '../batchMediaSelection';
+import {withPublishingBatch} from '../batchPublishing';
 import {titleModeForFlowMode,type FlowStageMode} from '../components/PublishingFlowSteps';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
 import {publicationSelectionAmounts} from '../publicationAmounts';
@@ -222,7 +223,36 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const query=new URLSearchParams(search);query.delete('task');query.delete('draftId');query.delete('simulation');
   if(taskId)query.set('matrixTask',taskId);if(serverDraft?.articleVersionId||articleVersionId)query.set('articleVersion',serverDraft?.articleVersionId||articleVersionId);if(workbenchTask)query.set('workbenchTask',workbenchTask);
   const boundId=serverDraft?.id||contextDraftId,base=boundId?`/publishing/drafts/${encodeURIComponent(boundId)}/media`:'/publishing/media';
-  return projectWorkspaceUrl(base+(view==='home'?'':'/'+view)+(query.size?'?'+query.toString():''));
+  return projectWorkspaceUrl(base+(view==='home'?'':'/'+view)+(query.size?'?'+query.toString():''))+(typeof window!=='undefined'?window.location.hash:'');
+ };
+ const continueToTitles=async()=>{
+  if(!serverDraft||!cart.size||bindingIssue||registrationPending||cartMutation.current||busy)return;
+  const epoch=cartEpoch.current,scope=cartScope,owner=routeOwner;
+  const current=()=>mounted.current&&epoch===cartEpoch.current&&latestScope.current===scope&&latestOwner.current===owner;
+  cartMutation.current=true;setCartBusy(true);setNotice('');
+  try{
+   const batchMode=mode==='batch'||params.getAll('batchDraft').length>1||params.getAll('batchArticleVersion').length>1;
+   const routeDraftIds=params.getAll('batchDraft');
+   const draftIds=uniqueBatchIds([serverDraft.id,...(routeDraftIds.length?routeDraftIds:batchMode?flow?.resources?.filter(item=>item.kind==='publication_draft').map(item=>item.id)??[]:[])]);
+   const drafts=await Promise.all(draftIds.map(id=>gateway.getDraft(id)));
+   if(!current())return;
+   if(drafts.some((draft,index)=>draft.id!==draftIds[index])||drafts[0]!.articleVersionId!==serverDraft.articleVersionId)
+    throw new Error('投放草稿或冻结版本已变化，请重新读取稿件上下文。');
+   const routeVersionIds=params.getAll('batchArticleVersion');
+   const versionIds=uniqueBatchIds(routeVersionIds.length?routeVersionIds:batchMode?flow?.resources?.filter(item=>item.kind==='article_version').map(item=>item.id)??[]:[]);
+   if(versionIds.some(id=>!drafts.some(draft=>draft.articleVersionId===id)))
+    throw new Error('部分批量稿件尚未关联投放草稿，请在完整购物车中完成稿件关联后继续。');
+   const url=new URL(mediaHref('cart'),window.location.origin);
+   url.pathname=`/publishing/drafts/${encodeURIComponent(serverDraft.id)}/titles`;
+   const route=withPublishingBatch(`${url.pathname}${url.search}${url.hash}`,draftIds,params.getAll('excludedDraft'));
+   // The combined page owns title validation and saves. Opening it must not
+   // change accepted/unknown drafts or create another supplier submission.
+   if(flow)await flow.handoff({targetAgentId:'publishing',title:drafts.length>1?`批量发布 · ${drafts.length} 篇稿件`:`发布 · ${serverDraft.articleTitle}`,
+    resources:drafts.flatMap(draft=>[{kind:'article_version' as const,id:draft.articleVersionId},{kind:'publication_draft' as const,id:draft.id}]),
+    idempotencyKey:drafts.length>1?`media-publishing-batch-${draftIds.join(':')}`:`media-publishing-${serverDraft.id}`,route});
+   else navigate(projectWorkspaceUrl(route));
+  }catch(reason){if(current())setNotice(reason instanceof Error?reason.message:'标题配置入口暂不可用，当前媒体选择已保留，请重试。');}
+  finally{if(current()){cartMutation.current=false;setCartBusy(false);}}
  };
  const persistCart=async(mediaIds:string[])=>{
   if(cartMutation.current||busy)return false;
@@ -320,7 +350,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const pendingPrices=cartAmounts.pending;
  const moneyTotal=currentBinding?.loading||currentBinding?.error||!currentBinding?undefined:cartAmounts.knownTotal;
  const cartHref=mediaHref('cart');
- const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} nextLabel="查看购物车" nextDisabled={!!bindingIssue||cartBusy||registrationPending} nextHint={bindingIssue||registrationPending?'请完成当前稿件与任务关联后继续。':undefined} onNext={()=>navigate(cartHref)} pending={pendingPrices} publicationItems={serverDraft?.items} items={[...cart.values()]} onRemove={media=>{void persistCart([...cart.keys()].filter(id=>id!==media.id));}}/>;
+ const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} nextLabel="配置标题" nextDisabled={!!bindingIssue||cartBusy||busy||registrationPending||!serverDraft||!cart.size} nextHint={bindingIssue||registrationPending?'请完成当前稿件与任务关联后继续。':cartBusy?'正在核验或保存媒体选择…':busy?'正在更新信源规划，请稍候。':!cart.size?'请先选择媒体':undefined} onNext={()=>void continueToTitles()} pending={pendingPrices} publicationItems={serverDraft?.items} items={[...cart.values()]} onRemove={media=>{void persistCart([...cart.keys()].filter(id=>id!==media.id));}}/>;
  const cartBudgetMessage=currency!=='CNY'&&total?'购物车费用以人民币展示；当前组合预算为 '+currency+'，不能直接比较或自动换汇。':total&&/^\d+(?:\.\d{1,4})?$/.test(total)&&moneyTotal!==undefined?(()=>{const [whole='0',fraction='']=total.split('.'),cap=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0')),actual=BigInt(moneyTotal);return `当前购物车已知费用 ${formatPublishingMoney(moneyTotal)}${pendingPrices?'，另有 '+pendingPrices+' 项待询价':''}${actual>cap?'；超出当前预算 '+formatPublishingMoney((actual-cap).toString()):'；预算内仍需核对报价和预检'}。`;})():'';
  const serverBinding=(()=>{const value=result?.scope?.task?.binding;return value&&typeof value==='object'&&!Array.isArray(value)?value as unknown as ServerBinding:undefined;})();
  const planItemIssue=(item:BudgetPlan['items'][number])=>{
