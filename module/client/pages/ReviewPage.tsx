@@ -98,6 +98,18 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   }, [gateway, session, batchKey]);
   const query = usePublisherQuery(load);
   const metadata = query.data?.session === session ? query.data : undefined;
+  const balanceReceiptKey = JSON.stringify([session.acceptedIds, session.progress.requests]);
+  // The existing overview reads the authenticated media-publishing wallet.
+  // Keep that read independent of content preflight and request receipts.
+  const loadBalance = useCallback(async (signal: AbortSignal) => {
+    if (!metadata) return undefined;
+    const dashboard = await gateway.getDashboard(signal);
+    const amount = dashboard.wallet?.availableTenThousandths;
+    if (typeof amount !== "string" || !/^\d+$/.test(amount)) throw new Error("账户余额未返回有效金额，请重试读取。");
+    return {source:metadata, receipts:balanceReceiptKey, amount:BigInt(amount)};
+  }, [gateway, metadata, balanceReceiptKey]);
+  const balanceQuery = usePublisherQuery(loadBalance);
+  const currentBalance = balanceQuery.data && balanceQuery.data.source === metadata && balanceQuery.data.receipts === balanceReceiptKey ? balanceQuery.data : undefined;
   const [checks, setChecks] = useState<{source: typeof metadata; values: Record<string, ManualReviewCheck>}>({source:undefined, values:{}});
   const [checking, setChecking] = useState(false);
   const checkRun = useRef(0);
@@ -148,16 +160,22 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const pendingPreflights = ordinary.flatMap(group => group.preflight ? [group.preflight] : []);
   const checksComplete = ordinary.length > 0 && ordinary.every(group => group.check?.phase === "complete" && Boolean(group.preflight));
   const totals = reviewBatchTotals(pendingPreflights);
-  const selectedItems = ordinary.flatMap(group => group.preflight
+  const selectedItems = ordinary.flatMap(group => checksComplete && group.preflight
     ? group.preflight.items.map(item => ({media:item.media, price:item.priceTenThousandths}))
     : (group.draft?.items ?? []).map(item => ({media:item.media, price:publicationLineTotal(item) ?? ''})));
+  const feesReading = query.loading || query.refreshing;
+  const selectedAmount = (items: typeof selectedItems) => {
+    const prices = items.map(item => item.price);
+    return metadata && !feesReading && !query.error && ordinary.every(group => group.draft && !group.error) && prices.every(price => /^\d+$/.test(price))
+      ? prices.reduce((total, price) => total + BigInt(price), 0n) : undefined;
+  };
   const selectedKind = (kind: string) => {
     const items = selectedItems.filter(item => item.media.kind === kind);
-    const prices = items.map(item => item.price);
-    return {count:items.length, amount:ordinary.every(group => group.draft) && prices.every(price => /^\d+$/.test(price)) ? prices.reduce((total, price) => total + BigInt(price), 0n) : undefined};
+    return {count:items.length, amount:selectedAmount(items)};
   };
   const selectedNews = selectedKind("news");
   const selectedSelfMedia = selectedKind("self_media");
+  const estimatedTotal = selectedAmount(selectedItems);
   const waitingCount = ordinary.filter(group => !group.check).reduce((count, group) => count + (group.draft?.items.length ?? 0), 0);
   const checkingCount = ordinary.filter(group => group.check?.phase === "checking").reduce((count, group) => count + (group.draft?.items.length ?? 0), 0);
   const errorCount = ordinary.filter(group => group.check?.phase === "failed").reduce((count, group) => count + (group.draft?.items.length ?? 0), 0);
@@ -170,6 +188,17 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
   const attention = Object.values(session.progress.accepted).some(reviewBatchNeedsAttention);
   const live = pendingPreflights.some(value => value.mode === "live");
   const available = checksComplete ? session.estimatedBalance ?? totals.available : undefined;
+  // Entry estimates are display-only. The original preflight wallet still
+  // owns insufficient/canPublish, including submit-time balance adjustments.
+  const balanceReading = balanceQuery.loading || balanceQuery.refreshing || Boolean(metadata && !currentBalance && !balanceQuery.error);
+  const displayAvailable = checksComplete ? available : acceptedCount > 0 && session.estimatedBalance !== undefined ? session.estimatedBalance
+    : !feesReading && !query.error && !balanceReading && !balanceQuery.error ? currentBalance?.amount : undefined;
+  const displayTotal = checksComplete ? totals.publishTotal : estimatedTotal;
+  const amountPending = feesReading ? "正在读取…" : query.error || ordinary.some(group => group.error) ? "读取失败" : "报价待核验";
+  const balancePending = query.error || balanceQuery.error ? "读取失败" : !metadata || feesReading || balanceReading ? "正在读取…" : "待核验";
+  const formatSelected = (value: typeof selectedNews) => feesReading || !metadata
+    ? query.error ? "读取失败" : "正在读取…"
+    : value.count + " 项 · " + (value.amount === undefined ? amountPending : formatPublishingMoney(value.amount.toString()));
   const globalBlocked = pendingPreflights.some(value => value.blockers.length > 0);
   const insufficient = checksComplete && available !== undefined && available < totals.publishTotal;
   const busy = query.loading || query.refreshing || checking || submitting || Boolean(refreshingCatalog);
@@ -466,38 +495,37 @@ function ReviewContent({ draftId, draftIds, excludedDraftIds, onSubmitted, onRev
             })}
           </section>
         </section>
-        {groups.length ? <>
-        <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验">
+        <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验" aria-busy={feesReading || !checksComplete && balanceReading || undefined}>
           <header className="publishing-review-fees-head"><h2>费用与预算核验</h2></header>
           <dl className="publishing-money-summary">
-            <div><dt>软文媒体小计</dt><dd>{selectedNews.count} 项 · {selectedNews.amount === undefined ? "待核验" : formatPublishingMoney(selectedNews.amount.toString())}</dd></div>
-            <div><dt>自媒体小计</dt><dd>{selectedSelfMedia.count} 项 · {selectedSelfMedia.amount === undefined ? "待核验" : formatPublishingMoney(selectedSelfMedia.amount.toString())}</dd></div>
-            <div><dt>预计总价</dt><dd className="is-total">{checksComplete ? formatPublishingMoney(totals.publishTotal.toString()) : uncheckedAmountLabel}</dd></div>
-            <div><dt>{session.estimatedBalance !== undefined && acceptedCount ? "预计可用余额" : "可用余额"}</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney(available.toString())}</dd></div>
-            <div><dt>本次待预占</dt><dd>{checksComplete ? formatPublishingMoney(totals.publishTotal.toString()) : uncheckedAmountLabel}</dd></div>
-            <div className="publishing-money-after"><dt>预占后预计可用</dt><dd>{available === undefined ? "待核验" : formatPublishingMoney((available - totals.publishTotal).toString())}</dd></div>
+            <div><dt>软文媒体小计</dt><dd>{formatSelected(selectedNews)}</dd></div>
+            <div><dt>自媒体小计</dt><dd>{formatSelected(selectedSelfMedia)}</dd></div>
+            <div><dt>预计总价</dt><dd className="is-total">{unknownIds.length ? "受理结果待确认" : allAccepted ? "无待提交投放" : displayTotal === undefined ? amountPending : formatPublishingMoney(displayTotal.toString())}</dd></div>
+            <div><dt>{session.estimatedBalance !== undefined && acceptedCount ? "预计可用余额" : "可用余额"}</dt><dd>{displayAvailable === undefined ? balancePending : formatPublishingMoney(displayAvailable.toString())}</dd></div>
+            <div><dt>本次待预占</dt><dd>{checksComplete ? formatPublishingMoney(totals.publishTotal.toString()) : feesReading || !metadata ? amountPending : unknownIds.length || !hasOrdinaryItems ? uncheckedAmountLabel : "待预检后确定"}</dd></div>
+            <div className="publishing-money-after"><dt>{checksComplete ? "预占后预计可用" : "按预估扣除后余额"}</dt><dd>{unknownIds.length ? "受理结果待确认" : displayAvailable === undefined ? balancePending : displayTotal === undefined ? amountPending : formatPublishingMoney((displayAvailable - displayTotal).toString())}</dd></div>
           </dl>
-          <p className="publishing-review-cost-note">两类小计包含待提交稿件的全部已选媒体，未预检时显示草稿保存的目录报价；正式费用以预检返回的报价为准。预计总价仅计入通过内容检查的组合。同一家媒体用于两篇稿件时计为两项。已取消稿件与已受理批次不重复计费。</p>
+          <p className="publishing-review-cost-note">两类小计包含待提交稿件的全部已选投放项。完成预检前，预计总价与扣除后余额按草稿保存的目录报价预估，不代表内容已通过或资金已预占；预检完成后，预计总价与待预占仅计入通过内容检查的组合，以服务端报价为准。同一家媒体用于两篇稿件时分别计价；每项小计已包含发布次数和已确认费用，不重复乘次数。已取消稿件与已受理批次不重复计费。</p>
+          {!checksComplete && balanceQuery.error ? <PublishingError error={balanceQuery.error} onRetry={balanceQuery.reload} /> : null}
           {draftIds.length > 1 ? <p className="publishing-review-cost-note">各稿件将逐篇提交；中途失败或结果待核实时会停止后续提交，已受理批次会保留。每稿提交前重新核验余额，账户余额以服务端结果为准。</p> : null}
           {busy || query.error ? <p className="publishing-review-cost-note" role="status">{query.error ? "稿件信息未能更新，请重试读取；当前不能确认发布。" : "正在更新，请等待预检或提交完成。"}</p> : null}
           {insufficient ? <p className="publishing-form-error" role="alert">可用余额不足以覆盖本次全部待提交组合，请调整媒体后重新预检。</p> : null}
           {allAccepted ? <p className="publishing-notice is-success" role="status"><CheckCircle2 size={18} />全部 {acceptedCount} 篇稿件的发布请求已受理，请在上方查看各批次结果。</p> : <label className="publishing-acknowledgement">
             <input type="checkbox" checked={acknowledged} disabled={busy || (!canPublish && !canRecover)} onChange={event => setAcknowledged(event.target.checked)} />
-            <span>{unknownIds.length ? "我已确认重试核实原发布请求；核实后将重新预检并确认剩余稿件。" : !hasOrdinaryItems ? "未选择投放媒体，请返回修改后继续。" : !checksComplete ? "请先点击一键预检，完成当前稿件与媒体的检查后再确认发布。" : live ? "我已确认向 " + totals.passedCount + " 项稿件与媒体组合真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。" : "我已确认以 Preview 模拟方式提交 " + totals.passedCount + " 项稿件与媒体组合。本次不会联系供应商或产生真实费用。"}</span>
+            <span>{unknownIds.length ? "我已确认重试核实原发布请求；核实后将重新预检并确认剩余稿件。" : feesReading || !metadata ? "正在恢复本次稿件与费用信息，请稍候。" : !hasOrdinaryItems ? "未选择投放媒体，请返回修改后继续。" : !checksComplete ? "请先点击一键预检，完成当前稿件与媒体的检查后再确认发布。" : live ? "我已确认向 " + totals.passedCount + " 项稿件与媒体组合真实投稿。成功后扣款；明确拒稿或失败自动退回；状态未知时金额继续冻结等待对账。" : "我已确认以 Preview 模拟方式提交 " + totals.passedCount + " 项稿件与媒体组合。本次不会联系供应商或产生真实费用。"}</span>
           </label>}
-          {!allAccepted && !unknownIds.length && !checksComplete ? <p className="publishing-review-cost-note" role="status">{!hasOrdinaryItems ? "未选择投放媒体，无法继续。请返回修改。" : errorCount ? "有投放项预检失败，请重试完成预检后再确认发布。" : "尚未完成本次预检，不能确认发布。请点击上方“一键预检”。"}</p> : null}
+          {!allAccepted && !unknownIds.length && !checksComplete && metadata && !feesReading && (!hasOrdinaryItems || errorCount > 0) ? <p className="publishing-review-cost-note" role="status">{!hasOrdinaryItems ? "未选择投放媒体，无法继续。请返回修改。" : "有投放项预检失败，请重试完成预检后再确认发布。"}</p> : null}
           {submitError ? <p className="publishing-form-error" role="alert">{submitError}</p> : null}
           {attention ? <p className="publishing-form-error" role="status">已受理批次有待核实结果，后续稿件暂停提交。请查看该批次并刷新结果后继续。</p> : null}
           {unknownIds.length ? <p className="publishing-form-error" role="status">有 {unknownIds.length} 篇稿件的请求待确认。核实前暂停修改标题和刷新目录；刷新受理状态也会保留原提交请求。</p> : null}
         </section>
-        <footer className="publishing-workflow-footer">
+        {groups.length ? <footer className="publishing-workflow-footer">
           {allAccepted ? <span role="status">已受理批次将继续更新结果</span> : unknownIds.length || submitting || !reviseHref ? <button type="button" className="publishing-button publishing-button-secondary" disabled><ArrowLeft size={16} />{reviseLabel}</button> : onRevise && !acceptedCount ? <button type="button" className="publishing-button publishing-button-secondary" onClick={() => onRevise(reviseHref)}><ArrowLeft size={16} />{reviseLabel}</button> : <Link className="publishing-button publishing-button-secondary" href={reviseHref}><ArrowLeft size={16} />{reviseLabel}</Link>}
           {!allAccepted && !modesKnown ? <p className="publishing-form-error" role="status">稿件模式尚未恢复，请重试读取本次稿件后再返回修改。</p> : null}
           {!allAccepted ? <div className="publishing-confirm-actions">
             <button type="button" className="publishing-button publishing-button-accent" disabled={!acknowledged || (!canPublish && !canRecover)} onClick={() => unknownIds.length ? void submit() : setDialogOpen(true)}>{submitting ? "正在提交…" : unknownIds.length ? "重试确认受理结果" : !checksComplete ? "确认发布" : (live ? "确认发布" : "模拟发布") + " " + totals.passedCount + " 项"}</button>
           </div> : null}
-        </footer>
-        </> : null}
+        </footer> : null}
       </div>
       <PublishingFrozenArticleDialog article={previewArticle} trigger={preview?.trigger} onClose={closePreview} />
       <PublishingConfirmDialog inline={Boolean(flow)} open={dialogOpen} title={live ? "这是一次真实投稿" : "确认 Preview 模拟发布"}
