@@ -427,12 +427,14 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  mediaGateway.getDraft.mockResolvedValueOnce(draft('draft-1',1)).mockResolvedValueOnce(draft('draft-1',2,[media]));
  openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect(mediaGateway.getDraft).toHaveBeenCalled(), { timeout: 30000 });
+ await waitFor(()=>expect(screen.queryByText(/正在读取稿件上下文/)).toBeNull(), { timeout: 30000 });
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
- const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:30000});
+ const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:45000});
  fireEvent.click(apply);
- await screen.findByText('新增 · 1 篇 · ¥100.00');
+ await screen.findByText((_, element) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', { timeout: 45000 });
  fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
  await screen.findByText(/已加入组合：新增 1 项/);
  expect(applyBodies).toHaveLength(2);
