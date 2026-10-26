@@ -43,7 +43,7 @@ export default function PublishingTopbar({ path, search, gateway, onNavigate }: 
   useEffect(() => { setActive(-1); }, [query, composing]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229 || helpOpen || input.current?.closest("[inert]")) return;
+      if (event.isComposing || event.keyCode === 229 || input.current?.closest("[inert]")) return;
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") {
         // Do not steal focus from another business dialog.
         const modalOpen = Array.from(document.querySelectorAll<HTMLElement>(
@@ -60,7 +60,7 @@ export default function PublishingTopbar({ path, search, gateway, onNavigate }: 
     document.addEventListener("keydown", keydown);
     document.addEventListener("pointerdown", outside);
     return () => { document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", outside); };
-  }, [helpOpen]);
+  }, []);
 
   useEffect(() => {
     if (!open || !q || composing || !gateway) return;
