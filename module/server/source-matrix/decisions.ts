@@ -81,9 +81,15 @@ function normalizeDecisions(value: unknown): { matrix_decisions: Row } | undefin
 
 /** Keep prompts bounded: the model must see the kernel's real candidate ids.
  * candidate_id 值（resource:/observed:/recommendation:）由内核生成，模型只能引用、不能自造。 */
+/** Prompt window: the full candidate list can reach 800+ directory rows and
+ * exceeds the chat-completions request limit (observed llm_http_400). Keep a
+ * deterministic prefix in model order; unlisted candidates stay in the trusted
+ * matrix, the model just cannot decide on them this round. */
+export const PROMPT_CANDIDATE_LIMIT = 120;
+
 export function compactCandidates(request: Row, prepared: Row): Row[] {
   const candidates: Row[] = Array.isArray(prepared?.matrix?.candidates) ? prepared.matrix.candidates : [];
-  return candidates.map(candidate => {
+  return candidates.slice(0, PROMPT_CANDIDATE_LIMIT).map(candidate => {
     const attributes=semantic(candidate.attributes??{});
     const observations=Array.isArray(attributes.raw_observations)?attributes.raw_observations:[];
     return {
@@ -143,7 +149,7 @@ export function createEnvDecisionAdapter(env: Readonly<Record<string, string | u
     async matrix(input) {
       const payload=await chat(env as Record<string,string|undefined>,[
         {role:'system',content:'你是媒体投放的信源矩阵语义决策器。'+input.instructions+'\n'+decisionRules},
-        {role:'user',content:JSON.stringify({skill:input.skill,task:semantic(input.request.task??{}),questions:questionsOf(input.request),candidates:compactCandidates(input.request,input.prepared),observation_kind:input.request.research_observation?'export_research':'structured',note:'候选清单完整；每个候选原始观察最多展示12行，未展示的原行不能声称已经阅读。价格和预算未输入。'})},
+        {role:'user',content:JSON.stringify({skill:input.skill,task:semantic(input.request.task??{}),questions:questionsOf(input.request),candidates:compactCandidates(input.request,input.prepared),observation_kind:input.request.research_observation?'export_research':'structured',note:'候选清单为确定性前缀窗口（最多'+PROMPT_CANDIDATE_LIMIT+'个，按矩阵顺序）；窗口外候选保留在快照中但本轮不进入模型决定。每个候选原始观察最多展示12行，未展示的原行不能声称已经阅读。价格和预算未输入。'})},
       ]);
       return normalizeDecisions(payload);
     },
