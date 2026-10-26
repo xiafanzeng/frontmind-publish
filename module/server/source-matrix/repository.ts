@@ -4,7 +4,7 @@ import { sourceMatrixIndustries as industries,sourceMatrixTasks as tasks,sourceM
 import { clone,digest,type Row } from './common.js';
 import { DISTRIBUTION_LIMITS,readSourceDistribution } from './distribution.js';
 export class MatrixRepository {
- constructor(private db:MySql2Database<any>,readonly tenantId:string){}
+ constructor(private db:MySql2Database<any>,readonly tenantId:string,private actorId?:string){}
  async industries(){return this.db.select({id:industries.industryId,name:industries.name}).from(industries).where(eq(industries.tenantId,this.tenantId));}
  async brandBatches(){
   const configured=await this.db.select({dataset:industries.dataset}).from(industries).where(eq(industries.tenantId,this.tenantId));
@@ -22,7 +22,12 @@ export class MatrixRepository {
  }
  async industry(id:string){return (await this.db.select().from(industries).where(and(eq(industries.tenantId,this.tenantId),eq(industries.industryId,id))).limit(1))[0];}
  async create(taskId:string,industryId:string,brandId:string,task:Row){await this.db.insert(tasks).values({tenantId:this.tenantId,taskId,industryId,brandId,task,state:'running'});}
- async get(taskId:string){return (await this.db.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1))[0];}
+ async get(taskId:string){const row=(await this.db.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1))[0];return row&&(!row.task?.private_actor||row.task.private_actor===this.actorId)?row:undefined;}
+ async progress(taskId:string,stage:'analyzing'|'validating'){
+  await this.db.transaction(async tx=>{const row=(await tx.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1).for('update'))[0];
+   if(!row||row.state!=='running'||row.task?.private_actor&&row.task.private_actor!==this.actorId)return;
+   await tx.update(tasks).set({task:{...row.task,progress:stage}}).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId)));});
+ }
  async snapshot(taskId:string,planId:string,version:string){return (await this.db.select().from(snapshots).where(and(eq(snapshots.tenantId,this.tenantId),eq(snapshots.taskId,taskId),eq(snapshots.planId,planId),eq(snapshots.planVersion,version))).limit(1))[0]?.result;}
  /** Compare-and-set protects cancellation and concurrent budget requests. */
  async begin(taskId:string,expectedPlanVersion?:string){

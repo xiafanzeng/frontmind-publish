@@ -24,7 +24,9 @@
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
     "@trpc/client": "11.18.0",
-    "@frontmind/module-ui": "workspace:*"
+    "@frontmind/module-ui": "workspace:*",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "pdfjs-dist": "5.4.296"
   },
   "devDependencies": {
     "@types/sanitize-html": "^2.16.0",

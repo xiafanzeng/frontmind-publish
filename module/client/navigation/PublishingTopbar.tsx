@@ -1,13 +1,12 @@
 import { CircleHelp, Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogTrigger } from "@frontmind/module-ui/components/ui/dialog";
 import { BUSINESS_NAV_LEAVES, businessLeafHref, publishingBreadcrumbs } from "../businessNav";
 import type { PublisherGateway } from "../gateway";
 import { projectWorkspaceUrl } from "../host";
 import { DEFAULT_MEDIA_FILTERS } from "../queryState";
 import type { MediaResource, PublisherMediaKind } from "../types";
 import { followPublishingLink } from "./PublishingNavigation";
-import PublishingHelpBody from "./PublishingHelpBody";
+import { PUBLISHING_HELP_DOCUMENT_URL } from "../help-links";
 import "./publishing.navigation.css";
 
 type Navigate = (href: string, after?: () => void) => void;
@@ -33,7 +32,6 @@ export default function PublishingTopbar({ path, search, gateway, onNavigate }: 
   const [composing, setComposing] = useState(false);
   const [active, setActive] = useState(-1);
   const [retry, setRetry] = useState(0);
-  const [helpOpen, setHelpOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const region = useRef<HTMLDivElement>(null);
   const resultId = useId();
@@ -174,12 +172,7 @@ export default function PublishingTopbar({ path, search, gateway, onNavigate }: 
           {q && currentRemote?.error && <button type="button" className="publish-search-retry" onClick={() => setRetry(value=>value+1)}>重试媒体查询</button>}
         </div>}
       </div>
-      <Dialog open={helpOpen} onOpenChange={value=>{setHelpOpen(value);if(value)setOpen(false);}}>
-        <DialogTrigger asChild><button type="button" className="publish-help-button"><CircleHelp size={16} aria-hidden="true"/><span>帮助文档</span></button></DialogTrigger>
-        <DialogContent className="publish-help-dialog" showCloseButton={false}>
-          <PublishingHelpBody/>
-        </DialogContent>
-      </Dialog>
+      <a className="publish-help-button" href={PUBLISHING_HELP_DOCUMENT_URL} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} aria-label="帮助文档（在新标签页打开）"><CircleHelp size={16} aria-hidden="true"/><span>帮助文档</span></a>
     </div>
   </header>;
 }

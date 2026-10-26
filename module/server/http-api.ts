@@ -1,7 +1,8 @@
 import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
 import { createSourceMatrixRouter } from "./source-matrix/http.js";
-import { createEnvDecisionAdapter } from "./source-matrix/decisions.js";
+import { createResearchImportRouter } from "./source-matrix/research-import-http.js";
+import { createAiConnectionRouter } from "./source-matrix/ai-connection-http.js";
 import type { SourceMatrixDecisionAdapter } from "./source-matrix/adapter.js";
 import type { MySql2Database } from "drizzle-orm/mysql2";
 
@@ -17,10 +18,12 @@ export interface ModuleHttpCore {
 
 /** Add new module-owned APIs here. Mounted in both Dashboard and the development subdomain. */
 export function createModuleHttpApi(core:ModuleHttpCore):Router {
- // Formal extension points: a host-injected adapter wins; otherwise the module's
- // own env-gated adapter (server-side key only) enables real model decisions.
- const decisions=core.sourceMatrixDecisions??createEnvDecisionAdapter(core.environment);
+ // Resolve a personal connection inside each authenticated planner request.
+ // Preserve the original host override rather than replacing it with env config.
  const router=Router();
+ const imports=createResearchImportRouter(core),connections=createAiConnectionRouter(core);
+ router.use((req,res,next)=>req.path==='/matrix/imports'||req.path.startsWith('/matrix/imports/')?imports(req,res,next):next());
+ router.use((req,res,next)=>req.path==='/matrix/connection'||req.path.startsWith('/matrix/connection/')?connections(req,res,next):next());
  router.use("/media-requirements", createMediaRequirementsApi(core));
  router.get("/capabilities",(req,res)=>{
   const context=core.context(req);
@@ -28,6 +31,6 @@ export function createModuleHttpApi(core:ModuleHttpCore):Router {
   res.json({module:"publish",apiVersion:1,workspaceId:context.enterpriseProjectId,
    features:["articles", "media", "quotes", "orders", "results"]});
  });
- router.use(createSourceMatrixRouter({...core,sourceMatrixDecisions:decisions}));
+ router.use(createSourceMatrixRouter(core));
  return router;
 }

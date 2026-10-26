@@ -1272,3 +1272,7 @@ const mediaPublishingItemPriceSnapshots = mysqlTable(
 return { mediaPublishingItemPriceSnapshots, publisherArticles, publisherDocxImports, publisherArticleVersions, publisherArticleAssets, publisherArticleVersionAssets, publisherObjectLeases, publisherMediaSyncRuns, publisherMediaResources, publisherMediaLogoAssets, publisherMediaLogoResolutions, publisherMediaSyncStaging, publisherMediaCapabilities, publisherRuntimeState, publisherLiveWhitelist, publisherDrafts, publisherPreflights, publisherDraftItems, publisherBatches, publisherItems, publisherSubmissionAttempts, publisherReconciliationCandidates, publisherJobs, publisherSubmissionGate, publisherWebhookEvents, publisherWebhookItems };
 }
 export type PublishSchema = ReturnType<typeof createPublishSchema>;
+
+export * from './source-matrix-imports.js';
+
+export * from './source-matrix-connections.js';

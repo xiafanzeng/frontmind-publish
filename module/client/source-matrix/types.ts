@@ -31,7 +31,7 @@ export interface MatrixResult {
  matrix:{status:string;candidates:Candidate[];layers:Array<{role:string;display_name:string;status:string;candidate_ids:string[];auxiliary_candidate_ids:string[];reason_summary?:string}>;fit_order:string[]};
  source_analysis:Analysis;budget_plans:BudgetPlan[];limitations:string[];warnings:Issue[];errors:Issue[];minimum_known_cost:Json;
 }
-export interface TaskResponse {task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}
+export interface TaskResponse {progress?:'analyzing'|'validating';task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}
 /** Server-verified binding recorded inside result.scope.task.binding. */
 export interface ServerBinding {draft_id:string|null;article_version_id:string;article_id:string;version_number:number;content_hash:string;article_title:string;fingerprint:string;bound_at?:string}
 export interface ApplyPlanDiff {
