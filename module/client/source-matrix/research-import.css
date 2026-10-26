@@ -1,0 +1,22 @@
+.fm-media .sm-research-import{display:grid;gap:14px;min-width:0}
+.fm-media .sm-research-import p{margin:0}
+.fm-media .sm-import-drop{padding:18px;border:1px dashed var(--line);border-radius:12px;text-align:center;display:grid;gap:10px}
+.fm-media .sm-import-file{display:grid;gap:12px;border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.fm-media .sm-import-heading{display:flex;justify-content:space-between;gap:12px;overflow-wrap:anywhere}
+.fm-media .sm-import-heading>span{font-size:12px;white-space:nowrap;color:var(--muted)}
+.fm-media .sm-import-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.fm-media .sm-import-fields label{display:grid;gap:6px;font-size:13px;min-width:0}
+.fm-media .sm-import-fields select{max-width:100%;width:100%}
+.fm-media .sm-import-file .table-wrap{max-width:100%;max-height:250px;overflow:auto}
+.fm-media .sm-import-file table{width:100%;font-size:12px}
+.fm-media .sm-import-file caption{text-align:left;padding:8px;color:var(--muted)}
+.fm-media .sm-import-file td{max-width:240px;min-width:100px;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+.fm-media .sm-import-file details{max-height:220px;overflow:auto}
+.fm-media .sm-import-file .actions,.fm-media .sm-import-saved-row .actions{flex-wrap:wrap}
+.fm-media .sm-import-saved{display:grid;gap:10px}
+.fm-media .sm-import-saved-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:10px}
+.fm-media .sm-import-saved-row>label{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.fm-media .sm-import-saved-row label span{display:grid;gap:4px;overflow-wrap:anywhere}
+.fm-media .sm-import-saved-row small{font-size:11px;color:var(--muted)}
+.fm-media .sm-research-import :focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+@media(max-width:640px){.fm-media .sm-import-fields{grid-template-columns:minmax(0,1fr)}.fm-media .sm-import-saved-row{align-items:stretch;flex-direction:column}.fm-media .sm-import-file{padding:12px}.fm-media .sm-import-heading{flex-wrap:wrap}.fm-media .sm-import-drop{padding:14px}}

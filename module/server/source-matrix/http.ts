@@ -7,13 +7,15 @@ import { validateBudget } from './contracts.js';
 import { runPlanner } from './planner.js';
 import { SOURCE_MATRIX_SKILL,SOURCE_MATRIX_INSTRUCTIONS } from './instructions.js';
 import { MatrixRepository } from './repository.js';
+import { loadConfirmedResearch,augmentResearchRequest } from './research-import-http.js';
+import { resolveUserDecisionAdapter } from './ai-connection-http.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
 import { prepareExportResearch,researchCatalog } from './export-research.js';
 import { loadPlannerCatalog } from '../publisher-source-matrix-catalog.js';
 import { publisherImageCompatibilityBlocker } from '../publisher-capability.js';
 import { mediaRulesImageBlocker } from '../providers/kol/media-rules.js';
-const start=z.object({industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),hours:z.string().regex(/^\d{1,6}$/).optional(),requirements:z.array(z.enum(['图片','表格','链接'])).max(3).optional(),sample_platforms:z.array(z.string().min(1).max(80)).max(10).optional(),brand_data:z.string().min(1).max(80).optional(),as_of:z.string(),draft_id:z.string().uuid().optional(),article_version_id:z.string().uuid().optional()}).strict();
+const start=z.object({dataset_ids:z.array(z.string().uuid()).max(10).optional(),connection_revision:z.string().uuid().optional(),connection_mode:z.enum(['host','user','environment']).optional(),industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),hours:z.string().regex(/^\d{1,6}$/).optional(),requirements:z.array(z.enum(['图片','表格','链接'])).max(3).optional(),sample_platforms:z.array(z.string().min(1).max(80)).max(10).optional(),brand_data:z.string().min(1).max(80).optional(),as_of:z.string(),draft_id:z.string().uuid().optional(),article_version_id:z.string().uuid().optional()}).strict();
 const resourceChoice=z.object({candidate_id:z.string().min(1).max(300),resource_id:z.string().min(1).max(300),offer_id:z.string().min(1).max(300),publication_spec:z.union([z.string().min(1),z.record(z.string(),z.unknown())])}).strict();
 const budget=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),budget:z.record(z.string(),z.unknown()),selected_candidate_ids:z.array(z.string().max(300)).max(500).optional(),resource_selections:z.array(resourceChoice).max(500).optional(),quantity_mode:z.enum(['new_articles','repeat_article']).optional(),as_of:z.string()}).strict();
 const editContent=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),plan_index:z.number().int().min(0).max(2),quantities:z.array(z.object({item_index:z.number().int().nonnegative(),candidate_id:z.string().min(1),quantity:z.number().int().min(1).max(100)}).strict()).min(1).max(100),as_of:z.string()}).strict();
@@ -25,8 +27,9 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
  // the server-verified frozen version and the current draft cart; a selected
  // brand batch supplies the observation records for the recommendation lane.
  const bound=!!binding;
+ const {private_actor: _actor,research_datasets: researchDatasets,progress: _progress,...publicTask}=task;
  const selectedBatch=task.brand?.batch_id?(brandExportBatch(task.brand.batch_id)??(dataset.brand_exports??[]).find((row:Row)=>row.id===task.brand.batch_id)):undefined;
- const observation=selectedBatch?prepareExportResearch(selectedBatch,task,task.brand?.platforms??[]):undefined;
+ const observation=selectedBatch?prepareExportResearch(selectedBatch,publicTask,task.brand?.platforms??[]):undefined;
  const citations=observation?[]:brandCitations??clone(dataset.citations??[]);
  const configured:Row[]=dataset.catalog??[];
  // Live directory is the authority for purchasable IDs/offers. Configured media
@@ -34,14 +37,15 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
  const catalog=directory.map(row=>({...semantic(configured.find(c=>c.resource_id===row.resource_id)??{}),...clone(row)}));
  catalog.push(...configured.filter(c=>!c.resource_id).map(clone));
  if(observation)catalog.push(...researchCatalog(observation,catalog));
- return {tenant_id:tenantId,task_id:taskId,brand_id:brandId,task:{...clone(task),...(bound?{manuscripts:bindingManuscripts(binding!)}:dataset.manuscripts?{manuscripts:clone(dataset.manuscripts)}:{}),...(dataset.requirements&&!bound?{requirements:{...clone(dataset.requirements),...clone(task.requirements??{})}}:{})},catalog,citations,...(observation?{research_observation:observation}:{}),source_mappings:clone(dataset.source_mappings??[]),scope:{...clone(dataset.scope??{}),tenant_id:tenantId},identity_config:clone(dataset.identity_config??{}),industry_recommendations:clone(dataset.industry_recommendations??[]),selected_items:bound?bindingSelectedItems(binding!):clone(dataset.selected_items??[])};
+ return augmentResearchRequest({tenant_id:tenantId,task_id:taskId,brand_id:brandId,task:{...clone(publicTask),...(bound?{manuscripts:bindingManuscripts(binding!)}:dataset.manuscripts?{manuscripts:clone(dataset.manuscripts)}:{}),...(dataset.requirements&&!bound?{requirements:{...clone(dataset.requirements),...clone(task.requirements??{})}}:{})},catalog,citations,...(observation?{research_observation:observation}:{}),source_mappings:clone(dataset.source_mappings??[]),scope:{...clone(dataset.scope??{}),tenant_id:tenantId},identity_config:clone(dataset.identity_config??{}),industry_recommendations:clone(dataset.industry_recommendations??[]),selected_items:bound?bindingSelectedItems(binding!):clone(dataset.selected_items??[])},researchDatasets??[]);
 }
 export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  const router=Router();router.use(json({limit:'256kb'}));
+ const actor=(req:Request)=>digest({actor:core.context(req).actorUserId,account:core.context(req).accountUserId});
  const wrap=(fn:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response,next:NextFunction)=>{void fn(req,res).catch(next);};
  async function repository(req:Request){const c=core.context(req);if(!c.enterpriseProjectId||!c.businessOwnerId)throw Object.assign(new Error('需要已授权企业项目'),{status:403});
   // Opaque tenant boundary derives exclusively from authenticated project + business owner.
-  return new MatrixRepository(await core.database(),'publish-'+digest({project:c.enterpriseProjectId,owner:c.businessOwnerId}));}
+  return new MatrixRepository(await core.database(),'publish-'+digest({project:c.enterpriseProjectId,owner:c.businessOwnerId}),actor(req));}
  async function directory(req:Request):Promise<Row[]>{const c=core.context(req);return loadPlannerCatalog(await core.database(),String(c.businessOwnerId??''),String(c.enterpriseProjectId??''));}
  router.use((req,res,next)=>{
   res.setHeader('Cache-Control','private, no-store');
@@ -74,7 +78,12 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
    if(loaded.failure==='draft_version_mismatch'){res.status(409).json({status:'binding_not_found',message:'投放草稿与指定稿件版本不一致，请返回稿件页面核对'});return;}
    binding=loaded.binding!;
   }
+  const researchDatasets=await loadConfirmedResearch(core,req,body.dataset_ids??[]);
+  const decision=await resolveUserDecisionAdapter(core,req,body.connection_revision);
+  if(body.connection_mode&&body.connection_mode!==decision.mode){res.status(409).json({status:'connection_changed',message:'模型连接已变化，请打开连接设置刷新后重新生成'});return;}
+  if(!decision.adapter){res.status(409).json({status:'connection_required',message:'请先连接可用的 AI 模型，再生成推荐矩阵'});return;}
   const taskId=randomUUID(),task:Row={industry:industry.name,questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
+  task.private_actor=actor(req);task.research_datasets=researchDatasets;task.research_dataset_ids=(body.dataset_ids??[]);task.research_dataset_refs=researchDatasets.map(d=>({id:d.id,name:d.name,version:d.version,recordCount:d.records?.length??0,createdAt:d.createdAt,status:'confirmed'}));task.model_connection=decision.connection??null;task.model_source=decision.mode;task.progress='analyzing';
   if(binding)task.binding={draft_id:binding.draftId,article_version_id:binding.articleVersionId,article_id:binding.articleId,version_number:binding.versionNumber,content_hash:binding.contentHash,article_title:binding.articleTitle,fingerprint:binding.fingerprint,bound_at:body.as_of};
   // Brand sample rows are real recommendation input (never an industry-page fallback).
   const brandCitations=body.brand_data?brandCitationRecords(body.brand_data,body.sample_platforms):undefined;
@@ -82,11 +91,11 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await directory(req)),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
   if(prepared.status==='invalid_input'){res.status(400).json(prepared);return;}
   await repo.create(taskId,industry.industryId,industry.brandId,task);
-  res.status(202).json({task_id:taskId,state:'running',result:prepared});
+  res.status(202).json({task_id:taskId,state:'running',progress:'analyzing',result:prepared});
   void (async()=>{
   let result=prepared;
-  try{if(core.sourceMatrixDecisions){const d=await core.sourceMatrixDecisions.matrix({request:clone(request),prepared:clone(prepared),as_of:body.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});if(d)result=runPlanner(request,d,'matrix',undefined,body.as_of);}}
-  catch(reason){result={...prepared,limitations:[...prepared.limitations,'decision_adapter_unavailable:'+String((reason as Error)?.message??reason).split(' ').join(' ').slice(0,90)]};}
+  try{if(decision.adapter){const d=await decision.adapter.matrix({request:clone(request),prepared:clone(prepared),as_of:body.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});await repo.progress(taskId,'validating');if(d)result=runPlanner(request,d,'matrix',undefined,body.as_of);}}
+  catch(reason){result={...prepared,limitations:[...prepared.limitations,'decision_adapter_unavailable']};}
   if(result.report)result.report.limitations=clone(result.limitations);
   await repo.save(taskId,result);
   })().catch(async()=>{await repo.save(taskId,{...prepared,limitations:[...prepared.limitations,'result_persistence_failed']}).catch(()=>undefined);});
@@ -120,17 +129,20 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(ids.some(id=>!previous.matrix.candidates.some((c:Row)=>c.candidate_id===id))){res.status(400).json({status:'invalid_input',message:'所选来源不属于原矩阵'});return;}
   const precheck=runPlanner(request,undefined,'budget',previous,asOf);
   if(['stale_matrix','invalid_input','needs_matrix'].includes(precheck.status)){res.status(409).json({result:precheck});return;}
+  const decision=await resolveUserDecisionAdapter(core,req,typeof task.task.model_connection?.revision==='string'?task.task.model_connection.revision:undefined);
+  if(task.task.model_source&&task.task.model_source!==decision.mode){res.status(409).json({status:'connection_changed',message:'生成模型已变化，请重新生成矩阵'});return;}
   if(!await repo.begin(task.taskId,body.plan_version)){res.status(409).json({status:'task_busy_or_cancelled',message:'任务版本已更新、正在处理或已取消'});return;}
-  res.status(202).json({task_id:task.taskId,state:'running',result:precheck});
+  await repo.progress(task.taskId,'analyzing');
+  res.status(202).json({task_id:task.taskId,state:'running',progress:'analyzing',result:precheck});
   void (async()=>{
   let result=precheck;
-  try{if(core.sourceMatrixDecisions){const d=await core.sourceMatrixDecisions.budget({request:clone({...request,selection_preferences:ids}),matrix:clone(precheck),as_of:asOf,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});if(d)result=runPlanner(request,d,'budget',previous,asOf);}}
-  catch(reason){result={...precheck,limitations:[...precheck.limitations,'decision_adapter_unavailable:'+String((reason as Error)?.message??reason).split(' ').join(' ').slice(0,90)]};}
+  try{if(decision.adapter){const d=await decision.adapter.budget({request:clone({...request,selection_preferences:ids}),matrix:clone(precheck),as_of:asOf,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});await repo.progress(task.taskId,'validating');if(d)result=runPlanner(request,d,'budget',previous,asOf);}}
+  catch(reason){result={...precheck,limitations:[...precheck.limitations,'decision_adapter_unavailable']};}
   if(result.report)result.report.limitations=clone(result.limitations);
   await repo.save(task.taskId,result);
   })().catch(async()=>{await repo.save(task.taskId,{...precheck,limitations:[...precheck.limitations,'result_persistence_failed']}).catch(()=>undefined);});
  }));
- router.get('/classify/:taskId',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}res.json({task_id:task.taskId,state:task.state,result:task.state==='cancelled'?null:task.latest});}));
+ router.get('/classify/:taskId',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}res.json({task_id:task.taskId,state:task.state,progress:task.state==='running'?task.task.progress:undefined,result:task.state==='cancelled'?null:task.latest});}));
  router.post(['/classify/:taskId/content-plan','/classify/:taskId/formal-plan'],wrap(async(req,res)=>{
   const parsed=editContent.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
   const body=parsed.data,repo=await repository(req),task=await repo.get(String(req.params.taskId));
@@ -209,6 +221,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const missing=err?.code==='ER_NO_SUCH_TABLE'||err?.cause?.code==='ER_NO_SUCH_TABLE';
   const badBody=err?.type==='entity.parse.failed'||err?.type==='entity.too.large';
   if(badBody){res.status(err.type==='entity.too.large'?413:400).json({status:'invalid_input',message:'请求内容不是有效 JSON 或超出大小限制'});return;}
+  if(err?.publicMessage&&[400,403,404,409,413,422,429,503].includes(err?.status)){res.status(err.status).json({status:err.code??'invalid_input',message:err.publicMessage});return;}
   const status=err?.status===403?403:missing?503:500;
   // Fixed diagnostic codes only: SQL, dataset values and project/tenant identifiers stay out of logs and responses.
   if(status!==403)console.warn('source_matrix_service_unavailable',{reason:missing?'storage_missing':'service_error'});
