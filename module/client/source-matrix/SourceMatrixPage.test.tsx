@@ -433,6 +433,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:45000});
+ await waitFor(()=>expect((apply as HTMLButtonElement).disabled).toBe(false), { timeout: 45000 });
  fireEvent.click(apply);
  await screen.findByText((_, element) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', { timeout: 45000 });
  fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
@@ -463,8 +464,9 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await waitFor(()=>expect(mediaGateway.getDraft).toHaveBeenCalled(), { timeout: 30000 });
  await waitFor(()=>expect(screen.queryByText(/正在读取稿件上下文/)).toBeNull(), { timeout: 30000 });
- fireEvent.click(await screen.findByRole('button',{name:'加入本组合'},{timeout:30000}));
- await screen.findByText('绑定稿件、冻结版本或已选媒体已变化，请重新生成矩阵和组合', {}, { timeout: 30000 });
+ const staleButton=await screen.findByRole('button',{name:'加入本组合'},{timeout:45000});
+ await waitFor(()=>expect((staleButton as HTMLButtonElement).disabled).toBe(false), { timeout: 45000 });
+ fireEvent.click(staleButton); await screen.findByText('绑定稿件、冻结版本或已选媒体已变化，请重新生成矩阵和组合', {}, { timeout: 30000 });
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(mediaGateway.getDraft).toHaveBeenCalledTimes(2);
 }, 60000);
