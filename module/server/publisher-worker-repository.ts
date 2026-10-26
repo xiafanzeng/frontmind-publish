@@ -1962,40 +1962,10 @@ class PublisherWorkerRepository {
           review_audit = values(review_audit),
           checked_at = values(checked_at)
       `);
-      await tx.execute(sql`
-        insert into publisher_jobs (
-          id, type, deterministic_key, aggregate_id, payload,
-          available_at, max_attempts
-        )
-        select
-          uuid(), 'archive_publisher_media_logo',
-          concat('publisher:media-logo:', r.id, ':', r.logo_candidate_hash, ':', ${input.runId}),
-          r.id,
-          json_object(
-            'mediaResourceId', r.id,
-            'candidateHash', r.logo_candidate_hash,
-            'syncRunId', ${input.runId}
-          ),
-          ${input.syncedAt}, 3
-        from publisher_media_resources r
-        where r.last_seen_complete_run_id = ${input.runId}
-          and r.logo_candidate_hash is not null
-          and (
-            r.logo_archive_status = 'pending'
-            or (
-              r.logo_archive_status = 'archived'
-              and r.logo_source_kind in ('site_favicon', 'generated_fallback')
-            )
-          )
-          and not exists (
-            select 1 from publisher_jobs pending_logo
-            where pending_logo.type = 'archive_publisher_media_logo'
-              and pending_logo.aggregate_id = r.id
-              and pending_logo.status in ('ready', 'leased', 'retry_wait')
-              and json_unquote(json_extract(pending_logo.payload, '$.candidateHash')) = r.logo_candidate_hash
-          )
-        on duplicate key update deterministic_key = values(deterministic_key)
-      `);
+      // Media logos are discontinued across the product: they are never
+      // displayed and must not be fetched or archived. The catalog sync no
+      // longer enqueues archive_publisher_media_logo jobs; already queued
+      // jobs still drain through the worker without new work arriving.
       await tx
         .update(publisherMediaSyncRuns)
         .set({

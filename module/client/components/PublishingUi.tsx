@@ -201,7 +201,7 @@ export function MediaMark({
   logoSource?: MediaResource["logoSource"];
   logoResolutionStatus?: MediaResource["logoResolutionStatus"];
 }) {
-  const [failedUrl, setFailedUrl] = useState<string>();
+  const [, setFailedUrl] = useState<string>();
   const colors = [
     "#b71424",
     "#db1f25",
@@ -214,11 +214,8 @@ export function MediaMark({
     [...id].reduce((sum, value) => sum + value.charCodeAt(0), 0) %
     colors.length;
   const safeLogoUrl = safePublisherLogoUrl(logoUrl);
-  const showImage = Boolean(
-    safeLogoUrl &&
-      failedUrl !== safeLogoUrl &&
-      (!logoResolutionStatus || logoResolutionStatus === "archived"),
-  );
+  // Media logos are discontinued across the flow; always show the monogram.
+  const showImage = false;
   const resolvedSource = showImage
     ? (logoSource ?? "provider_logo")
     : "generated_fallback";
