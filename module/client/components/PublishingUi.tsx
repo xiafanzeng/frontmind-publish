@@ -188,77 +188,17 @@ export function PublishingSteps({ current }: { current: 1 | 2 | 3 | 4 }) {
   );
 }
 
-export function MediaMark({
-  name,
-  id,
-  logoUrl,
-  logoSource,
-  logoResolutionStatus,
-}: {
+export function MediaMark(props: {
   name: string;
   id: string;
   logoUrl?: string;
   logoSource?: MediaResource["logoSource"];
   logoResolutionStatus?: MediaResource["logoResolutionStatus"];
 }) {
-  const [, setFailedUrl] = useState<string>();
-  const colors = [
-    "#b71424",
-    "#db1f25",
-    "#191921",
-    "#2457d6",
-    "#6f2da8",
-    "#137d68",
-  ];
-  const index =
-    [...id].reduce((sum, value) => sum + value.charCodeAt(0), 0) %
-    colors.length;
-  const safeLogoUrl = safePublisherLogoUrl(logoUrl);
-  // Media logos are discontinued across the flow; always show the monogram.
-  const showImage = false;
-  const resolvedSource = showImage
-    ? (logoSource ?? "provider_logo")
-    : "generated_fallback";
-  const isGeneratedFallback =
-    showImage && resolvedSource === "generated_fallback";
-  const monogram = name.replace(/[·（）()\s]/g, "").slice(0, 3) || "媒体";
-  const secondaryColor = colors[(index + 2) % colors.length];
-  return (
-    <span
-      className={`publishing-media-mark ${showImage ? "has-image" : "is-placeholder"} ${isGeneratedFallback ? "is-generated-fallback" : ""}`}
-      style={
-        {
-          "--publishing-mark": colors[index],
-          "--publishing-mark-secondary": secondaryColor,
-        } as CSSProperties
-      }
-      role="img"
-      aria-label={`${name}媒体标识`}
-      title={name}
-      data-logo-source={resolvedSource}
-      data-logo-status={
-        logoResolutionStatus ?? (showImage ? "archived" : "missing")
-      }
-    >
-      {showImage ? (
-        <>
-          <img
-            src={safeLogoUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            referrerPolicy="no-referrer"
-            onError={() => setFailedUrl(safeLogoUrl)}
-          />
-        </>
-      ) : (
-        <>
-          <b>{monogram}</b>
-        </>
-      )}
-    </span>
-  );
+  // Media icons are discontinued: neither provider logos nor monogram
+  // placeholders are rendered anywhere in the publishing flow.
+  void props;
+  return null;
 }
 
 type StatusTone = "success" | "danger" | "warning" | "info" | "neutral";
