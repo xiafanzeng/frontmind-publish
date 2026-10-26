@@ -4,10 +4,11 @@ import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import { inflateRawSync } from 'node:zlib';
+import { ResearchImportError } from './research-import-core.js';
 import { RESEARCH_IMPORT_LIMITS as L,type ResearchImportRow } from '../../client/source-matrix/research-import-types.js';
 export interface ParsedResearchSheet { name:string; columns:string[]; rows:ResearchImportRow[]; }
 export interface ParsedResearchFile { sheets:ParsedResearchSheet[]; warnings:string[]; fingerprint:string; }
-export class ResearchImportError extends Error { readonly publicMessage:string; constructor(message:string,readonly status=400,readonly code:string='research_import_failed'){super(message);this.publicMessage=message;} }
+export { ResearchImportError } from './research-import-core.js';
 function fail(message:string):never {throw new ResearchImportError(message);}
 function checkAbort(signal?:AbortSignal){if(signal?.aborted)throw new ResearchImportError('解析已取消',499);}
 function decode(bytes:Buffer):string {

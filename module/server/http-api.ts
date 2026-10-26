@@ -1,7 +1,6 @@
 import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
 import { createSourceMatrixRouter } from "./source-matrix/http.js";
-import { createResearchImportRouter } from "./source-matrix/research-import-http.js";
 import { createAiConnectionRouter } from "./source-matrix/ai-connection-http.js";
 import type { SourceMatrixDecisionAdapter } from "./source-matrix/adapter.js";
 import type { MySql2Database } from "drizzle-orm/mysql2";
@@ -21,8 +20,16 @@ export function createModuleHttpApi(core:ModuleHttpCore):Router {
  // Resolve a personal connection inside each authenticated planner request.
  // Preserve the original host override rather than replacing it with env config.
  const router=Router();
- const imports=createResearchImportRouter(core),connections=createAiConnectionRouter(core);
- router.use((req,res,next)=>req.path==='/matrix/imports'||req.path.startsWith('/matrix/imports/')?imports(req,res,next):next());
+ const connections=createAiConnectionRouter(core);
+ router.use((req,res,next)=>{
+  // The upload router owns multer + parser dependencies; hosts bundle this
+  // file into their own server, so load it through the package boundary at
+  // request time instead of a static import that would inline those packages.
+  if(req.path!=='/matrix/imports'&&!req.path.startsWith('/matrix/imports/')){next();return;}
+  void import('@frontmind/module-publish/persistence/source-matrix/research-import-http')
+    .then(module=>{module.createResearchImportRouter(core)(req,res,next);})
+    .catch(error=>{next(error);});
+ });
  router.use((req,res,next)=>req.path==='/matrix/connection'||req.path.startsWith('/matrix/connection/')?connections(req,res,next):next());
  router.use("/media-requirements", createMediaRequirementsApi(core));
  router.get("/capabilities",(req,res)=>{

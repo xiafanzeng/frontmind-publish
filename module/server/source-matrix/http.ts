@@ -7,7 +7,7 @@ import { validateBudget } from './contracts.js';
 import { runPlanner } from './planner.js';
 import { SOURCE_MATRIX_SKILL,SOURCE_MATRIX_INSTRUCTIONS } from './instructions.js';
 import { MatrixRepository } from './repository.js';
-import { loadConfirmedResearch,augmentResearchRequest } from './research-import-http.js';
+import { loadConfirmedResearch,augmentResearchRequest } from './research-import-core.js';
 import { resolveUserDecisionAdapter } from './ai-connection-http.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
