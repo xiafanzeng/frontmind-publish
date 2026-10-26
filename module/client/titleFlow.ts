@@ -1,15 +1,15 @@
 import type { PublisherGateway } from "./gateway";
 import type { PublicationDraft, PublisherTitleMode } from "./types";
 
-/** Organization (including batch size) does not determine a saved draft's mode. */
+/** Every valid saved title mode enters the same title/check/confirmation page. */
 export function publishingTitleStage(
   drafts: readonly { titleMode?: PublisherTitleMode }[],
-): "titles" | "review" | undefined {
+): "titles" | undefined {
   if (!drafts.length || drafts.some(draft => draft.titleMode !== "single" && draft.titleMode !== "per_media")) return undefined;
-  return drafts.some(draft => draft.titleMode === "per_media") ? "titles" : "review";
+  return "titles";
 }
 
-/** Save the upstream decision before skipping the visible title editor.
+/** Save the upstream decision before entering title configuration.
  * articleTitle is a display label and may fall back to a file name; it must not
  * silently replace a missing confirmed shared title on an old draft. */
 export async function saveUpstreamDraftTitles(

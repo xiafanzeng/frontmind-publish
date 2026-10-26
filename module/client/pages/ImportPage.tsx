@@ -22,7 +22,6 @@ import { usePublisherGateway } from "../PublishingContext";
 import {
   PublishingBreadcrumbs,
   PublishingPage,
-  PublishingSteps,
 } from "../components/PublishingUi";
 
 export default function PublishingImportPage({
@@ -126,7 +125,6 @@ export default function PublishingImportPage({
           { label: "导入 DOCX" },
         ]}
       />
-      <PublishingSteps current={1} />
       <div className="publishing-import-layout">
         <section className="publishing-panel publishing-import-panel">
           <div

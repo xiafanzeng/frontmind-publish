@@ -11,8 +11,6 @@ import {
 import { useLocation } from "wouter";
 import { projectWorkspaceUrl } from "./host";
 import { withPublishingBatch } from "./batchPublishing";
-import { publishingTitleStage } from "./titleFlow";
-import type { PublisherTitleMode } from "./types";
 import type { WorkbenchTaskState, WorkbenchOutputRef, BusinessWorkspaceOutput } from "./flow-contracts";
 import {
   DEFAULT_MEDIA_FILTERS,
@@ -102,12 +100,6 @@ export function publishingTaskResumePath(
   const articleIds = savedIds("batchArticleIds").length
     ? savedIds("batchArticleIds") : resources("article");
   const batchMode = state?.values.editorMode === "batch" || savedIds("batchArticleVersionIds").length > 0 || versionIds.length > 1 || draftIds.length > 1;
-  const savedModes = state?.values.publishingDraftTitleModes;
-  const titleStage = publishingTitleStage(draftIds.map(id => {
-    const value = savedModes && typeof savedModes === "object" && !Array.isArray(savedModes)
-      ? (savedModes as Record<string, unknown>)[id] : undefined;
-    return { titleMode: value === "single" || value === "per_media" ? value as PublisherTitleMode : undefined };
-  }));
   if (agentId === "media") {
     const params = new URLSearchParams();
     const saved = state?.values.mediaFilters;
@@ -155,11 +147,9 @@ export function publishingTaskResumePath(
   const batch = resource("publication_batch");
   if (draftIds.length > 1 || (draftIds.length > 0 && state?.values.publishingBatchReviewPending)) {
     // A batch can be partially accepted: returning only its first receipt loses
-    // pending drafts. The grouped review owns all per-draft receipts.
-    const stage = batch || titleStage === "review" || state?.step === "titles" || state?.values.publishingBatchReviewPending
-      ? "review" : "titles";
+    // pending drafts. The combined page restores all per-draft receipts.
     return withPublishingBatch(
-      `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/${stage}`,
+      `/publishing/drafts/${encodeURIComponent(draftIds[0]!)}/titles`,
       draftIds,
       savedIds("excludedDraftIds"),
     );
@@ -167,7 +157,7 @@ export function publishingTaskResumePath(
   if (batch) return `/publishing/publications/${encodeURIComponent(batch)}`;
   const draft = draftIds[0];
   if (draft)
-    return `/publishing/drafts/${encodeURIComponent(draft)}/${titleStage === "review" || state?.step === "titles" ? "review" : "titles"}`;
+    return `/publishing/drafts/${encodeURIComponent(draft)}/titles`;
   return "/publishing";
 }
 

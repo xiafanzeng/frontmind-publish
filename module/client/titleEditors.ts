@@ -105,7 +105,9 @@ export function acceptTitleEditorSave(editor: TitleEditor, draft: PublicationDra
     draft,
     mode: draft.titleMode,
     sharedTitle: draft.sharedTitle ?? "",
-    titles: editor.mode === draft.titleMode ? editor.titles : {
+    // A successful title write can normalize text (for example trim spaces).
+    // Check the actual saved titles while retaining edits on excluded rows.
+    titles: !saved && editor.mode === draft.titleMode ? editor.titles : {
       ...editor.titles, ...Object.fromEntries(draft.items.map(item => [item.media.id, item.title])),
     },
     items: editor.items.map(item => fresh.get(item.media.id) ?? item),

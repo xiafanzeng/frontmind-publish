@@ -250,7 +250,7 @@ describe("media selection context and persistence", () => {
     expect(choice("text").disabled).toBe(true);
     expect(count()).toBe("1");
     expect(screen.getByTestId("cart-total").textContent).toBe("3850000");
-    expect((screen.getByRole("button", { name: "预检发布" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "配置标题" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(choice("pending"));
     await waitFor(() => expect(fixture.updateDraftMedia).toHaveBeenCalledWith("draft-1", [], 1));
     await waitFor(() => expect(count()).toBe("0"));
@@ -870,20 +870,35 @@ describe("media catalogue inventory, filters and cart integration", () => {
 });
 
 describe("upstream title-mode handoff", () => {
-  it("saves a newer upstream single-title decision before entering review from an older per-media draft", async () => {
+  it("enters titles on the first footer click after editing a bound draft's media", async () => {
+    const fixture = gatewayFixture([media("a"), media("b")], article(), draft([media("a")]));
+    const currentFlow = flow();
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?articleVersion=version-1", currentFlow);
+    await waitFor(() => expect(choice("b").disabled).toBe(false));
+    fireEvent.click(choice("b"));
+    await waitFor(() => expect(fixture.updateDraftMedia).toHaveBeenCalled());
+    const next = screen.getByRole("button", { name: "配置标题" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByLabelText("发布流程")).toBeNull();
+    fireEvent.click(next);
+    await waitFor(() => expect(currentFlow.handoff).toHaveBeenCalledTimes(1));
+    expect(currentFlow.handoff).toHaveBeenCalledWith(expect.objectContaining({ route: expect.stringContaining("/drafts/draft-1/titles?") }));
+  });
+
+  it("saves a newer upstream single-title decision before entering titles from an older per-media draft", async () => {
     const original = { ...draft([media("a")]), titleMode: "per_media" as const, sharedTitle: undefined };
     original.items[0].title = "旧媒体独立标题";
     const fixture = gatewayFixture([media("a")], article({ title: "上游确认的正式标题" }), original);
     const currentFlow = flow();
     harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?mode=multi&titleMode=single&articleVersion=version-1", currentFlow);
-    const next = await screen.findByRole("button", { name: "预检发布" });
+    const next = await screen.findByRole("button", { name: "配置标题" });
     await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(next);
     await waitFor(() => expect(currentFlow.handoff).toHaveBeenCalled());
     expect(fixture.saveDraftTitles).toHaveBeenCalledWith("draft-1", expect.objectContaining({
       mode: "single", sharedTitle: "上游确认的正式标题", titles: { a: "上游确认的正式标题" }, expectedRevision: 1,
     }));
-    expect(currentFlow.handoff).toHaveBeenCalledWith(expect.objectContaining({ route: expect.stringContaining("/drafts/draft-1/review?") }));
+    expect(currentFlow.handoff).toHaveBeenCalledWith(expect.objectContaining({ route: expect.stringContaining("/drafts/draft-1/titles?") }));
     expect(vi.mocked(currentFlow.handoff).mock.calls[0][0].route).not.toContain("titleMode=");
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
@@ -894,7 +909,7 @@ describe("upstream title-mode handoff", () => {
     fixture.saveDraftTitles.mockRejectedValueOnce(new Error("标题尚未写入"));
     const currentFlow = flow();
     harness(fixture.gateway, "/publishing/drafts/draft-1/media/third?titleMode=single&articleVersion=version-1", currentFlow);
-    const next = await screen.findByRole("button", { name: "预检发布" });
+    const next = await screen.findByRole("button", { name: "配置标题" });
     await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(next);
     await screen.findByText("标题尚未写入");
@@ -903,7 +918,7 @@ describe("upstream title-mode handoff", () => {
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 
-  it("routes two existing single-title manuscripts directly to one grouped review", async () => {
+  it("routes two existing single-title manuscripts to the combined grouped titles page", async () => {
     const rows = ["a", "b"].map(id => ({ ...draft([media("shared")]), id: `draft-${id}`, articleId: `article-${id}`,
       articleVersionId: `version-${id}`, sharedTitle: `标题${id}`, items: [{ media: media("shared"), title: `标题${id}` }] }));
     const fixture = gatewayFixture([media("shared")]);
@@ -911,12 +926,12 @@ describe("upstream title-mode handoff", () => {
     fixture.gateway.getArticleVersion = vi.fn<PublisherGateway["getArticleVersion"]>(async id => ({ id, version: 1, hash: id, containsImages: false, frozen: true, createdAt: timestamp, createdBy: "账号" }));
     const currentFlow = flow();
     harness(fixture.gateway, "/publishing/drafts/draft-a/media/third?mode=batch&batchDraft=draft-a&batchDraft=draft-b", currentFlow);
-    const next = await screen.findByRole("button", { name: "预检发布" });
+    const next = await screen.findByRole("button", { name: "配置标题" });
     await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(next);
     await waitFor(() => expect(currentFlow.handoff).toHaveBeenCalled());
     const route = new URL(vi.mocked(currentFlow.handoff).mock.calls[0][0].route, window.location.origin);
-    expect(route.pathname).toBe("/publishing/drafts/draft-a/review");
+    expect(route.pathname).toBe("/publishing/drafts/draft-a/titles");
     expect(route.searchParams.getAll("batchDraft")).toEqual(["draft-a", "draft-b"]);
     expect(fixture.saveDraftTitles).not.toHaveBeenCalled();
     expect(fixture.createDraft).not.toHaveBeenCalled();
