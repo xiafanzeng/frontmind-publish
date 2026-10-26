@@ -3,6 +3,7 @@ import { KolProviderError } from "./errors.js";
 interface TokenValue {
   value: string;
   expiresAt?: number;
+  obtainedAt: number;
 }
 
 export class KolTokenCache {
@@ -14,6 +15,8 @@ export class KolTokenCache {
     private readonly authenticate: (signal?: AbortSignal) => Promise<string>,
     private readonly options: {
       refreshSkewMs: number;
+      /** Effective supplier session lifetime; the JWT exp claim is longer. */
+      maxTokenAgeMs: number;
       now: () => Date;
     },
   ) {}
@@ -42,7 +45,11 @@ export class KolTokenCache {
     )
       return this.current.value;
     this.inFlight ??= this.authenticate(input.signal)
-      .then((value) => ({ value, expiresAt: jwtExpiry(value) }))
+      .then((value) => ({
+        value,
+        expiresAt: jwtExpiry(value),
+        obtainedAt: this.options.now().valueOf(),
+      }))
       .finally(() => {
         this.inFlight = undefined;
       });
@@ -67,12 +74,15 @@ export class KolTokenCache {
   }
 
   private usable(value: TokenValue | undefined): value is TokenValue {
-    return Boolean(
-      value &&
-      (value.expiresAt === undefined ||
-        value.expiresAt - this.options.refreshSkewMs >
-          this.options.now().valueOf()),
+    if (!value) return false;
+    // The supplier invalidates sessions after about maxTokenAgeMs even though
+    // the JWT exp claim is far in the future; refresh before either limit.
+    const effectiveExpiry = Math.min(
+      value.expiresAt ?? Number.POSITIVE_INFINITY,
+      value.obtainedAt + this.options.maxTokenAgeMs,
     );
+    return effectiveExpiry - this.options.refreshSkewMs >
+      this.options.now().valueOf();
   }
 }
 
