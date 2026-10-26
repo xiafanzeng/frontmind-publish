@@ -162,6 +162,44 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it("leaves article summaries off the unbound library cold path and loads them for a bound article", async () => {
+    const fixture = gatewayFixture(undefined, article({ title: "按需加载专用稿件" }));
+    const browsing = harness(fixture.gateway, "/publishing/media/third");
+    await waitFor(() => expect(choice("a")).not.toBeNull());
+    expect(fixture.gateway.listArticles).not.toHaveBeenCalled();
+    expect(fixture.gateway.listMedia).toHaveBeenCalled();
+    expect(fixture.gateway.getMediaFacets).toHaveBeenCalled();
+    browsing.unmount();
+
+    harness(fixture.gateway, "/publishing/media/third?articleVersion=version-1");
+    await waitFor(() => expect(screen.getByText("按需加载专用稿件 · v1")).not.toBeNull());
+    expect(fixture.gateway.listArticles).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not present facet options from another catalogue revision as current", async () => {
+    const fixture = gatewayFixture();
+    const readFacets = fixture.gateway.getMediaFacets;
+    let facetRevision = "catalog-previous";
+    fixture.gateway.getMediaFacets = vi.fn<PublisherGateway["getMediaFacets"]>(async (filters, signal) => {
+      const result = await readFacets(filters, signal);
+      return {
+        ...result,
+        taxonomies: [{ value: "财经商业", label: "财经商业", count: 1 }],
+        catalog: { ...result.catalog, activeRevision: facetRevision },
+      };
+    });
+    harness(fixture.gateway, "/publishing/media/third");
+    await waitFor(() => expect(screen.getByText(/旧版筛选选项暂不展示/)).not.toBeNull());
+    expect(choice("a")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "财经商业" })).toBeNull();
+
+    facetRevision = "catalog-1";
+    fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+    await waitFor(() => expect(screen.queryByText(/旧版筛选选项暂不展示/)).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "展开频道类型选项" }));
+    expect(screen.getByRole("button", { name: "财经商业" })).not.toBeNull();
+  });
+
   it("shows loaded rows before rules arrive while keeping new selections blocked", async () => {
     Object.assign(marketRuleStatus, { ready: false, loading: true });
     const fixture = gatewayFixture();
@@ -714,6 +752,21 @@ function expectResultCount(total: number) {
 }
 
 describe("media catalogue inventory, filters and cart integration", () => {
+  it("labels same-session cached rows as previous results while their refresh is pending", async () => {
+    const fixture = catalogueFixture();
+    const first = harness(fixture.gateway, "/publishing/media/third");
+    await waitFor(() => expectResultCount(30));
+    first.unmount();
+
+    const pending = deferred<Awaited<ReturnType<PublisherGateway["listMedia"]>>>();
+    fixture.gateway.listMedia = vi.fn<PublisherGateway["listMedia"]>(() => pending.promise);
+    harness(fixture.gateway, "/publishing/media/third");
+    expect(choice("news-0")).not.toBeNull();
+    expect(screen.getByText("上次匹配 30 条媒体资源")).not.toBeNull();
+    expect(document.getElementById("y-result-count")?.textContent).toContain("上次为您找到 30 条媒体资源");
+    expect(screen.getByText(/正在更新结果；库存保留最近一次确认的数量/)).not.toBeNull();
+  });
+
   it("does not report zero matching resources before the first complete catalogue sync", async () => {
     const fixture = catalogueFixture({ catalog: {
       activeRevision: "", lastSyncedAt: "", kindComplete: false, stale: true, countStatus: "unavailable",

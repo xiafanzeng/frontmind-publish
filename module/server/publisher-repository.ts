@@ -1231,7 +1231,6 @@ class PublishingRepository {
     const imageSupportValue = sql<string>`COALESCE(${publisherMediaCapabilities.imageSupport}, 'unknown')`;
     const recommendationTagsValue = sql<unknown>`JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')`;
     const [
-      priceRows,
       platforms,
       taxonomies,
       mediaTypes,
@@ -1241,24 +1240,9 @@ class PublishingRepository {
       entryLevels,
       linkTypes,
       imageSupportRows,
-      advancedCountRows,
+      aggregateRows,
       recommendationTagRows,
     ] = await Promise.all([
-      (async () => {
-        const priceBase = database
-          .select({
-            minimum: sql<
-              bigint | null
-            >`MIN(${publisherMediaResources.priceTenThousandths})`,
-            maximum: sql<
-              bigint | null
-            >`MAX(${publisherMediaResources.priceTenThousandths})`,
-          })
-          .from(publisherMediaResources);
-        return needsCapabilityJoin
-          ? priceBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id)).where(where)
-          : priceBase.where(where);
-      })(),
       facet(publisherMediaResources.platform),
       facet(publisherMediaResources.taxonomy),
       facet(publisherMediaResources.mediaType),
@@ -1281,9 +1265,13 @@ class PublishingRepository {
         .groupBy(imageSupportValue)
         .orderBy(asc(imageSupportValue)),
       (async () => {
-        const advancedCountsBase = database
+        // Price bounds and advanced thresholds share the exact predicates and
+        // optional capability join. One aggregate avoids a duplicate scan.
+        const aggregateBase = database
           .select({
-            pcWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
+            minimum: sql<bigint | null>`MIN(${publisherMediaResources.priceTenThousandths})`,
+            maximum: sql<bigint | null>`MAX(${publisherMediaResources.priceTenThousandths})`,
+          pcWeight1: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 1 THEN 1 ELSE 0 END), 0)`,
           pcWeight2: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 2 THEN 1 ELSE 0 END), 0)`,
           pcWeight3: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 3 THEN 1 ELSE 0 END), 0)`,
           pcWeight4: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.pcWeight} >= 4 THEN 1 ELSE 0 END), 0)`,
@@ -1309,10 +1297,10 @@ class PublishingRepository {
           festivalFalse: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = FALSE THEN 1 ELSE 0 END), 0)`,
         })
         .from(publisherMediaResources);
-      const advancedBase = needsCapabilityJoin
-        ? advancedCountsBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
-        : advancedCountsBase;
-      return advancedBase.where(where);
+      const aggregateQuery = needsCapabilityJoin
+        ? aggregateBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+        : aggregateBase;
+      return aggregateQuery.where(where);
     })(),
       // Group complete stored tag arrays in SQL; no provider calls or client page scan.
       (async () => {
@@ -1326,8 +1314,8 @@ class PublishingRepository {
       })(),
     ]);
     const catalog = await this.loadPublisherCatalogSnapshot(database);
-    const prices = priceRows[0];
-    const advancedCounts = advancedCountRows[0];
+    const advancedCounts = aggregateRows[0];
+    const prices = advancedCounts;
     const tagCounts = new Map<string, number>();
     const groupedTags: { tags: string[]; count: number }[] = [];
     for (const row of recommendationTagRows) {

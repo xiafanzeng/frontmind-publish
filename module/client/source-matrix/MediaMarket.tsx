@@ -25,6 +25,10 @@ export function useMarketRules(ids: string[], revision = ''): {key:string;rules:
  const reload = useCallback(()=>setReloadToken(value=>value+1),[]);
  const [state,setState] = useState<{key:string;reloadToken:number;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean}>({key:'',reloadToken:0,rules:{},ready:false,error:'',loading:true});
  useEffect(()=>{
+   if (!idsKey) {
+    setState({key,reloadToken,rules:{},ready:false,error:'',loading:false});
+    return;
+   }
   const abort=new AbortController();let active=true;
   const current=()=>active&&!abort.signal.aborted;
   setState({key,reloadToken,rules:{},ready:false,error:'',loading:true});
@@ -57,7 +61,7 @@ export function useMarketRules(ids: string[], revision = ''): {key:string;rules:
   return()=>{active=false;clearTimeout(timeout);abort.abort();};
  },[key,idsKey,reloadToken]);
  // Mask the previous scope (and previous attempt) before the new effect runs.
- const visible=state.key===key&&state.reloadToken===reloadToken?state:{key,rules:{},ready:false,error:'',loading:true};
+  const visible=state.key===key&&state.reloadToken===reloadToken?state:{key,rules:{},ready:false,error:'',loading:Boolean(idsKey)};
  return {...visible,reload};
 }
 export function MediaDialog({open,title,description,confirmLabel,onCancel,onConfirm,children,busy,confirmDisabled,footer,inline:_inline,wide:_wide}:{open:boolean;title:string;description?:string;confirmLabel:string;onCancel:()=>void;onConfirm:()=>void;children?:ReactNode;busy?:boolean;confirmDisabled?:boolean;inline?:boolean;wide?:boolean;footer?:ReactNode}) {

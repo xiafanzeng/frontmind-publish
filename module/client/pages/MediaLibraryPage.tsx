@@ -394,9 +394,13 @@ export default function PublishingMediaLibraryPage({
     (signal: AbortSignal) => gateway.getMediaFacets({ ...DEFAULT_MEDIA_FILTERS, kind: undefined, searchScope: "name" }, signal),
     [gateway],
   );
+  // An unbound library does not use article choices until binding is opened.
+  // The gateway may page through the entire article catalogue, so keep that
+  // request off the media list/facet cold path while preserving bound contexts.
+  const needsArticleChoices = articleChooserOpen || Boolean(articleVersionId || draftId || draft || isBatch);
   const loadArticles = useCallback(
-    (signal: AbortSignal) => gateway.listArticles(signal),
-    [gateway],
+    (signal: AbortSignal) => needsArticleChoices ? gateway.listArticles(signal) : Promise.resolve([]),
+    [gateway, needsArticleChoices],
   );
   const loadDraft = useCallback(
     (signal: AbortSignal) =>
@@ -411,6 +415,12 @@ export default function PublishingMediaLibraryPage({
     loadFacets,
     `media-catalogue-facets:${workspaceKey}`,
   );
+  // A cached facet response belongs to one catalogue revision. Label it as
+  // updating, and hide it once a different list revision is confirmed.
+  const facetsVersionMismatch = Boolean(mediaQuery.data && facetsQuery.data &&
+    (!mediaQuery.data.catalog.activeRevision || !facetsQuery.data.catalog.activeRevision ||
+      mediaQuery.data.catalog.activeRevision !== facetsQuery.data.catalog.activeRevision));
+  const usableFacets = facetsVersionMismatch ? undefined : facetsQuery.data;
   const [inventorySnapshot, setInventorySnapshot] = useState<{
     gateway: typeof gateway; workspaceKey: typeof workspaceKey; catalog: CatalogFreshness;
   }>();
@@ -429,7 +439,7 @@ export default function PublishingMediaLibraryPage({
       return { gateway, workspaceKey, catalog: chosen };
     });
   }, [gateway, workspaceKey, inventoryReading, mediaQuery.data, mediaQuery.error]);
-  const articlesQuery = usePublisherQuery(loadArticles, "article-choices");
+  const articlesQuery = usePublisherQuery(loadArticles, needsArticleChoices ? "article-choices" : "article-choices-idle");
   const draftQuery = usePublisherQuery(loadDraft, `media-draft:${draftId ?? "none"}:${shortlistKey ?? workspaceKey}:${flowTaskId}:${routeTaskId}:${routeMode}:${matrixTask}`);
   const needsFrozenVersion = Boolean(!isBatch && articleVersionId && !draftId && !draft);
   const loadBatch = useCallback(async (signal: AbortSignal) => {
@@ -1262,6 +1272,7 @@ export default function PublishingMediaLibraryPage({
     !mediaQuery.data.catalog.activeRevision || !mediaQuery.data.catalog.lastSyncedAt));
   const resultTotal = catalogueIncomplete ? undefined : mediaQuery.data?.total;
   const totalLabel = resultTotal === undefined ? (mediaQuery.loading ? "…" : "待确认") : resultTotal.toLocaleString("zh-CN");
+  const previousResult = Boolean(mediaQuery.data && (mediaQuery.refreshing || mediaQuery.error || catalog?.stale));
   const pending=selectedValues.filter(m=>!/^\d+$/.test(m.priceTenThousandths)||BigInt(m.priceTenThousandths)<=0n).length;
   const nextLabel=flowMode==="single"?"预检发布":"配置标题";
   const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext||!!contextReadIssue||selectionBusy||!selected.size} nextHint={!hasArticleContext?"您还未选择稿件":contextReadIssue||(selectionBusy?'正在保存媒体选择…':!selected.size?'请先选择媒体':undefined)} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} onRemove={media=>toggle(media)}/>;
@@ -1319,15 +1330,15 @@ export default function PublishingMediaLibraryPage({
    <div className="panel y-cart-panel">{selected.size?<div className="table-wrap"><table className="y-cart-table"><thead><tr><th>媒体 / 发布备注</th><th>单篇报价</th><th>投放稿件</th><th>规则与操作</th></tr></thead><tbody>{selectedValues.map(m=><tr key={m.id}><td className="y-cart-resource"><strong>{m.name}</strong><p className="y-subtle-note" style={{margin:'4px 0'}}>{m.platform} · {m.id}</p><div className="y-remarks-line"><span>发布备注</span><PublishingRemark text={ruleData.rules[m.id]?.rawRemark??m.remark} media={m} rules={ruleData.rules[m.id]}/></div></td><td><strong className="b-price">{formatPublishingMoney(m.priceTenThousandths)}</strong><p className="y-subtle-note">目录报价 · 发布前复核</p><button className="link" onClick={()=>{setQuoteError('');setQuoteMedia(m);}}>查看 / 修改报价</button></td><td>{isBatch?<span className="small muted">本批次 {batchQuery.data?.versions.filter(versionId=>{const item=batchState.drafts.get(versionId);return !item||item.items.some(row=>row.media.id===m.id)||!batchState.originalMediaIds.includes(m.id);}).length ?? batchVersionIds.length} 篇稿件</span>:task?<label><input type="checkbox" checked onChange={()=>setDialogMessage('当前投放草稿按稿件保存媒体；请通过任务选择更换稿件。')}/><span>文章 1 · {task.articleTitle} · v{task.articleVersion}</span></label>:<span className="small muted">尚未绑定稿件</span>}</td><td><div className="actions"><button className="link" onClick={()=>setDetailMedia(m)}>资料详情</button><button className="link" onClick={()=>setDetailMedia(m)}>投稿要求</button></div><button className="link danger" style={{marginTop:8}} onClick={()=>toggle(m)}>移除</button></td></tr>)}</tbody></table></div>:<div className="empty"><div className="metric-icon"><ReferenceIcon name="file"/></div><h2>购物车还没有媒体</h2><p>勾选媒体即可加入，原始备注与规则会一并带入。</p><div className="actions"><Link className="button primary" href={projectWorkspaceUrl(pageHref(base+'/third'))}>浏览媒体</Link></div></div>}</div>
    <label className="label" style={{marginTop:20}}>渠道选择理由</label><textarea placeholder="说明本次选择这些媒体的依据" value={selectionReason} onChange={e=>setSelectionReason(e.target.value)} onBlur={()=>{if(selectionReason)setDialogMessage('渠道选择理由保存接口尚未配置，本次输入尚未保存。');}}/><p className="y-subtle-note">已知小计 {formatPublishingMoney(selectedTotal)}；另有 {pending} 项报价 / 状态待确认。配置标题后可以先检查正文，未确认报价和未完成人工复核的项目无法提交。</p>{footer}
   </>:<div className={'y-catalogue '+(compact?'y-compact':'')}>
-   <div className="y-data-strip"><span><strong>{mediaQuery.loading?'正在读取媒体目录':`当前匹配 ${totalLabel} 条媒体资源`}</strong>　备注悬停可展开；未提供的报价与要求保留为待确认。</span><button className="link" onClick={()=>setDataInfoOpen(true)}>数据说明 <ReferenceIcon name="info"/></button></div>
-   <MediaCatalogueFilters filters={filters} facets={facetsQuery.data} facetsLoading={facetsQuery.loading} facetsError={facetsQuery.error?.message} onRetry={() => facetsQuery.reload()} onChange={navigateFilters} onReset={reset} />
+   <div className="y-data-strip"><span><strong>{mediaQuery.loading?'正在读取媒体目录':`${previousResult ? '上次匹配' : '当前匹配'} ${totalLabel} 条媒体资源`}</strong>　备注悬停可展开；未提供的报价与要求保留为待确认。</span><button className="link" onClick={()=>setDataInfoOpen(true)}>数据说明 <ReferenceIcon name="info"/></button></div>
+   <MediaCatalogueFilters filters={filters} facets={usableFacets} facetsLoading={facetsQuery.loading} facetsRefreshing={facetsQuery.refreshing} facetsVersionMismatch={facetsVersionMismatch} facetsError={facetsQuery.error?.message} onRetry={() => facetsQuery.reload()} onChange={navigateFilters} onReset={reset} />
    <div id="y-results" className="y-resultbar">
      <div className="y-result-tabs">
        <button className={scope === "all" ? "active" : ""} aria-pressed={scope === "all"} onClick={() => { setScope("all"); updateFilter("page", 1); }}>全部<small>{inventoryLabel(inventory?.all)}</small></button>
        <button disabled title="收藏功能暂未接入，无法读取或保存收藏">我的收藏<small>未接入</small></button>
        <button className={scope === "cart" ? "active" : ""} aria-pressed={scope === "cart"} onClick={() => { setScope("cart"); updateFilter("page", 1); }}>购物车<small>{selected.size}</small></button>
      </div>
-     <span className="y-result-count" id="y-result-count" aria-live="polite">为您找到 <strong>{totalLabel}</strong> 条媒体资源{scope === "cart" ? "（购物车内）" : ""}</span>
+     <span className="y-result-count" id="y-result-count" aria-live="polite">{previousResult ? "上次为您找到" : "为您找到"} <strong>{totalLabel}</strong> 条媒体资源{scope === "cart" ? "（购物车内）" : ""}</span>
    </div>
    <div className="y-typebar" role="group" aria-label="媒体分类">
      {([{ value: undefined, label: "全部媒体", count: inventory?.all }, { value: "news", label: "门户媒体", count: inventory?.news }, { value: "self_media", label: "第三方自媒体", count: inventory?.selfMedia }] as const).map(item => <button key={item.value ?? "all"} className={filters.kind === item.value ? "active" : ""} aria-pressed={filters.kind === item.value} onClick={() => navigateFilters({ ...filters, kind: item.value, page: 1 })}>{item.label}<small>（{inventoryLabel(item.count)}）</small></button>)}
