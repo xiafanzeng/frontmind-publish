@@ -151,6 +151,13 @@ export interface KolClientOptions {
   getRetryBaseMs?: number;
   maxResponseBytes?: number;
   tokenRefreshSkewMs?: number;
+  /**
+   * Effective session lifetime for a cached KOL token. The supplier session
+   * lives about 8 hours even though the JWT `exp` claim is far in the future;
+   * the cache proactively re-authenticates once this age is exceeded instead
+   * of waiting for a mid-operation 401.
+   */
+  tokenMaxAgeMs?: number;
   userAgent?: string;
   fetch?: typeof fetch;
   now?: () => Date;

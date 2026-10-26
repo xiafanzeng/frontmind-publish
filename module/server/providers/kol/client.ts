@@ -25,6 +25,8 @@ import type {
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+/** Supplier sessions expire after about 8 hours regardless of the JWT exp. */
+const DEFAULT_TOKEN_MAX_AGE_MS = 8 * 60 * 60_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 export class KolClient implements KolProviderPort {
@@ -85,6 +87,7 @@ export class KolClient implements KolProviderPort {
       : "login";
     this.tokenCache = new KolTokenCache((signal) => this.authenticate(signal), {
       refreshSkewMs: options.tokenRefreshSkewMs ?? 60_000,
+      maxTokenAgeMs: options.tokenMaxAgeMs ?? DEFAULT_TOKEN_MAX_AGE_MS,
       now: options.now ?? (() => new Date()),
     });
   }
