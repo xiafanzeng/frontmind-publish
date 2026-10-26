@@ -30,7 +30,7 @@ it('defaults to real industry distribution and exposes only the two canonical ta
 });
 it('keeps configuration details out of permanent layout and offers a local industry retry',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({status:'configuration_required',industries:[],message:'信源规划存储尚未配置，请联系管理员完成模块迁移'})})));
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>String(url).includes('/matrix/connection')?{connection:null,mode:'none',available:false}:{status:'configuration_required',industries:[],message:'信源规划存储尚未配置，请联系管理员完成模块迁移'}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
  expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
@@ -48,7 +48,7 @@ const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan
 function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
-  return {ok:true,json:async()=>url.includes('/industries')?{industries:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
+  return {ok:true,json:async()=>url.includes('/industries')?{industries:[]}:url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
  }));
  mediaGateway.listMedia.mockResolvedValue({items:[media],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
  mediaGateway.getArticleVersion.mockResolvedValue({id:'version-1',version:1,hash:'hash-1',containsImages:false,frozen:true,createdAt:'2026-10-24T00:00:00Z',createdBy:'当前账号'});
@@ -544,6 +544,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  const bodies:Array<{url:string;body:Record<string,unknown>}>=[];
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
+  if(url.includes('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
   if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'configured-industry',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'verified-source',sourceFile:matrixDemo.source.file,recordCount:502,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
   if(init?.method==='POST'){bodies.push({url,body:JSON.parse(String(init.body))});return {ok:false,json:async()=>({message:'模型尚未配置，请稍后重试'})};}
   return {ok:true,json:async()=>({})};
@@ -589,6 +590,7 @@ it('does not send the automatic budget stage to another task after leaving a run
  const posts:string[]=[],taskResult=(name:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:matrixDemo.form.industry,product:name,questions:[{question_id:'q1',text:'当前问题'}]}}});
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);if(init?.method==='POST')posts.push(url);
+  if(url.includes('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
   if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'v1',recordCount:502,sourceFile:matrixDemo.source.file,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
   if(url.endsWith('/matrix/generate')||url.endsWith('/task-A'))return {ok:true,json:async()=>({task_id:'task-A',state:'running',result:taskResult('正在生成的A')})};
   if(url.endsWith('/task-B'))return {ok:true,json:async()=>({task_id:'task-B',state:'complete',result:taskResult('已有任务B')})};

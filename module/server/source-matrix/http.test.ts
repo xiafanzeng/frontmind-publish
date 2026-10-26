@@ -87,7 +87,7 @@ it('binds matrix generation to the server-verified frozen version and persists t
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  const loadBinding=vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({binding:{draftId:'3f0d1111-1111-4111-8111-111111111111',draftRevision:3,draftStatus:'draft',articleVersionId:'5aab2222-2222-4222-8222-222222222222',articleId:'article-1',versionNumber:1,contentHash:'hash-1',containsImages:false,articleTitle:'验收稿件',selections:[],fingerprint:'fp-1'}});
- const url=await host(core({database:async()=>({} as any)}));
+ const url=await host(core({database:async()=>({} as any),sourceMatrixDecisions:{matrix:async()=>undefined,budget:async()=>undefined}}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-10-24T00:00:00Z',draft_id:'3f0d1111-1111-4111-8111-111111111111',article_version_id:'5aab2222-2222-4222-8222-222222222222'})});
  expect(response.status).toBe(202);
  const task=create.mock.calls[0]![3] as any;
@@ -183,7 +183,7 @@ it('refuses cancelled and superseded plans before loading publication items',asy
 it('feeds the selected brand batch and demand constraints into the planner request',async()=>{
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
- const url=await host(core({database:async()=>({} as any)}));
+ const url=await host(core({database:async()=>({} as any),sourceMatrixDecisions:{matrix:async()=>undefined,budget:async()=>undefined}}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-10-25T00:00:00Z',hours:'48',requirements:['链接'],brand_data:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',sample_platforms:['通义千问-手机版']})});
  expect(response.status).toBe(202);
  const task=create.mock.calls[0]![3] as any;
