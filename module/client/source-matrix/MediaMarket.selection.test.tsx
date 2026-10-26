@@ -37,15 +37,20 @@ function deferredResponse() {
   const promise = new Promise<Response>(yes => { resolve = yes; });
   return { promise, resolve };
 }
-function harness() {
+function harness(initialIds = [media.id]) {
   const renders: ReturnType<typeof useMarketRules>[] = [];
+  let ids = initialIds;
   function Probe() {
-    const state = useMarketRules([media.id], 'revision-1');
+    const state = useMarketRules(ids, 'revision-1');
     renders.push(state);
     return <div>{state.rules[media.id]?.rawRemark ?? state.error}</div>;
   }
   const view = render(<Probe />);
-  return { ...view, renders, current: () => renders.at(-1)!, switchWorkspace: () => {
+  return { ...view, renders, current: () => renders.at(-1)!, setIds: (nextIds: string[]) => {
+    ids = nextIds;
+    renders.length = 0;
+    view.rerender(<Probe />);
+  }, switchWorkspace: () => {
     workspace.value += 1;
     renders.length = 0;
     view.rerender(<Probe />);
@@ -83,6 +88,20 @@ describe('media selection controls', () => {
 });
 
 describe('media rules recovery', () => {
+  it('does not request rule status before media ids exist, then reads actual rules', async () => {
+    const fetch = vi.fn(async (url: string) => url.endsWith('/status')
+      ? response({ configured: true }) : rulesResponse());
+    vi.stubGlobal('fetch', fetch);
+    const view = harness([]);
+    expect(view.current()).toMatchObject({ ready: false, loading: false, rules: {} });
+    expect(fetch).not.toHaveBeenCalled();
+
+    view.setIds([media.id]);
+    await waitFor(() => expect(view.current().ready).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(view.current().rules[media.id]?.rawRemark).toBe('供应商原始要求');
+  });
+
   it('retries failed rules for the same media ids and catalog revision', async () => {
     let unavailable = true;
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/status')
