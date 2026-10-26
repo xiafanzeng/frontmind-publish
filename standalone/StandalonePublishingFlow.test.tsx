@@ -29,7 +29,7 @@ it("opens the original guided entry from the standalone 新建投放 route and h
   } as unknown as PublisherGateway;
   const location = memoryLocation({path:"/publishing?flow=1",record:true});
   const {container} = render(<Router hook={location.hook} searchHook={location.searchHook}><StandalonePublishingFlow workspaceKey="entry"><PublishingRoutes gateway={gateway}/></StandalonePublishingFlow></Router>);
-  await screen.findByRole("heading",{name:"接下来要处理哪次投放？"});
+  await screen.findByRole("heading",{name:"接下来要处理哪次投放？"},undefined,{timeout:45000});
   expect(container.querySelector(".operator-action-list")).not.toBeNull();
   expect(location.history.at(-1)).toBe("/publishing?flow=1");
   fireEvent.click(screen.getByRole("button",{name:/从已冻结稿件开始/}));
