@@ -9,7 +9,7 @@ import {
 import { Link, useLocation, useSearch } from "wouter";
 import { createPortal } from "react-dom";
 import { MarketRow, RowHead, MediaDialog, MediaShell, MediaCartFooter, MediaDetails, useMarketRules, exportRows } from "../source-matrix/MediaMarket";
-import PublishingFlowSteps, { flowStagesForMode, titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
+import { titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
 import "../publishing.market.css";
 import MediaCatalogueFilters from "../components/MediaCatalogueFilters";
 import { publicationSelectionAmounts } from "../publicationAmounts";
@@ -1008,6 +1008,26 @@ export default function PublishingMediaLibraryPage({
     url.searchParams.set('articleVersion', saved.articleVersionId);
     return `${url.pathname}${url.search}`;
   };
+  const openPreparedTitles = async (saved: PublicationDraft) => {
+    const route = savedDraftRoute(saved);
+    if (!flow) { navigate(projectWorkspaceUrl(route)); return; }
+    if (publishingTarget) {
+      const url = new URL(projectWorkspaceUrl(route), window.location.origin);
+      url.searchParams.set("workbenchTask", publishingTarget.conversationId);
+      navigate(`${url.pathname}${url.search}${url.hash}`);
+      return;
+    }
+    await flow.handoff({
+      targetAgentId: "publishing",
+      title: `发布 · ${saved.articleTitle}`,
+      resources: [
+        { kind: "article_version", id: saved.articleVersionId },
+        { kind: "publication_draft", id: saved.id },
+      ],
+      idempotencyKey: `media-publishing-${saved.id}`,
+      route,
+    });
+  };
   const prepareDraftForNext = async (candidate: PublicationDraft, isCurrent: () => boolean) => {
     const latest = await gateway.getDraft(candidate.id);
     if (!isCurrent()) throw new Error('选媒任务已切换，请返回原任务继续。');
@@ -1056,7 +1076,7 @@ export default function PublishingMediaLibraryPage({
       if (draft) {
         const saved = await prepareDraftForNext(draft, () => mounted.current && generation === selectionGeneration.current);
         if (generation !== selectionGeneration.current) return;
-        if (!flow) navigate(projectWorkspaceUrl(savedDraftRoute(saved)));
+        await openPreparedTitles(saved);
       }
       else chooseArticle(Boolean(flow));
     } catch (cause) {
@@ -1157,23 +1177,7 @@ export default function PublishingMediaLibraryPage({
     try {
       const saved = await prepareDraftForNext(boundDraft, isCurrent);
       if (!isCurrent()) return;
-      const route = savedDraftRoute(saved);
-      if (publishingTarget) {
-        const url = new URL(projectWorkspaceUrl(route), window.location.origin);
-        url.searchParams.set("workbenchTask", publishingTarget.conversationId);
-        navigate(`${url.pathname}${url.search}`);
-        return;
-      }
-      await flow.handoff({
-        targetAgentId: "publishing",
-        title: `发布 · ${saved.articleTitle}`,
-        resources: [
-          { kind: "article_version", id: saved.articleVersionId },
-          { kind: "publication_draft", id: saved.id },
-        ],
-        idempotencyKey: `media-publishing-${saved.id}`,
-        route,
-      });
+      await openPreparedTitles(saved);
     } catch (reason) {
       if (!isCurrent()) return;
       setSelectionError(reason instanceof Error ? reason.message : "交接未完成，请重试");
@@ -1251,16 +1255,17 @@ export default function PublishingMediaLibraryPage({
         });
     }
   };
-  // 显式上游选择优先；恢复的逐稿模式决定分流，batch 仅表示组织方式。
+  // 标题语义仍由每稿已保存模式决定；所有模式共用标题配置入口。
   const flowModeParam=new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
-  const batchTitleStage = publishingTitleStage(batchQuery.data?.versions.map(versionId =>
-    batchDrafts.find(item => item.articleVersionId === versionId || item.articleId === batchQuery.data!.articleIdsByVersion[versionId]) ?? { titleMode: newDraftTitleMode }) ?? []);
+  const batchTitleModes = batchQuery.data?.versions.map(versionId =>
+    (batchDrafts.find(item => item.articleVersionId === versionId || item.articleId === batchQuery.data!.articleIdsByVersion[versionId]) ?? { titleMode: newDraftTitleMode }).titleMode) ?? [];
+  const savedBatchMode = batchTitleModes.length && batchTitleModes.every(mode => mode === 'single') ? 'single'
+    : batchTitleModes.some(mode => mode === 'per_media') ? 'per_media' : undefined;
   const flowMode: FlowStageMode = isBatch
-    ? batchTitleStage === 'review' ? 'single' : batchTitleStage === 'titles' ? 'per_media' : requestedTitleMode ?? (flowModeParam === 'single' ? 'single' : flowModeParam === 'batch' ? 'batch' : 'default')
+    ? savedBatchMode ?? requestedTitleMode ?? (flowModeParam === 'single' ? 'single' : flowModeParam === 'batch' ? 'batch' : 'default')
     : requestedTitleMode ?? task?.titleMode ?? (flowModeParam === 'single' || flowModeParam === 'per_media' || flowModeParam === 'multi' ? flowModeParam : 'default');
   const hasArticleContext=Boolean(isBatch||task||articleVersionId||draftId);
-  const flowSteps=<PublishingFlowSteps stages={flowStagesForMode(flowMode)} doneCount={hasArticleContext?1:0} activeIndex={hasArticleContext?1:0}/>;
-  const next=()=>{if(!hasArticleContext||contextReadIssue||selectionBusy||!selected.size)return;if(boundDraft&&flow)void handoff();else void continueSelection();};
+  const next=()=>{if(!hasArticleContext||contextReadIssue||selectionBusy||!selected.size)return;if(isBatch)void continueBatchSelection();else if(boundDraft&&flow)void handoff();else void continueSelection();};
   const exportRequest=useRef<AbortController|null>(null),[exporting,setExporting]=useState(false);
   useEffect(()=>{exportRequest.current?.abort();setExporting(false);return()=>exportRequest.current?.abort();},[workspaceKey,JSON.stringify(filters),scope,selectedIdsKey]);
   const exportCatalogue=async()=>{if(exporting)return;const abort=new AbortController();exportRequest.current?.abort();exportRequest.current=abort;setExporting(true);try{const first=await loadMedia(abort.signal,1),all=[...first.items];for(let page=2;(page-1)*first.pageSize<first.total;page++){const next=await loadMedia(abort.signal,page);if(next.catalog.activeRevision!==first.catalog.activeRevision)throw new Error('导出期间目录已更新，请重试。');all.push(...next.items);}if(!abort.signal.aborted)exportRows(all);}catch(e){if(!abort.signal.aborted)setDialogMessage(e instanceof Error?e.message:'媒体清单导出失败');}finally{if(!abort.signal.aborted)setExporting(false);}};
@@ -1274,7 +1279,7 @@ export default function PublishingMediaLibraryPage({
   const totalLabel = resultTotal === undefined ? (mediaQuery.loading ? "…" : "待确认") : resultTotal.toLocaleString("zh-CN");
   const previousResult = Boolean(mediaQuery.data && (mediaQuery.refreshing || mediaQuery.error || catalog?.stale));
   const pending=selectionAmounts.pending;
-  const nextLabel=flowMode==="single"?"预检发布":"配置标题";
+  const nextLabel="配置标题";
   const footer=<MediaCartFooter count={selected.size} total={selectedTotal} pending={pending} cartHref={pageHref(base+'/cart')} onNext={next} nextLabel={nextLabel} nextDisabled={!hasArticleContext||!!contextReadIssue||selectionBusy||!selected.size} nextHint={!hasArticleContext?"您还未选择稿件":contextReadIssue||(selectionBusy?'正在保存媒体选择…':!selected.size?'请先选择媒体':undefined)} articlesHref={hasArticleContext?undefined:projectWorkspaceUrl('/publishing/articles')} items={selectedValues} publicationItems={selectionPublicationItems} onRemove={media=>toggle(media)}/>;
   useEffect(()=>{if(articleChooserOpen&&!chosenVersion&&frozenArticles[0]?.currentVersionId)setChosenVersion(frozenArticles[0].currentVersionId);},[articleChooserOpen,chosenVersion,frozenArticles,setChosenVersion]);
   // 当前稿件下拉菜单的数据：批量逐篇列出，单稿显示绑定草稿/冻结版本的稿件名与版本号。
@@ -1289,7 +1294,7 @@ export default function PublishingMediaLibraryPage({
         : frozenVersion
           ? [{ id: articleVersionId ?? "version", title: currentArticleTitle ?? "已确认稿件", version: frozenVersion.version }]
           : [];
-  return <MediaShell steps={flowSteps} title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} note={view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':view==='home'?undefined:'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined}>
+  return <MediaShell title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} note={view==='cart'?'逐篇分配投放稿件；报价缺失单独标记，不参与已确认金额合计。':view==='home'?undefined:'一行一个媒体，横向对比平台、稿件要求和发布备注；勾选即加入购物车。'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined}>
   <CurrentArticlesMenu rows={articleMenuRows}/>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}

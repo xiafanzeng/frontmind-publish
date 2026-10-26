@@ -26,7 +26,6 @@ const LegacyPublicationListRedirect = lazy(() =>
 );
 const ArticlesPage = lazy(() => import("./pages/ArticlesPage"));
 const PublicationsPage = lazy(() => import("./pages/PublicationsPage"));
-const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const ImportPage = lazy(() => import("./pages/ImportPage"));
 const ArticleEditorPage = lazy(() => import("./pages/ArticleEditorPage"));
 const MediaLibraryPage = lazy(() => import("./pages/MediaLibraryPage"));
@@ -43,6 +42,9 @@ export type PublishingRoutesProps = {
 
 export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const search=useSearch();
+  const titlesDraftHref=(draftId:string)=>projectWorkspaceUrl(
+    `/publishing/drafts/${encodeURIComponent(draftId)}/titles${search ? `?${search.replace(/^\?/, '')}` : ''}`,
+  )+(typeof window!=='undefined'?window.location.hash:'');
   const matrixDraftHref=(draftId:string,view:'analysis'|'matrix'='matrix')=>{
     const params=new URLSearchParams(search);
     const matrixTask=params.get("task") || params.get("matrixTask");
@@ -124,15 +126,10 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               )}
             </Route>
             <Route path="/publishing/drafts/:draftId/review">
-              {(params) => (
-                <DraftConversationPage
-                  draftId={params.draftId}
-                  initialStage="review"
-                />
-              )}
+              {(params) => <Redirect replace to={titlesDraftHref(params.draftId)} />}
             </Route>
             <Route path="/publishing/review/:draftId">
-              {(params) => <ReviewPage draftId={params.draftId} />}
+              {(params) => <Redirect replace to={titlesDraftHref(params.draftId)} />}
             </Route>
             <Route path="/publishing/records">
               <PublicationsPage />

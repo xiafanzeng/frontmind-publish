@@ -55,6 +55,21 @@
 .monitoring-module .am-title-config .publishing-title-submit-icon { display:inline-flex; width:17px; }
 .monitoring-module .am-title-config :is(input,button,textarea,a,.publishing-title-table-scroll):focus-visible { outline:2px solid var(--publishing-purple); outline-offset:3px; }
 .monitoring-module .am-title-config button:disabled { cursor:not-allowed; }
+/* The title page now owns confirmation; retain the existing fee-card tokens and two-column contract. */
+.monitoring-module .am-title-config .publishing-title-confirmation > .publishing-review-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:22px; margin-top:24px; min-width:0; }
+.user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees,
+.monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees { container:publishing-review-fees / inline-size; box-sizing:border-box; padding:20px 24px; min-width:0; border:1px solid var(--publishing-line); border-radius:var(--publishing-radius); background:var(--publishing-surface); }
+.monitoring-module .am-title-config .publishing-title-content-check { margin-top:10px; padding-top:8px; border-top:1px solid var(--publishing-line); }
+.monitoring-module .am-title-config .publishing-title-content-check :is(span,strong) { display:block; margin-top:4px; color:var(--publishing-muted); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-content-check .is-danger { color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-title-content-check .is-success { color:var(--publishing-green); }
+.monitoring-module .am-title-config .publishing-title-single { display:block; color:var(--publishing-ink); overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-single + small { display:block; margin-top:8px; color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-check-feedback { display:grid; gap:12px; margin-top:16px; font-size:13px; line-height:1.7; }
+.monitoring-module .am-title-config .publishing-title-check-feedback:empty { display:none; }
+.monitoring-module .am-title-config .publishing-title-check-feedback .publishing-button { justify-self:start; }
+.monitoring-module .am-title-config .publishing-review-confirm { display:flex; align-items:flex-start; gap:10px; margin-bottom:18px; }
+.monitoring-module .am-title-config .publishing-review-confirm input { flex:none; width:18px; height:18px; margin-top:3px; accent-color:var(--publishing-purple); }
 @media(max-width:720px) {
   .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-draft-card,
   .monitoring-module .am-title-config .publishing-title-draft-card { padding:16px; }
@@ -65,4 +80,8 @@
   .monitoring-module .am-title-config .publishing-title-tools { align-items:flex-start; }
   .monitoring-module .am-title-config .publishing-title-tools > .publishing-button { width:100%; }
   .monitoring-module .am-title-config .publishing-workflow-footer { flex-wrap:wrap; }
+  .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees,
+  .monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees { padding:16px; }
+  .monitoring-module .am-title-config .publishing-title-confirmation .publishing-money-summary { grid-template-columns:minmax(0,1fr); grid-template-rows:none; grid-auto-flow:row; }
+  .monitoring-module .am-title-config .publishing-title-confirmation .publishing-money-summary > div:nth-child(n + 4) { padding-left:0; border-left:0; }
 }

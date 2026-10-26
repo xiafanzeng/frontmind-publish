@@ -152,8 +152,8 @@ export function publishingBreadcrumbs(path: string, search = ""): PublishingCrum
   const items: PublishingCrumb[] = [
     { label: "媒体发布", href: businessLeafHref("workbench", path, search) },
   ];
-  const detail = /\/titles$/.test(path) ? "配置发布标题"
-    : /\/review(?:\/[^/]+)?$/.test(path) ? "预检与发布"
+  const detail = /\/titles$/.test(path) ? "配置标题"
+    : /\/review(?:\/[^/]+)?$/.test(path) ? "配置标题"
     : /\/media\/cart$/.test(path) ? "购物车"
     : matrixDetail ? matrixDetail
     : /\/articles\/new\/import$/.test(path) ? "导入稿件"

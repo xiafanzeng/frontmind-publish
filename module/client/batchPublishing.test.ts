@@ -27,23 +27,23 @@ describe("ordered batch navigation", () => {
     expect(result.searchParams.getAll("batchArticle")).toEqual(["article-a", "article-b"]);
     expect(result.searchParams.getAll("batchArticleVersion")).toEqual(["v1", "v2"]);
     expect(result.searchParams.getAll("excludedDraft")).toEqual(["b"]);
-    expect(publishingBreadcrumbs("/publishing/drafts/a/review", search).at(-1)?.label).toBe("预检与发布");
-    expect(publishingBreadcrumbs("/publishing/drafts/a/titles", search).at(-1)?.label).toBe("配置发布标题");
+    expect(publishingBreadcrumbs("/publishing/drafts/a/review", search).at(-1)?.label).toBe("配置标题");
+    expect(publishingBreadcrumbs("/publishing/drafts/a/titles", search).at(-1)?.label).toBe("配置标题");
   });
-  it("resumes a partially accepted group at review instead of dropping pending drafts for the first receipt", () => {
+  it("resumes a partially accepted group at the combined titles page instead of dropping pending drafts for the first receipt", () => {
     const route = publishingTaskResumePath("publishing", {
       resources: [{kind: "publication_draft", id: "a"}, {kind: "publication_draft", id: "b"}, {kind: "publication_batch", id: "accepted-a"}],
       values: { publishingBatchReviewPending: true, batchDraftIds: ["a", "b"] },
       step: "submitted",
     });
-    expect(route).toContain("/publishing/drafts/a/review");
+    expect(route).toContain("/publishing/drafts/a/titles");
     expect(readPublishingBatch("a", route.split("?")[1]!).draftIds).toEqual(["a", "b"]);
   });
-  it("resumes an unresolved single-draft request at review even without a titles record", () => {
+  it("resumes an unresolved single-draft request at the combined titles page even without a titles record", () => {
     expect(publishingTaskResumePath("publishing", {
       resources: [{ kind: "publication_draft", id: "a" }],
       values: { publishingBatchReviewPending: true, batchDraftIds: ["a"] }, step: "",
-    })).toBe("/publishing/drafts/a/review");
+    })).toBe("/publishing/drafts/a/titles");
   });
   it("restores paired article identity and new frozen versions alongside prior draft mappings", () => {
     const route = publishingTaskResumePath("media", {
@@ -66,11 +66,11 @@ describe("ordered batch navigation", () => {
     const editor = new URL(publishingTaskResumePath("articles", state), "https://workspace.invalid");
     expect(editor.searchParams.get("draftId")).toBe("old-a");
   });
-  it("resumes a saved all-single batch directly at review without a titles-completed record", () => {
+  it("resumes a saved all-single batch directly at the combined titles page without a titles-completed record", () => {
     const route = publishingTaskResumePath("publishing", { resources: [], step: "media-selection", values: {
       batchDraftIds: ["a", "b"], publishingDraftTitleModes: { a: "single", b: "single" },
     } });
-    expect(route).toContain("/publishing/drafts/a/review");
+    expect(route).toContain("/publishing/drafts/a/titles");
     expect(readPublishingBatch("a", route.split("?")[1]!).draftIds).toEqual(["a", "b"]);
   });
   it("does not treat an incomplete saved mode map as an all-single group", () => {
