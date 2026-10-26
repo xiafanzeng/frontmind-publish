@@ -435,7 +435,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  const apply=await screen.findByRole('button',{name:'加入本组合'},{timeout:45000});
  await waitFor(()=>expect((apply as HTMLButtonElement).disabled).toBe(false), { timeout: 45000 });
  fireEvent.click(apply);
- await screen.findByText((_: string, element: HTMLElement | null) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', { timeout: 45000 });
+ await screen.findByText((content: string, element: HTMLElement | null) => element?.tagName === 'STRONG' && element.textContent === '新增 · 1 篇 · ¥100.00', { timeout: 45000 } as never);
  fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
  await screen.findByText(/已加入组合：新增 1 项/);
  expect(applyBodies).toHaveLength(2);
