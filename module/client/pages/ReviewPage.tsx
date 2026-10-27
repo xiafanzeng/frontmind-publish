@@ -4,6 +4,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import { PublishingConfirmDialog, PublishingError, PublishingLoading } from "../components/PublishingUi";
 import PublishingFrozenArticleDialog from "../components/PublishingFrozenArticleDialog";
+import PublishingReservationHelp from "../components/PublishingReservationHelp";
 import { usePublishingChoice } from "../components/PublishingConversation";
 import { formatPublishingMoney, type PublicationBatch, type PublicationDraft, type PublicationPreflight } from "../types";
 import { usePublishingFlow, usePublishingSummary, usePublishingOperationScope, publishingTaskUrl } from "../PublishingFlowContext";
@@ -12,7 +13,7 @@ import { reviewBatchNeedsAttention, reviewBatchTotals, submitReviewBatch } from 
 import { clearResolvedReviewRequests, mergeReviewSessionReceipts, restoreReviewSession, reviewSessions } from "../reviewSession";
 import { publishingTitleStage } from "../titleFlow";
 import { preflightMatchesReviewDraft, reviewDraftContext, type ManualReviewCheck } from "../reviewPreflight";
-import { publicationLineTotal, publicationQuantity } from "../publicationAmounts";
+import { preflightDisplayLineTotal, publicationLineTotal, publicationQuantity } from "../publicationAmounts";
 import "../publishing.review-batch.css";
 
 const REFRESHABLE_CATALOG_BLOCKERS = new Set([
@@ -184,8 +185,14 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   const pendingPreflights = ordinary.flatMap(group => group.preflight ? [group.preflight] : []);
   const checksComplete = ordinary.length > 0 && ordinary.every(group => group.check?.phase === "complete" && Boolean(group.preflight));
   const totals = reviewBatchTotals(pendingPreflights);
+  // Failed items can carry zero placeholders or stale historical publication
+  // totals. Never present their partial known sum as the complete excluded fee.
+  // This label is display-only; it does not change the existing submission totals.
+  const excludedFeesKnown = pendingPreflights.every(value =>
+    value.items.filter(item => item.blockers.length).every(item => preflightDisplayLineTotal(item, value.blockerCodes) !== null));
+  const excludedFeeLabel = excludedFeesKnown ? `预估费用 ${formatPublishingMoney(totals.excludedTotal.toString())}` : "费用待核验";
   const selectedItems = ordinary.flatMap(group => checksComplete && group.preflight
-    ? group.preflight.items.map(item => ({media:item.media, price:item.priceTenThousandths}))
+    ? group.preflight.items.filter(item => !item.blockers.length).map(item => ({media:item.media, price:item.priceTenThousandths}))
     : (configuration.drafts.find(draft => draft.id === group.draftId)?.items ?? []).map(item => ({media:item.media, price:publicationLineTotal(item) ?? ''})));
   const feesReading = configuration.loading || query.loading || query.refreshing;
   const selectedAmount = (items: typeof selectedItems) => {
@@ -206,7 +213,6 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   const unknownIds = activeIds.filter(id => Boolean(session.progress.requests[id]));
   const allAccepted = activeIds.length > 0 && acceptedCount === activeIds.length;
   const hasOrdinaryItems = ordinary.some(group => Boolean(configuration.drafts.find(draft => draft.id === group.draftId)?.items.length));
-  const uncheckedAmountLabel = unknownIds.length ? "受理结果待确认" : ordinary.length ? "待预检" : "无待预占";
   const attention = Object.values(session.progress.accepted).some(reviewBatchNeedsAttention);
   const live = pendingPreflights.some(value => value.mode === "live");
   const available = checksComplete ? session.estimatedBalance ?? totals.available : undefined;
@@ -216,9 +222,17 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   const displayAvailable = checksComplete ? available : acceptedCount > 0 && session.estimatedBalance !== undefined ? session.estimatedBalance
     : !feesReading && !configuration.error && !query.error && !balanceReading && !balanceQuery.error ? currentBalance?.amount : undefined;
   const displayTotal = checksComplete ? totals.publishTotal : estimatedTotal;
-  const amountPending = feesReading ? "正在读取…" : configuration.error || query.error || ordinary.some(group => group.error) ? "读取失败" : "报价待核验";
+  const feeReadError = Boolean(configuration.error || query.error || ordinary.some(group => group.error));
+  const amountPending = feesReading ? "正在读取…" : feeReadError ? "读取失败" : "报价待核验";
+  // Display-only estimates never approve a submission or create a wallet hold.
+  // An unresolved original request always takes precedence over a fresh estimate.
+  const reservationValue = unknownIds.length ? "受理结果待确认" : feesReading || !metadata ? amountPending
+    : feeReadError ? "读取失败"
+    : !configuration.ready ? "待核验" : !hasOrdinaryItems ? "无待预占"
+    : displayTotal === undefined ? amountPending : formatPublishingMoney(displayTotal.toString());
+  const reservationEstimated = !checksComplete && !unknownIds.length && hasOrdinaryItems && displayTotal !== undefined && !feesReading;
   const balancePending = configuration.error || query.error || balanceQuery.error ? "读取失败" : !metadata || feesReading || balanceReading ? "正在读取…" : "待核验";
-  const formatSelected = (value: typeof selectedNews) => feesReading || !metadata
+  const formatSelected = (value: typeof selectedNews) => feeReadError && !feesReading ? "读取失败" : feesReading || !metadata
     ? query.error ? "读取失败" : "正在读取…"
     : value.count + " 项 · " + (value.amount === undefined ? amountPending : formatPublishingMoney(value.amount.toString()));
   const globalBlocked = pendingPreflights.some(value => value.blockers.length > 0);
@@ -366,7 +380,7 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
   usePublishingSummary({title:"费用与发布状态", items:[
     {label:"稿件", value:draftIds.length + " 篇 · 已受理 " + acceptedCount + " 篇"},
     {label:"待发布组合", value:checksComplete ? totals.passedCount + " 项" : unknownIds.length ? "受理结果待确认" : hasOrdinaryItems ? "待预检" : "0 项"},
-    {label:"待预占费用", value:checksComplete ? formatPublishingMoney(totals.publishTotal.toString()) : uncheckedAmountLabel},
+    {label:"待预占费用", value:reservationValue + (reservationEstimated ? "（预估）" : "")},
     {label:"预检结果", value:unknownIds.length ? unknownIds.length + " 篇待确认受理结果" : allAccepted ? "全部发布请求已受理" : !checksComplete ? checking ? "预检中" : hasOrdinaryItems ? "请点击确认发布" : "未选择投放媒体" : blockedCount ? blockedCount + " 项待处理" : "等待确认发布"},
   ], note:submitError || undefined});
 
@@ -518,7 +532,7 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
       {children({busy, unknown:unknownIds.length > 0, unknownIds, acceptedIds:session.acceptedIds, groups, feedback})}
       <div className="publishing-review-layout">
         {query.error ? <PublishingError error={query.error} onRetry={reloadContext} /> : null}
-        {checking || checksComplete || errorCount ? <p className="publishing-review-counts" role="status">{checking ? "正在核验当前稿件、媒体与报价…" : `通过 ${totals.passedCount} 项 · 不通过 ${totals.failedCount} 项`}{errorCount ? ` · ${errorCount} 项核验未完成` : ""}{totals.failedCount ? `；未通过的组合不纳入本次提交，最终范围将在确认弹窗中列明。` : ""}</p> : null}
+        {checking || checksComplete || errorCount ? <p className="publishing-review-counts" role="status">{checking ? "正在核验当前稿件、媒体与报价…" : `通过 ${totals.passedCount} 项 · 不通过 ${totals.failedCount} 项`}{errorCount ? ` · ${errorCount} 项核验未完成` : ""}{totals.failedCount ? `；未通过的组合（${excludedFeeLabel}）不纳入本次提交，最终范围将在确认弹窗中列明。` : ""}</p> : null}
         <section className="publishing-panel publishing-review-fees" aria-label="费用与预算核验" aria-busy={feesReading || !checksComplete && balanceReading || undefined}>
           <header className="publishing-review-fees-head"><h2>费用与预算核验</h2></header>
           <dl className="publishing-money-summary">
@@ -526,15 +540,14 @@ function ReviewContent({ draftId, draftIds, onSubmitted, configuration, prepareC
             <div><dt>自媒体小计</dt><dd>{formatSelected(selectedSelfMedia)}</dd></div>
             <div><dt>预计总价</dt><dd className="is-total">{unknownIds.length ? "受理结果待确认" : allAccepted ? "无待提交投放" : displayTotal === undefined ? amountPending : formatPublishingMoney(displayTotal.toString())}</dd></div>
             <div><dt>{session.estimatedBalance !== undefined && acceptedCount ? "预计可用余额" : "可用余额"}</dt><dd>{displayAvailable === undefined ? balancePending : formatPublishingMoney(displayAvailable.toString())}</dd></div>
-            <div><dt>本次待预占</dt><dd>{checksComplete ? formatPublishingMoney(totals.publishTotal.toString()) : feesReading || !metadata ? amountPending : unknownIds.length || !hasOrdinaryItems ? uncheckedAmountLabel : "待发布前核验后确定"}</dd></div>
+            <div><dt>本次待预占<PublishingReservationHelp /></dt><dd>{reservationValue}{reservationEstimated ? <small className="publishing-reservation-estimate">预估</small> : null}</dd></div>
             <div className="publishing-money-after"><dt>{checksComplete ? "预占后预计可用" : "按预估扣除后余额"}</dt><dd>{unknownIds.length ? "受理结果待确认" : displayAvailable === undefined ? balancePending : displayTotal === undefined ? amountPending : formatPublishingMoney((displayAvailable - displayTotal).toString())}</dd></div>
           </dl>
-          <p className="publishing-review-cost-note">两类小计包含待提交稿件的全部已选投放项。完成核验前，预计总价与扣除后余额按当前所选投放项的目录报价预估，不代表内容已通过或资金已预占；核验完成后，预计总价与待预占仅计入通过内容检查的组合，以服务端报价为准。同一家媒体用于两篇稿件时分别计价；每项小计已包含发布次数和已确认费用，不重复乘次数。已取消、已排除稿件与已受理批次不重复计费。</p>
           {!checksComplete && balanceQuery.error ? <PublishingError error={balanceQuery.error} onRetry={balanceQuery.reload} /> : null}
-          {draftIds.length > 1 ? <p className="publishing-review-cost-note">各稿件将逐篇提交；中途失败或结果待核实时会停止后续提交，已受理批次会保留。每稿提交前重新核验余额，账户余额以服务端结果为准。</p> : null}
+          {!checksComplete && !unknownIds.length && hasOrdinaryItems && displayTotal === undefined && !feesReading && metadata && configuration.ready && !feeReadError ? <p className="publishing-review-cost-note" role="status">部分投放项缺少有效报价，费用待核验。请点击“确认发布”核验当前报价，或返回选择媒体调整。</p> : null}
           {busy || query.error ? <p className="publishing-review-cost-note" role="status">{query.error ? "稿件信息未能更新，请重试读取；当前不能确认发布。" : "正在更新，请等待预检或提交完成。"}</p> : null}
           {insufficient ? <p className="publishing-form-error" role="alert">可用余额不足以覆盖本次全部待提交组合，请调整媒体后重新预检。</p> : null}
-          {!allAccepted && !unknownIds.length && !checksComplete && metadata && !feesReading && (!hasOrdinaryItems || errorCount > 0) ? <p className="publishing-review-cost-note" role="status">{!hasOrdinaryItems ? "未选择投放媒体，无法继续。请返回修改。" : "有投放项预检失败，请重试完成预检后再确认发布。"}</p> : null}
+          {!allAccepted && !unknownIds.length && !checksComplete && metadata && configuration.ready && !feeReadError && !feesReading && (!hasOrdinaryItems || errorCount > 0) ? <p className="publishing-review-cost-note" role="status">{!hasOrdinaryItems ? "未选择投放媒体，无法继续。请返回修改。" : "有投放项预检失败，请重试完成预检后再确认发布。"}</p> : null}
           {submitError ? <p className="publishing-form-error" role="alert">{submitError}</p> : null}
           {attention ? <p className="publishing-form-error" role="status">已受理批次有待核实结果，后续稿件暂停提交。请查看该批次并刷新结果后继续。</p> : null}
           {unknownIds.length ? <p className="publishing-form-error" role="status">有 {unknownIds.length} 篇稿件的请求待确认。核实前暂停修改标题和刷新目录；刷新受理状态也会保留原提交请求。</p> : null}

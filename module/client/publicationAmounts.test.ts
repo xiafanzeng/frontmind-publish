@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { publicationIdentity, publicationLineTotal, publicationSelectionAmounts } from './publicationAmounts';
-import type { MediaResource, PublicationDraftItem } from './types';
+import { preflightDisplayLineTotal, publicationIdentity, publicationLineTotal, publicationSelectionAmounts } from './publicationAmounts';
+import type { MediaResource, PublicationDraftItem, PreflightItem } from './types';
 
 const media = { id: 'media-1', priceTenThousandths: '1000000' } as MediaResource;
 const repeated = (): PublicationDraftItem => ({ media, title: '已冻结标题', publication: {
@@ -33,5 +33,20 @@ describe('publication amount presentation', () => {
     const row = repeated(), original = publicationIdentity(row);
     row.publication!.quantity = 2;
     expect(publicationIdentity(row)).not.toBe(original);
+  });
+  it('uses a complete checked line once even when a content restriction excludes it', () => {
+    const item: PreflightItem = {...repeated(), priceTenThousandths:'3100000', blockers:['正文限制'], warnings:[], checks:[]};
+    expect(preflightDisplayLineTotal(item)).toBe('3100000');
+  });
+  it.each(['0', '-1', '', '待核验'])('keeps invalid checked line or catalogue price %s unknown', value => {
+    const item: PreflightItem = {...repeated(), priceTenThousandths:'3100000', blockers:['报价待核验'], warnings:[], checks:[]};
+    expect(preflightDisplayLineTotal({...item, priceTenThousandths:value})).toBeNull();
+    expect(preflightDisplayLineTotal({...item, media:{...item.media, priceTenThousandths:value}})).toBeNull();
+  });
+  it('does not display an old positive total after an item or catalogue quote becomes invalid', () => {
+    const item: PreflightItem = {...repeated(), priceTenThousandths:'3100000', blockers:['旧报价失效'], warnings:[], checks:[]};
+    expect(preflightDisplayLineTotal({...item, blockerCodes:['PUBLICATION_QUOTE_CHANGED']})).toBeNull();
+    expect(preflightDisplayLineTotal(item, ['CATALOG_STALE'])).toBeNull();
+    expect(preflightDisplayLineTotal({...item, publication:{...item.publication!, quantity:0}})).toBeNull();
   });
 });

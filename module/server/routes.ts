@@ -417,7 +417,7 @@ const publisherRouter = t.router({
                 ? (result.items.at(-1)?.id ?? null)
                 : null,
           };
-        }),
+        }, "媒体列表读取失败，请稍后重试。"),
       ),
     facets: publisherCustomerProcedure
       .input(mediaCatalogFacetsInputSchema)
@@ -425,7 +425,7 @@ const publisherRouter = t.router({
       .query(({ ctx, input }) =>
         translateRepositoryErrors(async () => {
           return ctx.publishingRepository.getPublisherMediaFacets(input ?? {});
-        }),
+        }, "媒体筛选项读取失败，请稍后重试。"),
       ),
   }),
   drafts: t.router({
@@ -438,6 +438,7 @@ const publisherRouter = t.router({
             ctx.user.id,
             input.draftId,
           ),
+          "投放草稿读取失败，请重试读取草稿。",
         ),
       ),
     save: publisherCustomerProcedure
@@ -1118,12 +1119,19 @@ function repositoryTrpcError(error: RepositoryError): TRPCError {
 
 async function translateRepositoryErrors<T>(
   operation: () => Promise<T>,
+  unexpectedMessage?: string,
 ): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    if (!(error instanceof RepositoryError)) throw error;
-    throw repositoryTrpcError(error);
+    if (error instanceof RepositoryError) throw repositoryTrpcError(error);
+    if (unexpectedMessage && (!(error instanceof TRPCError) || error.code === "INTERNAL_SERVER_ERROR")) {
+      // Keep the original DB/driver error and its nested cause available to the
+      // host's tRPC diagnostics, while only returning this safe text to users.
+      // Known permission/validation/conflict errors retain their original code.
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: unexpectedMessage, cause: error });
+    }
+    throw error;
   }
 }
 async function publicPublisherArticleSummary(

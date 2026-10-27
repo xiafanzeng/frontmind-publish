@@ -16,12 +16,13 @@ export function fitCatalogueChips(widths: readonly number[], available: number, 
   return count;
 }
 
-export default function CatalogueChipRow({ label, value, options, onChange, loading = false, hint }: {
+export default function CatalogueChipRow({ label, value, options, onChange, loading = false, emptyMessage, hint }: {
   label: string;
   value: string;
   options: CatalogueChip[];
   onChange: (value: string) => void;
   loading?: boolean;
+  emptyMessage?: string;
   hint?: string;
 }) {
   const id = useId();
@@ -70,7 +71,7 @@ export default function CatalogueChipRow({ label, value, options, onChange, load
           onClick={() => onChange(option.value)}>{option.label}</button>)}
         {overflow && <button type="button" className="mc-chip-toggle" aria-controls={id} aria-expanded={expanded}
           aria-label={`${expanded ? "收起" : "展开"}${label}选项`} onClick={() => setExpanded(current => !current)}>{expanded ? "收起 ▴" : "展开 ▾"}</button>}
-        {!options.length && <span className="mc-note mc-chip-empty">{loading ? "正在读取选项…" : "暂无可用选项"}</span>}
+        {!options.length && <span className="mc-note mc-chip-empty">{loading ? "正在读取选项…" : emptyMessage ?? "暂无可用选项"}</span>}
       </div>
       {hint && <span className="sr">{hint}</span>}
       {value && <span className="sr">{label}已选：{selected}；可在已选条件中删除。</span>}

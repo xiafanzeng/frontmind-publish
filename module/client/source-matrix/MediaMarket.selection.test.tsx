@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaRules } from '../../server/providers/kol/media-rules';
 import type { MediaResource } from '../types';
-import { MarketRow, useMarketRules } from './MediaMarket';
+import { MarketRow, MediaCartFooter, useMarketRules } from './MediaMarket';
 import { mediaSelectionBlocker } from '../mediaShortlist';
 
 const workspace = vi.hoisted(() => ({ value: 1 }));
@@ -61,6 +61,14 @@ beforeEach(() => { workspace.value = 1; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('media selection controls', () => {
+  it('does not describe an unread bound selection as an empty free cart', () => {
+    render(<MediaCartFooter count={0} total="0" selectionPending nextDisabled nextHint="投放草稿读取失败，请重试。" />);
+    expect(screen.getByText(/购物车 数量待确认/)).toBeTruthy();
+    expect(screen.getByText('总价待确认')).toBeTruthy();
+    expect(screen.queryByText('¥0.00')).toBeNull();
+    expect((screen.getByRole('button', { name: /配置标题/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('lets the real checkbox select unspecified image requirements without a blocking warning', () => {
     const onToggle = vi.fn();
     const blocker = mediaSelectionBlocker(media, true);
@@ -88,7 +96,7 @@ describe('media selection controls', () => {
 });
 
 describe('media rules recovery', () => {
-  it('does not request rule status before media ids exist, then reads actual rules', async () => {
+  it('does not read before media ids exist, then uses the guarded rules endpoint directly', async () => {
     const fetch = vi.fn(async (url: string) => url.endsWith('/status')
       ? response({ configured: true }) : rulesResponse());
     vi.stubGlobal('fetch', fetch);
@@ -98,8 +106,29 @@ describe('media rules recovery', () => {
 
     view.setIds([media.id]);
     await waitFor(() => expect(view.current().ready).toBe(true));
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain('/media-requirements?ids=');
     expect(view.current().rules[media.id]?.rawRemark).toBe('供应商原始要求');
+  });
+
+  it('does not refetch the same set when row order or duplicate ids change', async () => {
+    const fetch = vi.fn(async () => rulesResponse());
+    vi.stubGlobal('fetch', fetch);
+    const view = harness([media.id, 'media-2']);
+    await waitFor(() => expect(view.current().ready).toBe(true));
+    view.setIds(['media-2', media.id, media.id]);
+    await act(async () => {});
+    expect(view.current().ready).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps failed reads blocked without exposing database details', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ message: 'Failed query: select id from publisher_media_resources' }, false)));
+    const view = harness();
+    await waitFor(() => expect(view.current().loading).toBe(false));
+    expect(view.current().ready).toBe(false);
+    expect(view.current().error).toContain('请重试');
+    expect(view.current().error).not.toContain('publisher_media_resources');
   });
 
   it('retries failed rules for the same media ids and catalog revision', async () => {

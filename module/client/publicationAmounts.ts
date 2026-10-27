@@ -1,4 +1,19 @@
-import type { MediaResource, PublicationDraftItem } from './types';
+import type { MediaResource, PublicationDraftItem, PreflightItem } from './types';
+
+const UNVERIFIED_FEE_BLOCKERS = new Set([
+  'PRICE_INVALID', 'PRICE_CHANGED', 'PUBLICATION_QUOTE_CHANGED',
+  'CATALOG_CHANGED', 'CATALOG_STALE', 'CATALOG_KIND_INCOMPLETE',
+]);
+const positiveFee = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value) && BigInt(value) > 0n;
+
+/** Display only: a blocked check may carry zero placeholders or historical
+ * prices. Do not substitute those for a complete, valid line estimate. */
+export function preflightDisplayLineTotal(item: PreflightItem, blockerCodes: readonly string[] = []): string | null {
+  if ([...blockerCodes, ...(item.blockerCodes ?? [])].some(code => UNVERIFIED_FEE_BLOCKERS.has(code)) ||
+    !positiveFee(item.priceTenThousandths) || !positiveFee(item.media.priceTenThousandths) ||
+    item.publication && (publicationQuantity(item) === null || !positiveFee(item.publication.unitPriceTenThousandths) || !positiveFee(item.publication.totalPriceTenThousandths))) return null;
+  return item.priceTenThousandths;
+}
 
 /** Display only: authoritative prices and quantities are verified by the server.
  * A publication total already includes quantity and any confirmed mandatory fees.
