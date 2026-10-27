@@ -28,9 +28,9 @@ export const BUSINESS_NAV: BusinessNavModule[] = [
     id: "content",
     label: "稿件",
     views: [
-      { id: "articles-manage", label: "管理稿件", path: "/publishing/articles" },
-      // 编辑新稿是无需稿件上下文的真实编辑器入口；继续编辑既有稿件仍从管理稿件进入。
+      // 父级沿用第一项作为入口；已有编辑深链由 businessLeafHref 保留。
       { id: "article-edit", label: "编辑稿件", path: "/publishing/articles/new" },
+      { id: "articles-manage", label: "管理稿件", path: "/publishing/articles" },
       { id: "records", label: "发布记录", path: "/publishing/articles/records" },
     ],
   },

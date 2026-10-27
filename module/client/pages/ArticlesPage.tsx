@@ -1,5 +1,5 @@
 import { WorkflowPagination } from "../host";
-import { ArrowRight, FileCheck2, FileText, Plus, Upload } from "lucide-react";
+import { ArrowRight, FileCheck2, FileText, Pencil, Plus, Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearch } from "wouter";
 
@@ -21,10 +21,12 @@ import {
   PublishingStep,
   usePublishingChoice,
 } from "../components/PublishingConversation";
-import { requestWorkspaceNavigation } from "../host";
+import { projectWorkspaceUrl, requestWorkspaceNavigation } from "../host";
+import { articleEditorHref } from "../articleEditorRoute";
 import PublishingImportPage from "./ImportPage";
 import PublishingArticleEditorPage from "./ArticleEditorPage";
 import type { ArticleSummary } from "../types";
+import "./publishing.articles-list.css";
 
 export default function PublishingArticlesPage() {
   const gateway = usePublisherGateway();
@@ -121,13 +123,14 @@ export default function PublishingArticlesPage() {
               <span>当前版本</span>
               <span>内容</span>
               <span>最近更新</span>
-              <span aria-hidden="true" />
+              <span>操作</span>
             </div>
             {visibleArticles.map((article) => (
               <Link
                 key={article.id}
                 className="publishing-article-row"
-                href={`/publishing/articles/${article.id}/edit`}
+                href={projectWorkspaceUrl(articleEditorHref(article.id, search))}
+                aria-label={`继续编辑：${article.title || "未命名稿件"}（ID：${article.id}）`}
               >
                 <span className="publishing-article-name">
                   <span className="publishing-file-icon">
@@ -156,7 +159,10 @@ export default function PublishingArticlesPage() {
                   {article.imageCount} 张图片
                 </span>
                 <span>{publishingDateTime(article.updatedAt)}</span>
-                <ArrowRight size={17} />
+                <span className="publishing-article-continue">
+                  <Pencil size={16} aria-hidden="true" />
+                  <span>继续编辑</span>
+                </span>
               </Link>
             ))}
           </section>

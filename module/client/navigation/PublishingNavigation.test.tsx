@@ -27,12 +27,42 @@ it("switches the expanded group after a deep route change and restores highlight
   expect(screen.queryByRole("link",{name:"媒体库"})).toBeTruthy();
 });
 
-it("keeps the current section expanded when its parent link is clicked again", () => {
+it("opens the editor from the article parent and orders its independent child links", () => {
   const navigate = vi.fn();
   render(<PublishingNavigation path="/publishing/articles" search="" collapsed={false} onNavigate={navigate}/>);
   fireEvent.click(screen.getByRole("link",{name:"稿件"}));
-  expect(navigate).toHaveBeenCalledWith("/publishing/articles");
+  expect(navigate).toHaveBeenCalledWith("/publishing/articles/new");
   expect(screen.getByRole("link",{name:"管理稿件"})).toBeTruthy();
+  expect(Array.from(document.querySelectorAll("#publish-nav-content .publish-nav-child")).map(link => link.textContent)).toEqual(["编辑稿件", "管理稿件", "发布记录"]);
+});
+
+it("keeps the existing editor route and its context on repeated parent clicks", () => {
+  const navigate = vi.fn();
+  render(<PublishingNavigation path="/publishing/articles/article-7/edit" search="mode=multi&draftId=d7&returnTo=%2Fpublishing%2Farticles&workbenchTask=t7" collapsed={false} onNavigate={navigate}/>);
+  expect(screen.getByRole("link", {name:"编辑稿件"}).getAttribute("aria-current")).toBe("page");
+  fireEvent.click(screen.getByRole("link", {name:"稿件"}));
+  const target = new URL(navigate.mock.calls[0]![0], "https://workspace.invalid");
+  expect(target.pathname).toBe("/publishing/articles/article-7/edit");
+  expect(target.searchParams.get("draftId")).toBe("d7");
+  expect(target.searchParams.get("workbenchTask")).toBe("t7");
+  expect(target.searchParams.get("mode")).toBe("multi");
+  expect(target.searchParams.get("returnTo")).toBe("/publishing/articles");
+  expect(navigate).toHaveBeenCalledTimes(1);
+});
+
+it("derives article highlighting when moving between new, existing, list and records routes", () => {
+  const navigate = vi.fn();
+  const view = render(<PublishingNavigation path="/publishing/articles/new" search="" collapsed={false} onNavigate={navigate}/>);
+  for (const [path, active] of [
+    ["/publishing/articles/new", "编辑稿件"],
+    ["/publishing/articles/article-7/edit", "编辑稿件"],
+    ["/publishing/articles", "管理稿件"],
+    ["/publishing/articles/records", "发布记录"],
+    ["/publishing/articles/article-7/edit", "编辑稿件"],
+  ]) {
+    view.rerender(<PublishingNavigation path={path!} search="" collapsed={false} onNavigate={navigate}/>);
+    expect(screen.getByRole("link", {name: active!}).getAttribute("aria-current")).toBe("page");
+  }
 });
 
 it("collapses both sections on a section without child destinations", () => {
