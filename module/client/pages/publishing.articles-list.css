@@ -1,0 +1,79 @@
+/* Only the manager table needs a text action column; keep shared rows intact. */
+.monitoring-module .publishing-articles-table {
+  container: publishing-articles / inline-size;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-row {
+  grid-template-columns: minmax(0, 1.5fr) minmax(84px, .6fr) minmax(104px, .7fr) minmax(132px, .8fr) max-content;
+  gap: 16px;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-row > span {
+  min-width: 0;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-name small {
+  overflow-wrap: anywhere;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-name strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-continue {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--publishing-purple);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.monitoring-module .publishing-articles-table .publishing-article-continue svg {
+  flex-shrink: 0;
+}
+
+.monitoring-module .publishing-articles-table a.publishing-article-row:focus-visible {
+  outline: 2px solid var(--publishing-purple);
+  outline-offset: -3px;
+}
+
+/* Container sizing also handles a narrow content pane beside an open sidebar. */
+@container publishing-articles (max-width: 760px) {
+  .monitoring-module .publishing-articles-table .publishing-table-head {
+    display: none;
+  }
+
+  .monitoring-module .publishing-articles-table a.publishing-article-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 8px 12px;
+  }
+
+  .monitoring-module .publishing-articles-table a.publishing-article-row > span:nth-child(2),
+  .monitoring-module .publishing-articles-table a.publishing-article-row > span:nth-child(3),
+  .monitoring-module .publishing-articles-table a.publishing-article-row > span:nth-child(4) {
+    display: block;
+    grid-column: 1;
+  }
+
+  .monitoring-module .publishing-articles-table .publishing-article-continue {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+}
+
+@container publishing-articles (max-width: 320px) {
+  .monitoring-module .publishing-articles-table a.publishing-article-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitoring-module .publishing-articles-table .publishing-article-continue {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+}

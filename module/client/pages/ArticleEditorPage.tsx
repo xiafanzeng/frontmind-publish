@@ -4,6 +4,7 @@ import {
   Clock3,
   FileCheck2,
   Eye,
+  FolderOpen,
   Image as ImageIcon,
   X,
   LoaderCircle,
@@ -30,11 +31,16 @@ import {
 } from "../PublishingFlowContext";
 import {
   performApprovedWorkspaceNavigation,
+  projectWorkspaceUrl,
+  requestWorkspaceNavigation,
   usePublishingWorkspaceKey,
   useWorkspaceDraftGuard,
 } from "../host";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
+import PublishingArticlePicker from "../components/PublishingArticlePicker";
+import { articleEditorHref } from "../articleEditorRoute";
+import { consumePreparedArticle, prepareArticleEditor } from "../articleEditorHandoff";
 import { titleModeForFlowMode } from "../components/PublishingFlowSteps";
 import {
   PublishingBreadcrumbs,
@@ -51,7 +57,6 @@ import { buildHandwrittenDocxFile } from "../handwrittenArticle";
 import type {
   ArticleDetail,
   ArticleImage,
-  ArticleSummary,
   PublisherEditorContent,
 } from "../types";
 import { publishingDateTime } from "../types";
@@ -124,6 +129,25 @@ export default function PublishingArticleEditorPage({
   articleId: string;
   embedded?: boolean;
 }) {
+  const gateway = usePublisherGateway();
+  const workspaceKey = usePublishingWorkspaceKey();
+  const flow = usePublishingFlow();
+  const identity = `${workspaceKey}:${flow?.scopeKey ?? ""}:${flow?.taskId ?? ""}:${articleId}`;
+  const session = useRef({ gateway, identity, generation: 0 });
+  if (session.current.gateway !== gateway || session.current.identity !== identity) {
+    session.current = { gateway, identity, generation: session.current.generation + 1 };
+  }
+  // Never let a new route briefly render/save the preceding article's state.
+  return <ArticleEditorSession key={session.current.generation} articleId={articleId} embedded={embedded} />;
+}
+
+function ArticleEditorSession({
+  articleId,
+  embedded = false,
+}: {
+  articleId: string;
+  embedded?: boolean;
+}) {
   const isNew = articleId === "new";
   const gateway = usePublisherGateway();
   const flow = usePublishingFlow();
@@ -131,15 +155,19 @@ export default function PublishingArticleEditorPage({
   const search = useSearch();
   const workspaceKey = usePublishingWorkspaceKey();
   const batchContinue = useRef<(() => void) | null>(null);
+  const batchPicker = useRef<((trigger: HTMLButtonElement) => void) | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
   const modeParam = new URLSearchParams(search.replace(/^\?/u, "")).get("mode");
-  const operationScope = usePublishingOperationScope(articleId);
+  const operationScope = usePublishingOperationScope(`${workspaceKey}:${articleId}`);
+  const articleScope = `${workspaceKey}:${projectWorkspaceUrl("/")}`;
   const load = useCallback(
     (signal: AbortSignal) =>
       isNew
         ? // 新稿状态不请求详情；直接撰写经桥接落库，或经 DOCX 导入创建。
           new Promise<ArticleDetail>(() => {})
-        : gateway.getArticle(articleId, signal),
-    [articleId, gateway, isNew],
+        : Promise.resolve(consumePreparedArticle(gateway, articleScope, articleId))
+            .then(prepared => prepared ?? gateway.getArticle(articleId, signal)),
+    [articleId, gateway, isNew, articleScope],
   );
   const query = usePublisherQuery(load);
   const [article, setArticle] = useState<ArticleDetail>();
@@ -150,6 +178,9 @@ export default function PublishingArticleEditorPage({
   const [saveError, setSaveError] = useState("");
   const [savedSignature, setSavedSignature] = useState("");
   const saveRequest = useRef(0);
+  const saveLock = useRef(false);
+  const uploadLock = useRef(0);
+  const [uploading, setUploading] = useState(0);
   const freezeLock = useRef(false);
   const [freezing, setFreezing] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -171,6 +202,10 @@ export default function PublishingArticleEditorPage({
   const [frozenResult, setFrozenResult] = useState<ArticleDetail>();
   const previewObjectUrls = useRef(new Set<string>());
   const newFileInput = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTrigger, setPickerTrigger] = useState<HTMLButtonElement>();
+  const pickerRequest = useRef(0);
+  const closePicker = () => { pickerRequest.current += 1; setPickerOpen(false); };
 
   useEffect(
     () => () => {
@@ -207,7 +242,12 @@ export default function PublishingArticleEditorPage({
   }, [query.data]);
 
   const signature = JSON.stringify([title, content.html, images]);
-  const dirty = Boolean(article) && signature !== savedSignature;
+  const dirty = article ? signature !== savedSignature : isNew && Boolean(
+    title.trim() || content.text.trim() || images.length || /<(?:img|table|video)\b/iu.test(content.html),
+  );
+  const pending = saving || freezing || uploading > 0 || Boolean(flow?.outcomePending);
+  const currentEditor = useRef({ pending, signature, pickerOpen, editorMode });
+  currentEditor.current = { pending, signature, pickerOpen, editorMode };
   usePublishingSummary({
     title: "当前稿件",
     items: [
@@ -255,9 +295,12 @@ export default function PublishingArticleEditorPage({
   /** 方案 A 桥接：手写内容 → 浏览器生成最小 DOCX → 现有导入接口创建 → saveArticle 覆写。 */
   const persistHandwritten = useCallback(
     async (draftTitle: string, draftContent: PublisherEditorContent) => {
+      const isCurrent = operationScope();
       const file = buildHandwrittenDocxFile(draftTitle, draftContent.text);
       const imported = await gateway.importDocx(file);
+      if (!isCurrent()) throw new Error("稿件工作区已切换，请回到原工作区查看保存结果。");
       const created = await gateway.getArticle(imported.articleId);
+      if (!isCurrent()) throw new Error("稿件工作区已切换，请回到原工作区查看保存结果。");
       return gateway.saveArticle({
         articleId: imported.articleId,
         expectedRevision: created.revision,
@@ -268,11 +311,14 @@ export default function PublishingArticleEditorPage({
         images: [],
       });
     },
-    [gateway],
+    [gateway, operationScope],
   );
 
   const saveNow = useCallback(async () => {
     if (!article || !dirty) return article;
+    if (saveLock.current) throw new Error("稿件正在保存，请稍后继续。");
+    const isCurrent = operationScope();
+    saveLock.current = true;
     const request = ++saveRequest.current;
     const submittedSignature = signature;
     setSaving(true);
@@ -289,40 +335,46 @@ export default function PublishingArticleEditorPage({
         editorJson: content.json,
         images,
       });
-      if (request === saveRequest.current) {
+      if (isCurrent() && request === saveRequest.current) {
         setArticle(saved);
         setSavedSignature(submittedSignature);
       }
       return saved;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "保存失败";
-      if (request === saveRequest.current) setSaveError(message);
+      if (isCurrent() && request === saveRequest.current) setSaveError(message);
       throw reason;
     } finally {
-      if (request === saveRequest.current) setSaving(false);
+      saveLock.current = false;
+      if (isCurrent() && request === saveRequest.current) setSaving(false);
     }
-  }, [article, content, dirty, gateway, images, signature, title]);
+  }, [article, content, dirty, gateway, images, signature, title, operationScope]);
   useWorkspaceDraftGuard({
-    dirty,
-    label: "稿件正文与图片",
-    save: async () => {
+    dirty: editorMode !== "batch" && (dirty || pending),
+    label: isNew ? "尚未保存的新稿件，切换后将离开当前内容" : "稿件正文与图片，切换后将离开当前稿件",
+    // A never-saved draft has no identity yet. Its existing explicit Save
+    // button remains the creation action; leaving offers cancel/discard only.
+    save: isNew ? undefined : async () => {
+      if (currentEditor.current.pending || saveLock.current) return false;
+      const submitted = currentEditor.current.signature;
       try {
         await saveNow();
-        return true;
+        return currentEditor.current.signature === submitted;
       } catch {
         return false;
       }
     },
+    discard: async () => !currentEditor.current.pending && !saveLock.current,
   });
 
   useEffect(() => {
-    if (!dirty || saving) return;
+    if (!article || !dirty || saving || pickerOpen || editorMode === "batch") return;
     const timer = window.setTimeout(
       () => void saveNow().catch(() => undefined),
       800,
     );
     return () => window.clearTimeout(timer);
-  }, [dirty, saveNow, saving, signature]);
+  }, [article, dirty, saveNow, saving, signature, pickerOpen, editorMode]);
 
   const freezeAndContinue = async () => {
     if (!article || saving || freezeLock.current || flow?.outcomePending)
@@ -425,6 +477,9 @@ export default function PublishingArticleEditorPage({
     async (file: File) => {
       if (!article) throw new Error("稿件尚未就绪");
       const isCurrent = operationScope();
+      uploadLock.current += 1;
+      setUploading(uploadLock.current);
+      try {
       const defaultAlt = file.name.replace(/\.[^.]+$/u, "").trim();
       const uploaded = await gateway.uploadArticleImage(
         article.id,
@@ -444,6 +499,10 @@ export default function PublishingArticleEditorPage({
         uploaded,
       ]);
       return uploaded;
+      } finally {
+        uploadLock.current -= 1;
+        if (isCurrent()) setUploading(uploadLock.current);
+      }
     },
     [article, gateway, operationScope],
   );
@@ -481,6 +540,30 @@ export default function PublishingArticleEditorPage({
     );
   };
 
+  const selectArticle = (details: ArticleDetail[]) => {
+    const selected = details[0];
+    if (!selected || currentEditor.current.pending || !currentEditor.current.pickerOpen) return;
+    // Selecting the current article must not reload over unsaved edits.
+    if (selected.id === article?.id) { closePicker(); return; }
+    const request = ++pickerRequest.current;
+    const isCurrent = operationScope();
+    requestWorkspaceNavigation(() => {
+      if (!isCurrent() || request !== pickerRequest.current || !currentEditor.current.pickerOpen ||
+          saveLock.current || freezeLock.current || uploadLock.current || flow?.outcomePending) return;
+      closePicker();
+      // The picker already read full detail before asking to leave. Consume
+      // that exact response on the target route instead of risking a second
+      // failed read after the user discarded the previous unsaved article.
+      prepareArticleEditor(gateway, articleScope, selected);
+      // The detail API has no persisted per-article editor mode or task ID.
+      // Preserve explicit single/multi intent, but never reuse another
+      // article's draft, version, task or media bindings.
+      performApprovedWorkspaceNavigation(() =>
+        navigate(projectWorkspaceUrl(articleEditorHref(selected.id, search, { mode: editorMode }))),
+      );
+    });
+  };
+
   /** 编辑页统一结构：步骤提示 + 上传行 + 模式切换（嵌入单元内不重复渲染）。 */
   const editorChrome = (
     <>
@@ -501,6 +584,19 @@ export default function PublishingArticleEditorPage({
             <Upload size={16} /> 上传文档
           </Link>
         )}
+        <button
+          type="button"
+          className="publishing-button publishing-button-secondary"
+          disabled={pending || (editorMode === "batch" && (batchBusy || (!isNew && !article)))}
+          onClick={(event) => {
+            if (editorMode === "batch") { batchPicker.current?.(event.currentTarget); return; }
+            pickerRequest.current += 1;
+            setPickerTrigger(event.currentTarget);
+            setPickerOpen(true);
+          }}
+        >
+          <FolderOpen size={16} /> 选择稿件
+        </button>
         <button
           type="button"
           className="publishing-button publishing-button-secondary"
@@ -526,6 +622,13 @@ export default function PublishingArticleEditorPage({
               : "尚未冻结版本：点击后自动保存并冻结，再进入媒体选择首页"}
         </span>
       </div>
+      <PublishingArticlePicker
+        open={pickerOpen && editorMode !== "batch"}
+        onClose={closePicker}
+        onSelect={selectArticle}
+        disabled={pending}
+        trigger={pickerTrigger}
+      />
       <div className="publishing-editor-mode-switch" role="tablist" aria-label="编辑模式">
         {EDITOR_MODES.map(([mode, label, hint]) => (
           <button
@@ -534,7 +637,13 @@ export default function PublishingArticleEditorPage({
             role="tab"
             aria-selected={editorMode === mode}
             className={editorMode === mode ? "is-active" : ""}
-            onClick={() => setEditorMode(mode)}
+            disabled={pending || batchBusy}
+            onClick={() => {
+              if (mode === editorMode) return;
+              const change = () => { closePicker(); setEditorMode(mode); };
+              if (mode === "batch" || editorMode === "batch") requestWorkspaceNavigation(change);
+              else change();
+            }}
           >
             <strong>{label}</strong><span>{hint}</span>
           </button>
@@ -546,7 +655,9 @@ export default function PublishingArticleEditorPage({
   // 新稿：与已有稿件同一界面——直接撰写标题/正文，首次保存经桥接落库为真实稿件。
   if (isNew) {
     const saveNewDraft = async () => {
-      if (saving) return;
+      if (saveLock.current) return;
+      saveLock.current = true;
+      const isCurrent = operationScope();
       setSaving(true);
       setSaveError("");
       try {
@@ -554,11 +665,12 @@ export default function PublishingArticleEditorPage({
           editorMode === "multi" ? fallbackTitle(content) : title,
           content,
         );
-        enterCreatedArticle(saved.id);
+        if (isCurrent()) enterCreatedArticle(saved.id);
       } catch (reason) {
-        setSaveError(reason instanceof Error ? reason.message : "保存失败，请重试");
+        if (isCurrent()) setSaveError(reason instanceof Error ? reason.message : "保存失败，请重试");
       } finally {
-        setSaving(false);
+        saveLock.current = false;
+        if (isCurrent()) setSaving(false);
       }
     };
     if (editorMode === "batch") {
@@ -568,7 +680,7 @@ export default function PublishingArticleEditorPage({
           description="逐篇准备多份稿件：文章 1 直接撰写，继续添加新单元或上传解析。"
         >
           {editorChrome}
-          <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:new`} continueAction={batchContinue} />
+          <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:new`} continueAction={batchContinue} pickerAction={batchPicker} onBusyChange={setBatchBusy} />
         </PublishingPage>
       );
     }
@@ -638,16 +750,19 @@ export default function PublishingArticleEditorPage({
           onChange={async (event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (!file || saving) return;
+            if (!file || saveLock.current) return;
+            const isCurrent = operationScope();
+            saveLock.current = true;
             setSaving(true);
             setSaveError("");
             try {
               const imported = await gateway.importDocx(file);
-              enterCreatedArticle(imported.articleId);
+              if (isCurrent()) enterCreatedArticle(imported.articleId);
             } catch (reason) {
-              setSaveError(reason instanceof Error ? reason.message : "导入失败，请重试");
+              if (isCurrent()) setSaveError(reason instanceof Error ? reason.message : "导入失败，请重试");
             } finally {
-              setSaving(false);
+              saveLock.current = false;
+              if (isCurrent()) setSaving(false);
             }
           }}
         />
@@ -667,7 +782,7 @@ export default function PublishingArticleEditorPage({
         {query.error ? (
           <PublishingError error={query.error} onRetry={query.reload} />
         ) : null}
-        {article ? <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:${articleId}`} continueAction={batchContinue}
+        {article ? <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:${articleId}`} continueAction={batchContinue} pickerAction={batchPicker} onBusyChange={setBatchBusy}
           initialBound={
             article
               ? {
@@ -1025,8 +1140,12 @@ type BatchUnit = {
 function BatchUnitsEditor({
   initialBound,
   continueAction,
+  pickerAction,
+  onBusyChange,
 }: {
   continueAction?: { current: (() => void) | null };
+  pickerAction?: { current: ((trigger: HTMLButtonElement) => void) | null };
+  onBusyChange?: (busy: boolean) => void;
   initialBound?: {
     articleId: string;
     revision: number;
@@ -1065,13 +1184,12 @@ function BatchUnitsEditor({
   const prepareLock = useRef(false);
   const savingUnits = useRef(new Set<number>());
   const [unitError, setUnitError] = useState("");
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   // 选择已有稿件：多选后每个选中稿件生成一个批量单元。
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerArticles, setPickerArticles] = useState<ArticleSummary[] | null>(null);
-  const [pickerLoading, setPickerLoading] = useState(false);
-  const [pickerError, setPickerError] = useState("");
-  const [pickerSelection, setPickerSelection] = useState<string[]>([]);
-  const [appendingSelection, setAppendingSelection] = useState(false);
+  const [pickerTrigger, setPickerTrigger] = useState<HTMLButtonElement>();
   const nextKey = useRef(2);
   const fileTargets = useRef(new Map<number, HTMLInputElement>());
   const removedArticleIds = useRef(new Set<string>());
@@ -1083,65 +1201,41 @@ function BatchUnitsEditor({
   const recoveryKey = JSON.stringify(recoveryArticleIds);
   const recoveryPending = recoveryArticleIds.some(id => !units.some(unit => unit.articleId === id));
 
-  const openArticlePicker = async () => {
-    if (pickerLoading) return;
+  const batchPending = preparing || recovering || units.some(unit => unit.saving) || Boolean(flow?.outcomePending);
+  const openArticlePicker = (trigger: HTMLButtonElement) => {
+    if (batchPending || prepareLock.current || savingUnits.current.size) return;
+    setPickerTrigger(trigger);
     setPickerOpen(true);
-    setPickerError("");
-    if (pickerArticles) return;
-    setPickerLoading(true);
-    try {
-      const articles = await gateway.listArticles();
-      setPickerArticles(articles);
-    } catch (reason) {
-      setPickerError(reason instanceof Error ? reason.message : "读取稿件列表失败，请重试");
-    } finally {
-      setPickerLoading(false);
-    }
   };
+  useEffect(() => {
+    if (!pickerAction) return;
+    pickerAction.current = openArticlePicker;
+    return () => { pickerAction.current = null; };
+  });
+  useEffect(() => { onBusyChange?.(batchPending); }, [batchPending, onBusyChange]);
+  useEffect(() => () => { onBusyChange?.(false); }, [onBusyChange]);
 
-  const confirmArticlePicker = async () => {
-    if (appendingSelection || !pickerSelection.length) return;
-    const existing = new Set(units.map((unit) => unit.articleId).filter(Boolean));
-    const targets = pickerSelection.filter((id) => !existing.has(id));
+  const confirmArticlePicker = (loaded: ArticleDetail[]) => {
+    if (batchPending || prepareLock.current || savingUnits.current.size) return;
+    const existing = new Set(unitsRef.current.map(unit => unit.articleId).filter(Boolean));
+    const additions: BatchUnit[] = [];
+    for (const detail of loaded) {
+      if (existing.has(detail.id)) continue;
+      existing.add(detail.id);
+      const html = sanitizePublisherEditorHtml(detail.bodyHtml ?? publisherPlainTextToHtml(detail.bodyText), detail.images);
+      const unit: BatchUnit = {
+        key: nextKey.current++, articleId: detail.id, revision: detail.revision, title: detail.title,
+        content: { html, text: detail.bodyText || publisherHtmlToPlainText(html), json: detail.editorJson ?? { type: "doc", content: [] } },
+        images: detail.images, currentVersionId: detail.status === "frozen" ? detail.currentVersionId : undefined,
+        saving: false, note: "已从稿件库加入",
+      };
+      unit.savedSignature = signature(unit);
+      additions.push(unit);
+    }
+    unitsRef.current = [...unitsRef.current, ...additions];
+    setUnits(unitsRef.current);
     setPickerOpen(false);
-    if (!targets.length) {
-      setPickerSelection([]);
-      return;
-    }
-    setAppendingSelection(true);
     setUnitError("");
-    try {
-      const loaded = await Promise.all(targets.map((id) => gateway.getArticle(id)));
-      setUnits((current) => [
-        ...current,
-        ...loaded.map((detail) => {
-          const html = sanitizePublisherEditorHtml(
-            detail.bodyHtml ?? publisherPlainTextToHtml(detail.bodyText),
-            detail.images,
-          );
-          return {
-            key: nextKey.current++,
-            articleId: detail.id,
-            revision: detail.revision,
-            title: detail.title,
-            content: {
-              html,
-              text: detail.bodyText || publisherHtmlToPlainText(html),
-              json: detail.editorJson ?? { type: "doc", content: [] },
-            },
-            images: detail.images,
-            currentVersionId: detail.currentVersionId,
-            saving: false,
-            note: "已从稿件库加入",
-          } satisfies BatchUnit;
-        }),
-      ]);
-      setPickerSelection([]);
-    } catch (reason) {
-      setUnitError(reason instanceof Error ? reason.message : "加入所选稿件失败，请重试");
-    } finally {
-      setAppendingSelection(false);
-    }
   };
 
   const patchUnit = (key: number, patch: Partial<BatchUnit>) => {
@@ -1157,10 +1251,13 @@ function BatchUnitsEditor({
     patchUnit(first.key, { ...initialBound, savedSignature: signature(initialBound), note: "当前稿件（已保存）" });
   }, [initialBound?.articleId]);
   useEffect(() => {
-    if (recoveryArticleIds.length < 2 || prepareLock.current) return;
+    if (!recoveryArticleIds.some(id => !unitsRef.current.some(unit => unit.articleId === id)) || prepareLock.current) return;
     let active = true;
+    const controller = new AbortController();
     const isCurrent = operationScope();
-    void Promise.all(recoveryArticleIds.map(id => gateway.getArticle(id))).then(details => {
+    setRecovering(true);
+    setRecoveryError("");
+    void Promise.all(recoveryArticleIds.map(id => gateway.getArticle(id, controller.signal))).then(details => {
       if (!active || !isCurrent() || prepareLock.current) return;
       const current = unitsRef.current;
       const recovered = details.map((detail, index): BatchUnit => {
@@ -1183,10 +1280,12 @@ function BatchUnitsEditor({
       unitsRef.current = [...recovered, ...extras];
       setUnits(unitsRef.current);
     }).catch(reason => {
-      if (active && isCurrent()) setUnitError(reason instanceof Error ? reason.message : "未能恢复全部批量稿件，请重新载入。");
+      if (active && isCurrent()) setRecoveryError(reason instanceof Error ? reason.message : "未能恢复全部批量稿件，请重试。");
+    }).finally(() => {
+      if (active && isCurrent()) setRecovering(false);
     });
-    return () => { active = false; };
-  }, [gateway, recoveryKey, operationScope]);
+    return () => { active = false; controller.abort(); };
+  }, [gateway, recoveryKey, operationScope, recoveryAttempt]);
 
   const saveUnit = async (key: number) => {
     let unit = unitsRef.current.find((item) => item.key === key);
@@ -1258,6 +1357,25 @@ function BatchUnitsEditor({
     }
   };
 
+  const unitIsDirty = (unit: BatchUnit) => unit.articleId
+    ? unit.savedSignature !== signature(unit)
+    : Boolean(unit.title.trim() || unit.content.text.trim() || unit.images.length || /<(?:img|table|video)\b/iu.test(unit.content.html));
+  useWorkspaceDraftGuard({
+    dirty: batchPending || units.some(unitIsDirty),
+    label: "批量稿件中的未保存内容，切换后将离开当前批次",
+    save: async () => {
+      if (prepareLock.current || savingUnits.current.size || unitsRef.current.some(unit => unit.saving)) return false;
+      try {
+        for (const unit of [...unitsRef.current]) if (unitIsDirty(unit)) await saveUnit(unit.key);
+        return !unitsRef.current.some(unitIsDirty);
+      } catch (reason) {
+        setUnitError(reason instanceof Error ? reason.message : "保存失败，请重试");
+        return false;
+      }
+    },
+    discard: async () => !prepareLock.current && !savingUnits.current.size && !unitsRef.current.some(unit => unit.saving),
+  });
+
   const importIntoUnit = async (key: number, file: File) => {
     const unit = units.find((item) => item.key === key);
     if (!unit || unit.saving) return;
@@ -1269,9 +1387,12 @@ function BatchUnitsEditor({
     }
     patchUnit(key, { saving: true });
     setUnitError("");
+    const isCurrent = operationScope();
     try {
       const imported = await gateway.importDocx(file);
+      if (!isCurrent()) return;
       const detail = await gateway.getArticle(imported.articleId);
+      if (!isCurrent()) return;
       const html = sanitizePublisherEditorHtml(
         detail.bodyHtml ?? publisherPlainTextToHtml(detail.bodyText),
         detail.images,
@@ -1292,8 +1413,10 @@ function BatchUnitsEditor({
         note: `已导入并保存 · ${detail.id.slice(0, 8)}`,
       });
     } catch (reason) {
-      patchUnit(key, { saving: false });
-      setUnitError(reason instanceof Error ? reason.message : "导入失败，请重试");
+      if (isCurrent()) {
+        patchUnit(key, { saving: false });
+        setUnitError(reason instanceof Error ? reason.message : "导入失败，请重试");
+      }
     }
   };
 
@@ -1477,7 +1600,7 @@ function BatchUnitsEditor({
       <button
         type="button"
         className="publishing-batch-add"
-        disabled={preparing || appendingSelection || units.some(unit => unit.saving)}
+        disabled={batchPending}
         onClick={() =>
           setUnits((current) => [
             ...current,
@@ -1497,92 +1620,21 @@ function BatchUnitsEditor({
       <button
         type="button"
         className="publishing-batch-add"
-        disabled={preparing || appendingSelection || units.some(unit => unit.saving)}
-        onClick={() => void openArticlePicker()}
+        disabled={batchPending}
+        onClick={(event) => openArticlePicker(event.currentTarget)}
       >
         📁 从稿件库选择已有稿件
       </button>
       </div>
-      {appendingSelection ? <p className="publishing-editor-inline-note">正在加入所选稿件…</p> : null}
-      {pickerOpen ? (
-        <div
-          className="publishing-article-preview-backdrop"
-          role="presentation"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setPickerOpen(false);
-          }}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPickerOpen(false);
-          }}
-        >
-          <section
-            className="publishing-media-picker"
-            role="dialog"
-            aria-modal="true"
-            aria-label="选择已有稿件"
-          >
-            <header>
-              <div>
-                <strong>选择已有稿件</strong>
-                <span>勾选后确认，每篇选中稿件都会生成为一个批量单元</span>
-              </div>
-              <button
-                type="button"
-                className="publishing-dialog-close"
-                aria-label="关闭稿件选择"
-                onClick={() => setPickerOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </header>
-            <div className="publishing-media-picker-body">
-              {pickerLoading ? <PublishingLoading label="正在读取稿件列表…" /> : null}
-              {pickerError ? <p className="publishing-form-error" role="alert">{pickerError}</p> : null}
-              {pickerArticles?.length
-                ? pickerArticles.map((article) => {
-                    const already = units.some((unit) => unit.articleId === article.id);
-                    return (
-                      <label key={article.id} className="publishing-media-option">
-                        <input
-                          type="checkbox"
-                          checked={pickerSelection.includes(article.id) || already}
-                          disabled={already}
-                          onChange={(event) =>
-                            setPickerSelection((current) =>
-                              event.target.checked
-                                ? [...current, article.id]
-                                : current.filter((id) => id !== article.id),
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>{article.title || "未命名稿件"}</strong>
-                          <small>
-                            {already ? "已在批量列表中" : `${article.wordCount.toLocaleString("zh-CN")} 字 · ${article.imageCount} 张图片 · ${article.currentVersionId ? `v${article.currentVersion} 已冻结` : "草稿"}`}
-                          </small>
-                        </span>
-                      </label>
-                    );
-                  })
-                : null}
-              {pickerArticles && !pickerArticles.length && !pickerLoading ? (
-                <p className="publishing-editor-inline-note">稿件库还没有稿件，可先“继续添加一篇文章”直接撰写或导入。</p>
-              ) : null}
-            </div>
-            <footer>
-              <span className="publishing-editor-inline-note">已选 {pickerSelection.length} 篇</span>
-              <button
-                type="button"
-                className="publishing-button publishing-button-primary"
-                disabled={!pickerSelection.length || appendingSelection || pickerLoading}
-                onClick={() => void confirmArticlePicker()}
-              >
-                加入批量列表（{pickerSelection.length}）
-              </button>
-            </footer>
-          </section>
-        </div>
-      ) : null}
+      <PublishingArticlePicker
+        open={pickerOpen}
+        multiple
+        excludedIds={units.flatMap(unit => unit.articleId ? [unit.articleId] : [])}
+        disabled={batchPending}
+        trigger={pickerTrigger}
+        onClose={() => setPickerOpen(false)}
+        onSelect={confirmArticlePicker}
+      />
       <div className="publishing-batch-unit-foot">
         <span className="publishing-editor-inline-note">本次共 {units.length} 篇稿件；确认后一起选择媒体。</span>
         <button type="button" className="publishing-button publishing-button-primary"
@@ -1592,6 +1644,13 @@ function BatchUnitsEditor({
       </div>
       {unitError ? (
         <p className="publishing-form-error" role="alert">{unitError}</p>
+      ) : null}
+      {recoveryError ? (
+        <div className="publishing-form-error" role="alert">
+          <p>{recoveryError} 当前稿件与未保存内容已保留。</p>
+          <button type="button" className="publishing-button publishing-button-secondary" disabled={batchPending}
+            onClick={() => setRecoveryAttempt(value => value + 1)}>重试恢复稿件</button>
+        </div>
       ) : null}
       <p className="publishing-editor-inline-note">
         每个单元独立保存为一篇真实稿件；删除按钮仅把单元移出本批量列表，不删除已保存的稿件记录。

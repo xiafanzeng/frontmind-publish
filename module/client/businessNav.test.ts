@@ -4,6 +4,19 @@ import { BUSINESS_NAV, activeBusinessLeaf, businessLeafHref, businessModuleOf, p
 const url = (href: string | undefined) => new URL(href!, "https://workspace.invalid");
 
 describe("publishing navigation context", () => {
+  it("opens the editor from the article parent while keeping all three independent destinations", () => {
+    const content = BUSINESS_NAV.find(item => item.id === "content")!;
+    expect(content.views.map(item => [item.id, item.path])).toEqual([
+      ["article-edit", "/publishing/articles/new"],
+      ["articles-manage", "/publishing/articles"],
+      ["records", "/publishing/articles/records"],
+    ]);
+    expect(businessLeafHref((content.home ?? content.views[0]!).id, "/publishing/articles")).toBe("/publishing/articles/new");
+    expect(activeBusinessLeaf("/publishing/articles")).toBe("articles-manage");
+    expect(publishingBreadcrumbs("/publishing/articles/new").at(-1)).toEqual({ label: "编辑稿件" });
+    expect(publishingBreadcrumbs("/publishing/articles/a1/edit").at(-1)).toEqual({ label: "编辑稿件" });
+  });
+
   it("keeps the overview separate from the two media child destinations", () => {
     const media = BUSINESS_NAV.find(item => item.id === "intent")!;
     expect(media.home?.id).toBe("media-home");

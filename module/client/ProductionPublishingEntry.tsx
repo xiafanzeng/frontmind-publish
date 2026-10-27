@@ -109,13 +109,21 @@ export function createServerBackedPublisherGateway(
     const articles: ApiArticleSummary[] = [];
     let cursor: string | undefined;
     const seenCursors = new Set<string>();
-    for (let page = 0; page < 20; page += 1) {
+    while (true) {
+      throwIfAborted(signal);
       const result = await client.publisher.articles.list.query(
         { limit: 100, ...(cursor ? { cursor } : {}) },
         { signal },
       );
+      throwIfAborted(signal);
       articles.push(...result.items);
-      if (!result.nextCursor || seenCursors.has(result.nextCursor)) break;
+      if (!result.nextCursor) break;
+      if (seenCursors.has(result.nextCursor)) {
+        throw new PublisherGatewayError(
+          "稿件列表分页游标重复，请重试读取完整列表。",
+          "unavailable",
+        );
+      }
       seenCursors.add(result.nextCursor);
       cursor = result.nextCursor;
     }
