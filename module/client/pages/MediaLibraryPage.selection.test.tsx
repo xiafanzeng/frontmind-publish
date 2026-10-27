@@ -547,7 +547,9 @@ describe("media selection context and persistence", () => {
     expect(pageSelection().disabled).toBe(true);
     fireEvent.click(choice("text"));
     fireEvent.click(pageSelection());
-    expect(count()).toBe("0");
+    // The bound selection is still unread; the cart must not claim 0 selected
+    // items (which would read as an empty, free cart) while a retry is offered.
+    expect(count()).toBe("待确认");
     expect(fixture.createDraft).not.toHaveBeenCalled();
     expect(fixture.getArticle).not.toHaveBeenCalled();
     expect(currentFlow.ensureTask).not.toHaveBeenCalled();

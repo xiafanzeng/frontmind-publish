@@ -159,7 +159,7 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
   <section id={drawerId} className="y-cart-drawer" aria-label="购物车已选媒体" hidden={!expanded}>
     <header className="y-cart-drawer-head">
       <strong>已选媒体 {count} 家{publicationItems?.length ? ` · ${amounts.quantity??'待确认'} 次发布` : ''}</strong>
-      <span className="small muted">{count>0&&pending===count?'全部报价待确认':<>{total===undefined?'总价待确认':formatPublishingMoney(total)}{pending>0?<> · {pending} 项待询价</>:''}</>}</span>
+      <span className="small muted">{selectionPending?'合计待确认':count>0&&pending===count?'全部报价待确认':<>{total===undefined?'总价待确认':formatPublishingMoney(total)}{pending>0?<> · {pending} 项待询价</>:''}</>}</span>
       <div className="actions"><Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link><button className="link small" type="button" aria-label="收起购物车" onClick={close}>▾</button></div>
     </header>
     <ul>{(items??[]).map(media=>{const amount=amounts.byMedia.get(media.id);return <li key={media.id}><strong>{media.name}</strong><small>{media.kind==='self_media'?'自媒体':'软文媒体'}{amount?.boundRows ? ` · ${amount.quantity??'待确认'} 次发布` : ''}</small><span className="b-price">{amount?.boundRows ? <>{amount.total===null?'小计待确认':formatPublishingMoney(amount.total)}<small>单价 {priceOf(media)} · 费用以复核结果为准</small></> : priceOf(media)}</span><button className="link danger small" type="button" aria-label={`移除 ${media.name}`} onClick={()=>onRemove?.(media)}>移除</button></li>;})}</ul>
