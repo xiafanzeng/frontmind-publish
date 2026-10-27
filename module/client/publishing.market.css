@@ -735,6 +735,10 @@
 .y-other-list li{position:relative;padding:2px 0 2px 14px;line-height:1.7;overflow-wrap:anywhere}
 .y-other-list li::before{content:"";position:absolute;left:2px;top:.72em;width:5px;height:5px;border-radius:50%;background:#c9a0b4}
 .fm-media .y-tip .y-other-list li::before{background:#d3b6c7}
+.fm-media .y-props-requirements{grid-column:1/-1}
+.fm-media .y-prop.y-prop-other{align-items:flex-start}
+.fm-media .y-prop.y-prop-other dt{padding-top:3px}
+.fm-media .y-prop.y-prop-other .link{margin-top:4px;font-size:12px;padding:0}
 .fm-media .y-tip .y-tip-status{margin-top:11px;border-top:1px solid #665565;padding-top:8px;color:#d3b6c7;font-size:11px;line-height:1.75}
 .fm-media .y-tip .y-tip-status b{font-weight:400;color:#e5c9d9}
 .fm-media .y-tooltip-rules{color:#dbd5dc;margin-top:9px;font-size:11px}
