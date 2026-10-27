@@ -151,12 +151,12 @@ export function otherRequirements(rules:MediaRules|undefined,remark:string|undef
  const items=otherRequirementItems(rules,remark);
  return items.length?items.join('；'):'未注明特殊要求';
 }
-/** 直接展示的“其他要求”字段格：与其他字段同一套 dl/dt/dd 结构对齐，前 3 条 + 原地展开。 */
+/** 直接展示的“其他要求”字段格：每条固定单行（超长省略号，悬停看全文），默认最多 3 行 + 原地展开。 */
 export function OtherRequirementsCell({items}:{items:string[]}) {
  const [expanded,setExpanded]=useState(false);
  if(!items.length)return <dl className="y-prop"><dt>其他要求</dt><dd className="y-missing">未注明</dd></dl>;
  const shown=expanded?items:items.slice(0,3);
- return <dl className="y-prop y-prop-other"><dt>其他要求</dt><dd><ul className="y-other-list">{shown.map((item,index)=><li key={index}>{item}</li>)}</ul>{items.length>3&&<button type="button" className="link" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':`展开全部 ${items.length} 条`}</button>}</dd></dl>;
+ return <dl className="y-prop y-prop-other"><dt>其他要求</dt><dd><ul className="y-other-list">{shown.map((item,index)=><li key={index} title={item}>{item}</li>)}</ul>{items.length>3&&<button type="button" className="link" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':`展开全部 ${items.length} 条`}</button>}</dd></dl>;
 }
 function remarkFact(text:string|undefined,kind:'speed'|'weekend'|'contact'|'shortTitle') {const patterns={speed:/当天可出|出稿快|发稿快|快速出稿/g,weekend:/周末可发|节假日可发/g,contact:/不带任何联系方式|不带联系方式|默认删除任何联系方式|联系方式默认去掉不通知/g,shortTitle:/自备短标题/g};return [...new Set((text??'').match(patterns[kind])??[])].join('；');}
 export function MarketRow({media:m,rules,checked=false,disabled=false,favorite=false,onToggle,onFavorite,onDetails,onQuote,reason,selectionDisabledReason,catalogueFields=false}:{media:MediaResource;catalogueFields?:boolean;rules?:MediaRules;checked?:boolean;disabled?:boolean;favorite?:boolean;onToggle?:()=>void;onFavorite?:()=>void;onDetails?:()=>void;onQuote?:()=>void;reason?:string;selectionDisabledReason?:string}) {
