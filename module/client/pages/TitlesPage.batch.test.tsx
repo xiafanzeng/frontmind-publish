@@ -229,7 +229,7 @@ it("shows single and independent title rows together and saves both modes after 
 
 it("leaves a missing shared title actionable instead of saving a filename", async () => {
   const task = setup([{...draft("A", "single"), sharedTitle: undefined, articleTitle: "upload.docx"}]);
-  await screen.findByText(/单标题尚未确认或不符合已选媒体要求/);
+  await screen.findByText(/统一标题尚未确认或超出当前提交上限/);
   expect((screen.getByRole("button", {name: "确认发布"}) as HTMLButtonElement).disabled).toBe(true);
   expect(task.saveDraftTitles).not.toHaveBeenCalled();
   expect(task.preflightDraft).not.toHaveBeenCalled();
