@@ -2447,3 +2447,8 @@
     padding-inline: 16px;
   }
 }
+
+
+/* Batch add actions: blank-unit button and library-picker button share one row. */
+.publishing-batch-add-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+.publishing-batch-add-row .publishing-batch-add{width:auto;flex:1 1 240px;margin-top:0}

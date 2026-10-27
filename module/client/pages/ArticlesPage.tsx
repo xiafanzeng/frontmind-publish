@@ -32,7 +32,6 @@ export default function PublishingArticlesPage() {
   const search = useSearch();
   const params = new URLSearchParams(search.replace(/^\?/u, ""));
   const flowEntryRequested = params.get("flow") === "1";
-  const pageMode = params.get("mode") === "edit" ? "edit" : "manage";
   const load = useCallback(
     (signal: AbortSignal) => gateway.listArticles(signal),
     [gateway],
@@ -69,27 +68,6 @@ export default function PublishingArticlesPage() {
       />
     );
 
-  if (pageMode === "edit") {
-    return (
-      <PublishingPage title="编辑稿件" description="选择一篇真实稿件进入独立编辑页；单标题、多标题和批量准备模式均在编辑页内切换。">
-        <nav className="publishing-article-subnav" aria-label="稿件子页面">
-          <Link href="/publishing/articles">管理稿件</Link>
-          <Link href="/publishing/articles/records">发布记录</Link>
-          <Link href="/publishing/articles/edit" aria-current="page" className="is-active">编辑稿件</Link>
-        </nav>
-        {query.loading ? <PublishingLoading label="正在读取可编辑稿件…" /> : null}
-        {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
-        {query.data && (query.data.length ? <section className="publishing-panel publishing-article-stack" aria-label="选择要编辑的真实稿件">
-          {query.data.map((article, index) => <article className="publishing-article-stack-card" key={article.id}>
-            <span className="publishing-article-stack-number">文章 {index + 1}</span>
-            <div><strong>{article.title || "未命名稿件"}</strong><p>{article.wordCount.toLocaleString("zh-CN")} 字 · {article.imageCount} 张图片 · {article.currentVersionId ? `v${article.currentVersion} 已冻结` : "草稿"}</p></div>
-            <Link className="publishing-button publishing-button-primary" href={`/publishing/articles/${encodeURIComponent(article.id)}/edit`}>编辑这篇稿件 <ArrowRight size={15}/></Link>
-          </article>)}
-        </section> : <PublishingEmpty title="还没有可编辑稿件" description="导入真实 DOCX 后即可进入独立编辑页。" action={<Link className="publishing-button publishing-button-primary" href="/publishing/articles/new"><Upload size={16}/> 导入稿件</Link>} />)}
-      </PublishingPage>
-    );
-  }
-
   return (
     <PublishingPage
       title="管理稿件"
@@ -105,11 +83,6 @@ export default function PublishingArticlesPage() {
         </Link>
       }
     >
-      <nav className="publishing-article-subnav" aria-label="稿件子页面">
-        <Link href="/publishing/articles" aria-current="page" className="is-active">管理稿件</Link>
-        <Link href="/publishing/articles/records">发布记录</Link>
-        <Link href="/publishing/articles/edit">编辑稿件</Link>
-      </nav>
       {query.loading ? <PublishingLoading label="正在读取稿件…" /> : null}
       {query.error ? (
         <PublishingError error={query.error} onRetry={query.reload} />

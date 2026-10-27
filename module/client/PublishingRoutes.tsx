@@ -81,7 +81,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <PublicationsPage />
             </Route>
             <Route path="/publishing/articles/edit">
-              <Redirect to="/publishing/articles?mode=edit" />
+              <Redirect to="/publishing/articles" />
             </Route>
             <Route path="/publishing/articles/:articleId/edit">
               {(params) => <ArticleEditorPage articleId={params.articleId} />}

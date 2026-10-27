@@ -51,6 +51,7 @@ import { buildHandwrittenDocxFile } from "../handwrittenArticle";
 import type {
   ArticleDetail,
   ArticleImage,
+  ArticleSummary,
   PublisherEditorContent,
 } from "../types";
 import { publishingDateTime } from "../types";
@@ -542,14 +543,6 @@ export default function PublishingArticleEditorPage({
     </>
   );
 
-  const subnav = (activeEdit: boolean) => (
-    <nav className="publishing-article-subnav" aria-label="稿件子页面">
-      <Link href="/publishing/articles">管理稿件</Link>
-      <Link href="/publishing/articles/records">发布记录</Link>
-      <Link href="/publishing/articles/edit" className={activeEdit ? "is-active" : undefined} aria-current={activeEdit ? "page" : undefined}>编辑稿件</Link>
-    </nav>
-  );
-
   // 新稿：与已有稿件同一界面——直接撰写标题/正文，首次保存经桥接落库为真实稿件。
   if (isNew) {
     const saveNewDraft = async () => {
@@ -574,7 +567,6 @@ export default function PublishingArticleEditorPage({
           title="发布文章 · 批量投放"
           description="逐篇准备多份稿件：文章 1 直接撰写，继续添加新单元或上传解析。"
         >
-          {subnav(false)}
           {editorChrome}
           <BatchUnitsEditor key={`${workspaceKey}:${new URLSearchParams(search).get("workbenchTask") ?? "new"}:new`} continueAction={batchContinue} />
         </PublishingPage>
@@ -597,7 +589,6 @@ export default function PublishingArticleEditorPage({
           </button>
         }
       >
-        {subnav(false)}
         {editorChrome}
         {saveError ? (
           <p className="publishing-form-error" role="alert">{saveError}</p>
@@ -671,7 +662,6 @@ export default function PublishingArticleEditorPage({
         description="逐篇准备多份真实稿件：文章 1 为当前稿件，可继续添加直接撰写或导入的新单元。"
         busy={query.loading}
       >
-        {subnav(true)}
         {editorChrome}
         {query.loading ? <PublishingLoading label="正在读取稿件…" /> : null}
         {query.error ? (
@@ -744,7 +734,6 @@ export default function PublishingArticleEditorPage({
         ) : undefined
       }
     >
-      {!embedded ? subnav(true) : null}
       {flow && frozenResult && !dirty && (
         <section className="publishing-flow-result" aria-label="稿件冻结完成">
           <CheckCircle2 size={20} />
@@ -1076,6 +1065,13 @@ function BatchUnitsEditor({
   const prepareLock = useRef(false);
   const savingUnits = useRef(new Set<number>());
   const [unitError, setUnitError] = useState("");
+  // 选择已有稿件：多选后每个选中稿件生成一个批量单元。
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerArticles, setPickerArticles] = useState<ArticleSummary[] | null>(null);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState("");
+  const [pickerSelection, setPickerSelection] = useState<string[]>([]);
+  const [appendingSelection, setAppendingSelection] = useState(false);
   const nextKey = useRef(2);
   const fileTargets = useRef(new Map<number, HTMLInputElement>());
   const removedArticleIds = useRef(new Set<string>());
@@ -1086,6 +1082,67 @@ function BatchUnitsEditor({
   ])].filter(id => !removedArticleIds.current.has(id));
   const recoveryKey = JSON.stringify(recoveryArticleIds);
   const recoveryPending = recoveryArticleIds.some(id => !units.some(unit => unit.articleId === id));
+
+  const openArticlePicker = async () => {
+    if (pickerLoading) return;
+    setPickerOpen(true);
+    setPickerError("");
+    if (pickerArticles) return;
+    setPickerLoading(true);
+    try {
+      const articles = await gateway.listArticles();
+      setPickerArticles(articles);
+    } catch (reason) {
+      setPickerError(reason instanceof Error ? reason.message : "读取稿件列表失败，请重试");
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  const confirmArticlePicker = async () => {
+    if (appendingSelection || !pickerSelection.length) return;
+    const existing = new Set(units.map((unit) => unit.articleId).filter(Boolean));
+    const targets = pickerSelection.filter((id) => !existing.has(id));
+    setPickerOpen(false);
+    if (!targets.length) {
+      setPickerSelection([]);
+      return;
+    }
+    setAppendingSelection(true);
+    setUnitError("");
+    try {
+      const loaded = await Promise.all(targets.map((id) => gateway.getArticle(id)));
+      setUnits((current) => [
+        ...current,
+        ...loaded.map((detail) => {
+          const html = sanitizePublisherEditorHtml(
+            detail.bodyHtml ?? publisherPlainTextToHtml(detail.bodyText),
+            detail.images,
+          );
+          return {
+            key: nextKey.current++,
+            articleId: detail.id,
+            revision: detail.revision,
+            title: detail.title,
+            content: {
+              html,
+              text: detail.bodyText || publisherHtmlToPlainText(html),
+              json: detail.editorJson ?? { type: "doc", content: [] },
+            },
+            images: detail.images,
+            currentVersionId: detail.currentVersionId,
+            saving: false,
+            note: "已从稿件库加入",
+          } satisfies BatchUnit;
+        }),
+      ]);
+      setPickerSelection([]);
+    } catch (reason) {
+      setUnitError(reason instanceof Error ? reason.message : "加入所选稿件失败，请重试");
+    } finally {
+      setAppendingSelection(false);
+    }
+  };
 
   const patchUnit = (key: number, patch: Partial<BatchUnit>) => {
     const next = unitsRef.current.map(unit => unit.key === key ? { ...unit, ...patch } : unit);
@@ -1416,10 +1473,11 @@ function BatchUnitsEditor({
           </article>
         ))}
       </section>
+      <div className="publishing-batch-add-row">
       <button
         type="button"
         className="publishing-batch-add"
-        disabled={preparing || units.some(unit => unit.saving)}
+        disabled={preparing || appendingSelection || units.some(unit => unit.saving)}
         onClick={() =>
           setUnits((current) => [
             ...current,
@@ -1436,6 +1494,95 @@ function BatchUnitsEditor({
       >
         ＋ 继续添加一篇文章
       </button>
+      <button
+        type="button"
+        className="publishing-batch-add"
+        disabled={preparing || appendingSelection || units.some(unit => unit.saving)}
+        onClick={() => void openArticlePicker()}
+      >
+        📁 从稿件库选择已有稿件
+      </button>
+      </div>
+      {appendingSelection ? <p className="publishing-editor-inline-note">正在加入所选稿件…</p> : null}
+      {pickerOpen ? (
+        <div
+          className="publishing-article-preview-backdrop"
+          role="presentation"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setPickerOpen(false);
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPickerOpen(false);
+          }}
+        >
+          <section
+            className="publishing-media-picker"
+            role="dialog"
+            aria-modal="true"
+            aria-label="选择已有稿件"
+          >
+            <header>
+              <div>
+                <strong>选择已有稿件</strong>
+                <span>勾选后确认，每篇选中稿件都会生成为一个批量单元</span>
+              </div>
+              <button
+                type="button"
+                className="publishing-dialog-close"
+                aria-label="关闭稿件选择"
+                onClick={() => setPickerOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="publishing-media-picker-body">
+              {pickerLoading ? <PublishingLoading label="正在读取稿件列表…" /> : null}
+              {pickerError ? <p className="publishing-form-error" role="alert">{pickerError}</p> : null}
+              {pickerArticles?.length
+                ? pickerArticles.map((article) => {
+                    const already = units.some((unit) => unit.articleId === article.id);
+                    return (
+                      <label key={article.id} className="publishing-media-option">
+                        <input
+                          type="checkbox"
+                          checked={pickerSelection.includes(article.id) || already}
+                          disabled={already}
+                          onChange={(event) =>
+                            setPickerSelection((current) =>
+                              event.target.checked
+                                ? [...current, article.id]
+                                : current.filter((id) => id !== article.id),
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{article.title || "未命名稿件"}</strong>
+                          <small>
+                            {already ? "已在批量列表中" : `${article.wordCount.toLocaleString("zh-CN")} 字 · ${article.imageCount} 张图片 · ${article.currentVersionId ? `v${article.currentVersion} 已冻结` : "草稿"}`}
+                          </small>
+                        </span>
+                      </label>
+                    );
+                  })
+                : null}
+              {pickerArticles && !pickerArticles.length && !pickerLoading ? (
+                <p className="publishing-editor-inline-note">稿件库还没有稿件，可先“继续添加一篇文章”直接撰写或导入。</p>
+              ) : null}
+            </div>
+            <footer>
+              <span className="publishing-editor-inline-note">已选 {pickerSelection.length} 篇</span>
+              <button
+                type="button"
+                className="publishing-button publishing-button-primary"
+                disabled={!pickerSelection.length || appendingSelection || pickerLoading}
+                onClick={() => void confirmArticlePicker()}
+              >
+                加入批量列表（{pickerSelection.length}）
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
       <div className="publishing-batch-unit-foot">
         <span className="publishing-editor-inline-note">本次共 {units.length} 篇稿件；确认后一起选择媒体。</span>
         <button type="button" className="publishing-button publishing-button-primary"
