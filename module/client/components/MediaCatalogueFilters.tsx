@@ -3,6 +3,7 @@ import { MediaDialog } from "../source-matrix/MediaMarket";
 import { cataloguePriceLabel, cataloguePriceRanges, validateCatalogueNames, validateCataloguePrice } from "../mediaCatalogue";
 import type { MediaFacetOption, MediaFacets, MediaFilters } from "../types";
 import CatalogueChipRow from "./CatalogueChipRow";
+import { mediaReadError } from "../mediaReadError";
 import "../publishing.catalogue.css";
 
 const channels = "新闻资讯 财经商业 IT科技 健康医疗 汽车网站 亲子母婴 生活消费 教育培训 食品餐饮 工业贸易 房产家居 女性时尚 游戏动漫 酒店旅游 娱乐休闲 能源环保 文化艺术 体育运动 公益三农 低价专区 一口价 优惠套餐 报纸 海外媒体".split(" ");
@@ -21,10 +22,10 @@ function FilterRow({ label, children }: { label: string; children: ReactNode }) 
   return <div className="mc-filter-row" role="group" aria-label={label}><span className="mc-filter-label">{label}</span><div className="mc-filter-values">{children}</div></div>;
 }
 
-function OptionChips({ label, value, options, onChange, disabled }: {
-  label: string; value: string; options: MediaFacetOption[]; onChange: (value: string) => void; disabled?: boolean;
+function OptionChips({ label, value, options, onChange, disabled, emptyMessage }: {
+  label: string; value: string; options: MediaFacetOption[]; onChange: (value: string) => void; disabled?: boolean; emptyMessage?: string;
 }) {
-  return <CatalogueChipRow label={label} value={value} options={options} onChange={onChange} loading={disabled} />;
+  return <CatalogueChipRow label={label} value={value} options={options} onChange={onChange} loading={disabled} emptyMessage={emptyMessage} />;
 }
 
 type Props = {
@@ -148,23 +149,25 @@ export default function MediaCatalogueFilters(props: Props) {
   const legacyArea = filters.area || filters.region;
   const provinceValue = filters.province || (legacyArea ? "__legacy_area" : "");
   const chooseProvince = (province: string) => change({ province, city: "", area: "", region: "" });
+  const optionsUnavailable = !facets && Boolean(facetsError || facetsVersionMismatch);
+  const emptyMessage = optionsUnavailable ? "选项尚未读取，请重试" : undefined;
   return <section className="panel mc-filters" aria-label="第三方媒体筛选">
     {facetsVersionMismatch && <p className="mc-status" role="status">媒体目录版本已变化，旧版筛选选项暂不展示。{facetsRefreshing ? "正在更新选项。" : "请重新读取选项。"}<button type="button" className="link" onClick={onRetry}>重新读取</button></p>}
     {!facetsVersionMismatch && facetsRefreshing && facets && <p className="mc-status" role="status">正在更新筛选选项；当前显示上次读取的真实选项，更新后以当前目录版本为准。</p>}
-    {facetsError && <p className="mc-status" role="alert">筛选选项读取失败：{facetsError}。{facets ? "下方保留上次读取的选项。" : "请重试。"}<button type="button" className="link" onClick={onRetry}>重试</button></p>}
-    <OptionChips label="频道类型" value={filters.taxonomy ?? ""} options={orderedOptions(facets?.taxonomies, channels)} onChange={taxonomy => change({ taxonomy, channel: "" })} disabled={facetsLoading} />
-    <OptionChips label="综合门户" value={filters.platform ?? ""} options={orderedOptions(facets?.platforms, portals)} onChange={platform => change({ platform })} disabled={facetsLoading} />
-    <CatalogueChipRow label="媒体推荐" value={recommendationValue} loading={facetsLoading}
+    {facetsError && <p className="mc-status" role="alert">筛选选项读取失败：{mediaReadError(facetsError, "暂时无法读取筛选选项，请重试。")} {facets ? "下方保留上次读取的选项。" : "已选条件保持不变。"}<button type="button" className="link" onClick={onRetry}>重试</button></p>}
+    <OptionChips label="频道类型" value={filters.taxonomy ?? ""} options={orderedOptions(facets?.taxonomies, channels)} onChange={taxonomy => change({ taxonomy, channel: "" })} disabled={facetsLoading} emptyMessage={emptyMessage} />
+    <OptionChips label="综合门户" value={filters.platform ?? ""} options={orderedOptions(facets?.platforms, portals)} onChange={platform => change({ platform })} disabled={facetsLoading} emptyMessage={emptyMessage} />
+    <CatalogueChipRow label="媒体推荐" value={recommendationValue} loading={facetsLoading} emptyMessage={emptyMessage}
       options={[
         ...(facets?.recommendedOptions.some(option => option.value === "true") ? [{ value: "__recommended", label: "推荐媒体" }] : []),
         ...recommendationOptions,
       ]}
       onChange={value => change({ recommended: value === "__recommended" ? "true" : "", recommendationGroup: value === "__recommended" ? "" : value, recommendationTag: "" })} />
-    <CatalogueChipRow label="AI 类型" value={filters.aiPlatform ?? ""} options={aiOptions} loading={facetsLoading}
+    <CatalogueChipRow label="AI 类型" value={filters.aiPlatform ?? ""} options={aiOptions} loading={facetsLoading} emptyMessage={emptyMessage}
       hint="按供应商平台标签筛选，不代表已验证的 AI 收录或引用。"
       onChange={aiPlatform => change({ aiPlatform })} />
     <FilterRow label="覆盖区域">
-      <label className="mc-region-control">省份/地区<select aria-label="省份/地区" value={provinceValue} disabled={facetsLoading}
+      <label className="mc-region-control">省份/地区<select aria-label="省份/地区" value={provinceValue} disabled={facetsLoading || optionsUnavailable}
         onChange={event => chooseProvince(event.target.value)}>
         <option value="">不限地区</option>
         {provinces.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -172,8 +175,8 @@ export default function MediaCatalogueFilters(props: Props) {
         {!filters.province && legacyArea && <option value="__legacy_area">原地区：{legacyArea}</option>}
       </select></label>
       <label className="mc-region-control">城市<select aria-label="城市" value={filters.city ?? ""}
-        disabled={facetsLoading || (!cities.length && !filters.city)} onChange={event => change({ city: event.target.value })}>
-        <option value="">{cities.length ? "全部城市" : filters.province ? "暂无可筛选城市" : "请先选择省份/地区"}</option>
+        disabled={facetsLoading || optionsUnavailable || (!cities.length && !filters.city)} onChange={event => change({ city: event.target.value })}>
+        <option value="">{facetsLoading ? "正在读取城市…" : optionsUnavailable ? "城市选项尚未读取" : cities.length ? "全部城市" : filters.province ? "暂无可筛选城市" : "请先选择省份/地区"}</option>
         {cities.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         {filters.city && !cities.some(option => option.value === filters.city) && <option value={filters.city}>{filters.city}（当前条件）</option>}
       </select></label>

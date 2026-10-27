@@ -27,8 +27,8 @@ vi.mock("../source-matrix/MediaMarket", () => ({
     <main><h1>{title}</h1>{steps}{taskbar}{children}</main>
   ),
   MediaTaskbar: ({ children }: { children?: ReactNode }) => <section>{children}</section>,
-  MediaCartFooter: ({ count, total, nextDisabled, nextLabel, onNext }: { count: number; total?: string; nextDisabled?: boolean; nextLabel?: string; onNext?: () => void }) => (
-    <footer><output data-testid="cart-count">{count}</output><output data-testid="cart-total">{total}</output><button disabled={nextDisabled} onClick={onNext}>{nextLabel}</button></footer>
+  MediaCartFooter: ({ count, total, nextDisabled, nextLabel, onNext, selectionPending }: { count: number; total?: string; nextDisabled?: boolean; nextLabel?: string; onNext?: () => void; selectionPending?: boolean }) => (
+    <footer><output data-testid="cart-count">{selectionPending ? "待确认" : count}</output><output data-testid="cart-total">{selectionPending ? "待确认" : total}</output><button disabled={nextDisabled} onClick={onNext}>{nextLabel}</button></footer>
   ),
   MarketRow: ({ media, checked, disabled, onToggle, selectionDisabledReason }: { media: MediaResource; checked?: boolean; disabled?: boolean; onToggle?: () => void; selectionDisabledReason?: string }) => (
     <label><input type="checkbox" aria-label={`选择 ${media.name}`} checked={checked} disabled={disabled} onChange={onToggle} />{media.name}{selectionDisabledReason && <span>{selectionDisabledReason}</span>}</label>
@@ -162,6 +162,48 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it("keeps catalogue requests stable across context-only URL changes", async () => {
+    const fixture = gatewayFixture();
+    const view = harness(fixture.gateway, "/publishing/media/third");
+    await waitFor(() => expect(choice("a")).not.toBeNull());
+    expect(fixture.gateway.listMedia).toHaveBeenCalledTimes(1);
+    await act(async () => { view.location.navigate("/publishing/media/third?kind=all&workbenchTask=other-task"); });
+    expect(fixture.gateway.listMedia).toHaveBeenCalledTimes(1);
+    expect(fixture.gateway.getMediaFacets).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a bound draft's metadata without downloading all article choices", async () => {
+    const fixture = gatewayFixture(undefined, article(), draft([media("a")]));
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third");
+    await waitFor(() => expect(count()).toBe("1"));
+    expect(fixture.gateway.listArticles).not.toHaveBeenCalled();
+    expect(screen.getByText("已确认稿件 · v1")).not.toBeNull();
+  });
+
+  it("keeps directory browsing independent from draft and facet failures without a false empty cart", async () => {
+    const fixture = gatewayFixture();
+    let draftUnavailable = true;
+    fixture.gateway.getDraft = vi.fn(async () => {
+      if (draftUnavailable) throw new Error("Failed query: select id from publisher_runtime_state params: kol,1");
+      return draft([media("a")]);
+    });
+    fixture.gateway.getMediaFacets = vi.fn(async () => { throw new Error("Failed query: select entry_level from publisher_media_resources"); });
+    harness(fixture.gateway, "/publishing/drafts/draft-1/media/third");
+    await waitFor(() => expect(screen.getAllByText(/暂时无法读取当前草稿/).length).toBeGreaterThan(0));
+    expect(choice("a").disabled).toBe(true);
+    expect(screen.queryByText("没有匹配的媒体")).toBeNull();
+    expect(screen.queryByText("暂无可用选项")).toBeNull();
+    expect(document.body.textContent).not.toContain("publisher_runtime_state");
+    expect(document.body.textContent).not.toContain("publisher_media_resources");
+    expect(count()).toBe("待确认");
+    expect(screen.getByTestId("cart-total").textContent).toBe("待确认");
+    draftUnavailable = false;
+    fireEvent.click(screen.getByRole("button", { name: "重试读取草稿" }));
+    await waitFor(() => expect(count()).toBe("1"));
+    expect(choice("a").checked).toBe(true);
+    expect(fixture.gateway.getMediaFacets).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves article summaries off the unbound library cold path and loads them for a bound article", async () => {
     const fixture = gatewayFixture(undefined, article({ title: "按需加载专用稿件" }));
     const browsing = harness(fixture.gateway, "/publishing/media/third");

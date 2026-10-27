@@ -1118,9 +1118,16 @@ class PublishingRepository {
     // use an index, so sorting full resource rows (rawPayload included) made
     // every page touch the whole wide catalogue. Sort and page ids only, then
     // hydrate exactly the page rows and their capability.
-    const idRows = await database
+    const idBase = database
       .select({ id: publisherMediaResources.id })
-      .from(publisherMediaResources)
+      .from(publisherMediaResources);
+    // Membership must match the count query. imageSupport predicates reference
+    // capabilities even for an id-only page; omitting this join generates SQL
+    // against a table that is absent from FROM. Keep other pages join-free.
+    const idQuery = input.imageSupport
+      ? idBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
+      : idBase;
+    const idRows = await idQuery
       .where(and(...pageConditions))
       .orderBy(...ordering)
       .limit(legacyCursorMode ? pageSize + 1 : pageSize)
@@ -1179,17 +1186,20 @@ class PublishingRepository {
     // Run the facet aggregations on the pool, not inside one snapshot
     // transaction: a single connection serializes a dozen full-catalog scans
     // (the observed 16s cold filter load). Each pool connection still reads a
-    // statement-consistent catalogue; a sync landing mid-load is handled by the
-    // identity check below exactly as before.
+    // statement-consistent catalogue; the identity check below rejects a sync
+    // landing between these reads instead of returning mixed facet membership.
     const result = await this.mediaFacetsCache.getOrLoad(key, () =>
       this.loadPublisherMediaFacets(facetInput),
     );
-    // Sync may activate between the lightweight identity read and the snapshot.
-    // Return its internally coherent result, but never retain it under the wrong key.
+    // Pool reads do not share one transaction snapshot. The worker commits
+    // catalogue rows and runtime identity together, so a changed identity can
+    // mean these aggregations span two catalogues. Never label that mix as the
+    // latest catalogue or retain it under the previous key; retry is explicit.
     if (result.catalogRevision !== (runtime?.activeCatalogRevision ?? null) ||
         result.catalogSyncedAt?.getTime() !== runtime?.catalogSyncedAt?.getTime() ||
         result.kindComplete !== (runtime?.catalogKindComplete ?? false)) {
       this.mediaFacetsCache.delete(key);
+      throw new RepositoryError("CONFLICT", "媒体目录已更新，请重试读取筛选项。");
     }
     return { ...result, catalogStale: !result.catalogSyncedAt || Date.now() - result.catalogSyncedAt.getTime() > CATALOG_STALE_MS };
   }

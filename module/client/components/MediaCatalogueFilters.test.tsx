@@ -38,6 +38,21 @@ function harness(initial: Partial<MediaFilters> = {}) {
 }
 
 describe("media catalogue filter interaction contract", () => {
+  it("shows a retryable unavailable state instead of empty options after a failed read", () => {
+    const retry = vi.fn(), changed = vi.fn();
+    render(<MediaCatalogueFilters filters={{ ...DEFAULT_MEDIA_FILTERS, province: "广东", taxonomy: "财经商业" }}
+      facetsLoading={false} facetsError="Failed query: select entry_level from publisher_media_resources params: news"
+      onRetry={retry} onChange={changed} onReset={() => {}} />);
+    expect(screen.queryByText("暂无可用选项")).toBeNull();
+    expect(screen.queryByText("暂无可筛选城市")).toBeNull();
+    expect(document.body.textContent).not.toContain("publisher_media_resources");
+    expect(screen.getAllByText("选项尚未读取，请重试").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "移除频道：财经商业" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it("keeps same-version cached options usable while showing their refresh state", () => {
     render(<MediaCatalogueFilters filters={{ ...DEFAULT_MEDIA_FILTERS, kind: undefined }}
       facets={facets} facetsLoading={false} facetsRefreshing onRetry={() => {}}

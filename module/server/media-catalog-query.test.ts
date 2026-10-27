@@ -1,6 +1,6 @@
-import { and } from "drizzle-orm";
+import { and, type SQL } from "drizzle-orm";
 import { MySqlDialect, mysqlTable, varchar } from "drizzle-orm/mysql-core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPublishSchema } from "../schema/index.js";
 import type { PublishApiCore, PublishDatabase } from "./persistence-core.js";
 import { createPublishingPersistence } from "./publisher-repository.js";
@@ -11,18 +11,23 @@ const { PublishingRepository } = createPublishingPersistence({ tables } as unkno
 
 function fixture(complete = true) {
   const selections: string[][] = [];
+  const queryScopes: Array<{ keys: string[]; joins: number; where?: string }> = [];
   const transactions: unknown[] = [];
   const runtime = { activeCatalogRevision: "revision-1", catalogSyncedAt: new Date("2026-10-24T10:00:00Z"), catalogKindComplete: complete };
   const database = {
     select(fields?: Record<string, unknown>) {
       const keys = Object.keys(fields ?? {});
       selections.push(keys);
+      const scope = { keys, joins: 0, where: undefined as string | undefined };
+      queryScopes.push(scope);
       const rows = keys.includes("news") ? [{ news: 3, selfMedia: 9 }]
-        : keys.includes("total") ? [{ total: 2 }]
-        : keys.includes("resource") ? [] : [runtime];
+        : keys.includes("value") || keys.includes("tags") || keys.includes("id") || keys.includes("resource") ? []
+        : keys.includes("minimum") ? [{ minimum: null, maximum: null }]
+        : keys.includes("total") ? [{ total: 2 }] : [runtime];
       const query = {
-        from() { return query; }, where() { return query; }, limit() { return query; },
-        leftJoin() { return query; }, orderBy() { return query; }, offset() { return query; },
+        from() { return query; }, limit() { return query; }, groupBy() { return query; },
+        where(condition?: SQL) { scope.where = condition ? new MySqlDialect().sqlToQuery(condition).sql : undefined; return query; },
+        leftJoin() { scope.joins += 1; return query; }, orderBy() { return query; }, offset() { return query; },
         then(resolve: (result: unknown[]) => unknown) { return Promise.resolve(rows).then(resolve); },
       };
       return query;
@@ -32,7 +37,7 @@ function fixture(complete = true) {
       return action(database);
     },
   };
-  return { repository: new PublishingRepository(database as unknown as PublishDatabase), selections, transactions };
+  return { repository: new PublishingRepository(database as unknown as PublishDatabase), selections, queryScopes, transactions };
 }
 
 describe("catalog query scope and snapshot semantics", () => {
@@ -82,6 +87,37 @@ describe("catalog query scope and snapshot semantics", () => {
     const incomplete = await fixture(false).repository.listPublisherMedia();
     expect(incomplete.catalogCounts).toBeNull();
     expect(incomplete.catalogCountStatus).toBe("unavailable");
+  });
+
+  it("joins capabilities for both count and id paging when image support scopes membership", async () => {
+    for (const imageSupport of ["verified", "unknown"] as const) {
+      for (const paging of [{ page: 1, pageSize: 20 }, { cursor: "previous-media", limit: 20 }]) {
+        const { repository, queryScopes } = fixture();
+        await repository.listPublisherMedia({ imageSupport, ...paging });
+        const scopedQueries = queryScopes.filter(({ keys }) => keys.includes("total") || keys.includes("id"));
+        expect(scopedQueries).toHaveLength(2);
+        for (const query of scopedQueries) {
+          expect(query.joins).toBe(1);
+          expect(query.where).toContain("`publisher_media_capabilities`.`image_support`");
+        }
+      }
+    }
+    const { repository, queryScopes } = fixture();
+    await repository.listPublisherMedia({ page: 1, pageSize: 20 });
+    expect(queryScopes.find(({ keys }) => keys.includes("id"))?.joins).toBe(0);
+  });
+
+  it("rejects a catalogue change during facet aggregation and discards that cache entry for retry", async () => {
+    const { repository } = fixture();
+    const load = repository.loadPublisherMediaFacets.bind(repository);
+    const spy = vi.spyOn(repository, "loadPublisherMediaFacets")
+      .mockImplementationOnce(async (input) => ({ ...await load(input), catalogRevision: "revision-2" }));
+    await expect(repository.getPublisherMediaFacets()).rejects.toMatchObject({
+      code: "CONFLICT", message: "媒体目录已更新，请重试读取筛选项。",
+    });
+    await expect(repository.getPublisherMediaFacets()).resolves.toMatchObject({ catalogRevision: "revision-1" });
+    expect(spy).toHaveBeenCalledTimes(2);
+    spy.mockRestore();
   });
 
   it("reads price bounds and advanced thresholds in one capability-scoped aggregate", async () => {

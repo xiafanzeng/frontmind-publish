@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 
 import { formatPublishingMoney, type MediaResource, type PublicationDraftItem } from '../types';
 import { publicationSelectionAmounts } from '../publicationAmounts';
+import { mediaReadError } from '../mediaReadError';
 import type { MediaRules, RuleField } from '../../server/providers/kol/media-rules';
 import '../publishing.market.css';
 import {ReferenceSymbols,ReferenceIcon} from './ReferenceIcons';
@@ -16,12 +17,12 @@ const api = '/api/modules/publish/media-requirements';
 export async function rulesRequest<T>(path: string, signal?: AbortSignal, input?: unknown): Promise<T> {
  const response = await fetch(api + path, {credentials:'same-origin',signal,...(input === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})});
  const body = await response.json().catch(()=>null);
- if (!response.ok) throw new Error(body?.message ?? '媒体资料暂时不可用');
+ if (!response.ok) throw Object.assign(new Error(mediaReadError(body?.message, '媒体资料暂时不可用，请重试或联系管理员。')), { cause: body });
  return body as T;
 }
 export const credentialHelp = '请管理员准备：PUBLISHER_FEATURE_ENABLED=true、PUBLISHER_PROVIDER_ENABLED=true、PUBLISHER_MODE=live（或 test）、HTTPS 的 PUBLISHER_KOL_BASE_URL，以及 PUBLISHER_KOL_ACCESS_TOKEN；也可使用完整登录字段 PUBLISHER_KOL_API_KEY、MOBILE、PASSWORD、IDENTITY、CAPTCHA、CAPTCHA_TOKEN（后五项同样带 PUBLISHER_KOL_ 前缀）。凭据仅在服务端配置。';
 export function useMarketRules(ids: string[], revision = ''): {key:string;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean;reload:()=>void} {
- const workspace = usePublishingWorkspaceKey(), idsKey = ids.join(','), key = `${workspace}:${revision}:${idsKey}`;
+ const workspace = usePublishingWorkspaceKey(), idsKey = [...new Set(ids)].sort().join(','), key = `${workspace}:${revision}:${idsKey}`;
  const [reloadToken,setReloadToken] = useState(0);
  const reload = useCallback(()=>setReloadToken(value=>value+1),[]);
  const [state,setState] = useState<{key:string;reloadToken:number;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean}>({key:'',reloadToken:0,rules:{},ready:false,error:'',loading:true});
@@ -38,12 +39,10 @@ export function useMarketRules(ids: string[], revision = ''): {key:string;rules:
    abort.abort();
    setState({key,reloadToken,rules:{},ready:false,error:'媒体要求读取超时，请重试。',loading:false});
   },20_000);
-  void rulesRequest<{configured:boolean;message?:string}>('/status',abort.signal).then(async status=>{
+  // The rules endpoint already checks the same authenticated runtime capability.
+  // Avoid an extra serial /status round trip for every page/filter/detail change.
+  void Promise.resolve().then(async()=>{
    if(!current())return;
-   if(!status.configured){
-    clearTimeout(timeout);
-    setState({key,reloadToken,rules:{},ready:false,error:status.message??credentialHelp,loading:false});return;
-   }
    const items:Array<{id:string;rules:MediaRules}>=[],all=idsKey?idsKey.split(','):[];
    for(let i=0;i<all.length;i+=100){
     const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(all.slice(i,i+100).join(',')),abort.signal);
@@ -57,7 +56,7 @@ export function useMarketRules(ids: string[], revision = ''): {key:string;rules:
   }).catch(e=>{
    if(!current())return;
    clearTimeout(timeout);
-   setState({key,reloadToken,rules:{},ready:false,error:e instanceof Error?e.message:'读取失败',loading:false});
+   setState({key,reloadToken,rules:{},ready:false,error:mediaReadError(e,'投稿要求暂时无法读取，请重试。'),loading:false});
   });
   return()=>{active=false;clearTimeout(timeout);abort.abort();};
  },[key,idsKey,reloadToken]);
@@ -85,7 +84,7 @@ export function MediaTaskbar({title,note,count=0,total,children,actions,saveStat
  * 数据来自调用方传入的真实选择集合，不维护第二份购物车状态。
  * 独立“查看购物车”按钮已移除，完整购物车页面路由保留，可经抽屉内链接进入。
  */
-export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,publicationItems,onRemove,researchNotice}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];publicationItems?:PublicationDraftItem[];onRemove?:(media:MediaResource)=>void;researchNotice?:string}) {
+export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,publicationItems,onRemove,researchNotice,selectionPending=false}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];publicationItems?:PublicationDraftItem[];onRemove?:(media:MediaResource)=>void;researchNotice?:string;selectionPending?:boolean}) {
  const [open,setOpen]=useState(false);
  const slotRef=useRef<HTMLDivElement>(null),dockRef=useRef<HTMLDivElement>(null),toggleRef=useRef<HTMLButtonElement>(null);
  const drawerId=useId(),hintId=useId(),expanded=open&&count>0;
@@ -151,7 +150,7 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
  <div ref={dockRef} className="b-bottom y-cart-dock" id="x-cart-footer" onKeyDown={event=>{if(event.key==='Escape'&&expanded){event.preventDefault();event.stopPropagation();close();}}}>
   <div className="y-cart-bar-wrap">
     <button ref={toggleRef} type="button" className="y-cart-bar" aria-expanded={expanded} aria-disabled={count===0||undefined} aria-controls={drawerId} onClick={()=>{if(count>0)setOpen(v=>!v)}}>
-      <span className="y-cart-bar-summary"><strong>购物车 {count} 家 <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</span>{nextDisabled&&nextHint&&<span id={hintId} className="small muted y-cart-next-hint" role="status">{nextHint}</span>}</span>
+      <span className="y-cart-bar-summary"><strong>购物车 {selectionPending?'数量待确认':count+' 家'} <span style={{fontWeight:400,color:'#cabac9'}}>·</span> {selectionPending||count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{selectionPending?'已选内容尚未读取，请重试；不会清空原选择。':pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:count?'报价来自媒体目录，发布前需重新确认。':'勾选即加入，取消勾选即移除。'}</span>{nextDisabled&&nextHint&&<span id={hintId} className="small muted y-cart-next-hint" role="status">{nextHint}</span>}</span>
       <span className={'y-cart-toggle'+(expanded?' is-open':'')} aria-hidden="true"><i>▴</i></span>
       <span className="sr">{expanded?'收起已选媒体':'展开已选媒体'}</span>
     </button>

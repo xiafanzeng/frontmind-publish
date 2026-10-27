@@ -46,6 +46,26 @@ it("keeps same-media edits independent and checks only locally selected combinat
   expect(task.container.querySelectorAll(".publishing-title-table thead th")).toHaveLength(10);
 });
 
+it("keeps every title field and row association when the responsive table stacks", async () => {
+  const task = setup([draft("A", "single"), draft("B")]);
+  await readyToConfirm();
+  for (const id of ["A", "B"]) {
+    const table = within(screen.getByRole("region", {name:`稿件 ${id}的媒体和发布标题`})).getByRole("table");
+    for (const name of ["选择", "媒体", "稿件原标题", "实际发布标题", "标题要求与发布检查"])
+      expect(within(table).getByRole("columnheader", {name})).toBeTruthy();
+    expect(within(table).getAllByRole("rowheader")).toHaveLength(2);
+    expect(within(table).getAllByRole("checkbox")).toHaveLength(2);
+  }
+  const editor = screen.getByRole("textbox", {name:"稿件 B · 媒体 shared独立标题"});
+  expect(editor.tagName).toBe("TEXTAREA");
+  fireEvent.change(editor, {target:{value:"保持换行显示但\n保存为单个标题"}});
+  expect((editor as HTMLTextAreaElement).value).toBe("保持换行显示但 保存为单个标题");
+  expect(screen.getByLabelText("稿件 A · 媒体 shared统一标题").textContent).toBe("A 的上游确认标题");
+  expect(task.container.querySelector(".publishing-title-table-scroll")).toBeNull();
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+});
+
 it("blocks an entirely unchecked selection without writes or preflight", async () => {
   const task = setup();
   await readyToConfirm();

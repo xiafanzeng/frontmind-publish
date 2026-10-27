@@ -44,13 +44,57 @@ it("shows the selected quantity-inclusive fee immediately without saving or appr
   const task = setup([quoted, draft("B")]);
   await readyToConfirm();
   await waitFor(() => expect(feeValue("预计总价")).toBe("¥5.50"));
-  expect(feeValue("本次待预占")).toBe("待发布前核验后确定");
+  expect(feeValue("本次待预占")).toBe("¥5.50预估");
   fireEvent.click(screen.getByRole("checkbox", {name: "稿件 B · 媒体 other参与本次发布"}));
   await waitFor(() => expect(feeValue("预计总价")).toBe("¥4.50"));
+  expect(feeValue("本次待预占")).toBe("¥4.50预估");
   expect(task.saveDraftTitles).not.toHaveBeenCalled();
   expect(task.updateDraftMedia).not.toHaveBeenCalled();
   expect(task.preflightDraft).not.toHaveBeenCalled();
+  expect(task.submitDraft).not.toHaveBeenCalled();
   expect(screen.queryByText("内容检查通过")).toBeNull();
+});
+
+it("does not present a partial known sum as the reservation when a selected quote is missing", async () => {
+  const missing = draft("A");
+  missing.items[0]!.media.priceTenThousandths = "";
+  const task = setup([missing]);
+  await readyToConfirm();
+  await waitFor(() => expect(feeValue("本次待预占")).toBe("报价待核验"));
+  expect(feeValue("预计总价")).toBe("报价待核验");
+  expect(feeValue("软文媒体小计")).toBe("2 项 · 报价待核验");
+  expect(screen.getByText(/部分投放项缺少有效报价/)).toBeTruthy();
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+  expect(task.submitDraft).not.toHaveBeenCalled();
+});
+
+it("keeps a draft read failure distinct from an empty reservation", async () => {
+  const task = setup(undefined, "", undefined, {getDraft: vi.fn(async () => {throw new Error("草稿暂不可用");})});
+  await waitFor(() => expect(feeValue("本次待预占")).toBe("读取失败"));
+  expect(screen.queryByText("未选择投放媒体，无法继续。请返回修改。")).toBeNull();
+  expect(screen.queryByText(/部分投放项缺少有效报价/)).toBeNull();
+  expect(screen.getAllByRole("button", {name: /重试/}).length).toBeGreaterThan(0);
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+  expect(task.submitDraft).not.toHaveBeenCalled();
+});
+
+it("keeps reservation help separate from confirmation and removes the permanent fee paragraphs", async () => {
+  const task = setup();
+  await readyToConfirm();
+  expect(screen.queryByText(/两类小计包含待提交稿件/)).toBeNull();
+  expect(screen.queryByText(/各稿件将逐篇提交；中途失败/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "本次待预占说明"}));
+  const help = await screen.findByRole("dialog", {name: "本次待预占说明"});
+  expect(within(help).getByText(/当前展示不代表资金已冻结/)).toBeTruthy();
+  expect(task.container.contains(help)).toBe(false);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  fireEvent.click(within(help).getByRole("button", {name: "关闭说明"}));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+  expect(task.submitDraft).not.toHaveBeenCalled();
 });
 
 it("keeps a live submission behind the final explicit acknowledgement", async () => {
@@ -107,7 +151,7 @@ it("does not treat a failed preflight request as content failure or approve an i
   expect(screen.getAllByText("内容检查通过")).toHaveLength(2);
   expect(screen.queryByText("内容检查不通过")).toBeNull();
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(feeValue("本次待预占")).toBe("待发布前核验后确定");
+  expect(feeValue("本次待预占")).toBe("¥4.00预估");
   expect(task.submitDraft).not.toHaveBeenCalled();
   failing = false;
   await beginConfirmation();
@@ -130,6 +174,9 @@ it("lists only passed combinations in final confirmation and narrows failed medi
   expect(screen.getByText("内容检查不通过")).toBeTruthy();
   expect(screen.getByText("正文不支持图片")).toBeTruthy();
   expect(within(dialog).getByRole("button", {name: "确认模拟发布 ¥1.00"})).toBeTruthy();
+  expect(feeValue("本次待预占")).toBe("¥1.00");
+  expect(feeValue("软文媒体小计")).toBe("1 项 · ¥1.00");
+  expect(screen.getByText(/未通过的组合（预估费用 ¥1.00）不纳入本次提交/)).toBeTruthy();
   expect(within(dialog).queryByText("媒体 other")).toBeNull();
   expect(task.updateDraftMedia).not.toHaveBeenCalled();
   expect(task.submitDraft).not.toHaveBeenCalled();
@@ -138,6 +185,36 @@ it("lists only passed combinations in final confirmation and narrows failed medi
   expect(task.updateDraftMedia).toHaveBeenCalledWith("A", ["shared"], 2);
   expect(task.submitDraft).toHaveBeenCalledWith({draftId: "A", preflightRevision: "preflight-A-3",
     quoteFingerprint: "quote-A-3", acknowledged: true, idempotencyKey: "publisher-submit:A:quote-A-3"});
+});
+
+it.each([
+  {price:"0", mediaPrice:"10000", code:"PRICE_INVALID"},
+  {price:"10000", mediaPrice:"0", code:"PRICE_INVALID"},
+  {price:"10000", mediaPrice:"10000", code:"PUBLICATION_QUOTE_CHANGED"},
+  {price:"", mediaPrice:"10000", code:"PRICE_INVALID"},
+])("does not display zero or a partial excluded total for failed quote $code/$price/$mediaPrice", async ({price, mediaPrice, code}) => {
+  const task = setup([draft("A")]);
+  task.preflightDraft.mockImplementation(async id => {
+    const value = snapshot(task.drafts.get(id)!);
+    value.items[0]!.blockers = ["正文限制未通过"];
+    const unknown = value.items[1]!;
+    unknown.blockers = ["报价需要重新核验"];
+    unknown.blockerCodes = [code];
+    unknown.priceTenThousandths = price;
+    unknown.media = {...unknown.media, priceTenThousandths:mediaPrice};
+    return value;
+  });
+  await beginConfirmation();
+  const status = await screen.findByText(/未通过的组合（费用待核验）不纳入本次提交/);
+  expect(status.textContent).toContain("不通过 2 项");
+  expect(status.textContent).not.toContain("¥0.00");
+  expect(status.textContent).not.toContain("¥1.00");
+  expect(status.textContent).not.toContain("¥2.00");
+  const card = screen.getByRole("region", {name:"稿件 A"});
+  expect(card.querySelector(".publishing-title-selection")?.textContent).toContain("部分费用待确认");
+  expect(within(card).getByText(/单价 待核验/)).toBeTruthy();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(task.submitDraft).not.toHaveBeenCalled();
 });
 
 it("locks edits and starts no duplicate saves or checks while confirmation is in flight", async () => {
@@ -258,6 +335,7 @@ it("restores accepted receipts and exact unknown requests after task hydration d
   await screen.findByRole("link", {name: "查看本稿发布结果"});
   await screen.findByText("发布请求受理结果待确认，当前配置已锁定；请核实原请求。");
   expect(feeValue("预计总价")).toBe("受理结果待确认");
+  expect(feeValue("本次待预占")).toBe("受理结果待确认");
   expect((screen.getByRole("textbox", {name: "稿件 A · 媒体 shared独立标题"}) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole("textbox", {name: "稿件 B · 媒体 shared独立标题"}) as HTMLInputElement).disabled).toBe(true);
   expect(task.saveDraftTitles).not.toHaveBeenCalled();
@@ -279,6 +357,7 @@ it("skips accepted drafts while saving and confirming the remaining manuscript",
   await readyToConfirm();
   expect((screen.getByRole("textbox", {name: "稿件 A · 媒体 shared独立标题"}) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole("textbox", {name: "稿件 B · 媒体 shared独立标题"}) as HTMLInputElement).disabled).toBe(false);
+  await waitFor(() => expect(feeValue("本次待预占")).toBe("¥2.00预估"));
   const revise = new URL(screen.getByRole("link", {name: "修改待提交稿件"}).getAttribute("href")!, window.location.origin);
   expect(revise.searchParams.getAll("batchDraft")).toEqual(["B"]);
   expect(revise.searchParams.getAll("batchArticle")).toEqual(["article-B"]);
