@@ -6,6 +6,9 @@ import { configurePublishingHost } from "../host";
 import type { PublicationBatch, PublicationPreflight, PublishingDashboard } from "../types";
 import { acceptedBatch, beginConfirmation, confirmFinal, dashboard, draft, feeValue, readyToConfirm, setup, snapshot, taskFlow } from "./titlesConfirmationTestSupport";
 
+// These regressions exercise the submission controller, not catalogue HTTP reads.
+vi.mock("../useMediaRules", () => ({useMarketRules: () => ({key:"test", rules:{}, ready:false, error:"", loading:false, reload:vi.fn()})}));
+
 // Confirmation is exercised through the real title-page entry, including title persistence.
 afterEach(() => {cleanup(); configurePublishingHost({}); vi.restoreAllMocks(); window.history.replaceState({}, "", "/");});
 
@@ -157,7 +160,7 @@ it("does not treat a failed preflight request as content failure or approve an i
   });
   await beginConfirmation();
   await screen.findByText(/第二稿服务暂不可用/);
-  expect(screen.getAllByText("内容检查通过")).toHaveLength(2);
+  expect(screen.queryByText("内容检查通过")).toBeNull();
   expect(screen.queryByText("内容检查不通过")).toBeNull();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(feeValue("本次待预占")).toBe("¥4.00预估");
@@ -165,7 +168,7 @@ it("does not treat a failed preflight request as content failure or approve an i
   failing = false;
   await beginConfirmation();
   await screen.findByRole("alertdialog");
-  expect(screen.getAllByText("内容检查通过")).toHaveLength(4);
+  expect(screen.queryByText("内容检查通过")).toBeNull();
   expect(task.preflightDraft).toHaveBeenCalledTimes(4);
   expect(task.submitDraft).not.toHaveBeenCalled();
 });
@@ -180,8 +183,12 @@ it("lists only passed combinations in final confirmation and narrows failed medi
   });
   await beginConfirmation();
   const dialog = await screen.findByRole("alertdialog");
-  expect(screen.getByText("内容检查不通过")).toBeTruthy();
+  expect(screen.queryByText("内容检查不通过")).toBeNull();
   expect(screen.getByText("正文不支持图片")).toBeTruthy();
+  expect(screen.getByText("正文能力匹配")).toBeTruthy();
+  const failedTitle = screen.getByRole("textbox", {name:"稿件 A · 媒体 other独立标题"});
+  expect(failedTitle.getAttribute("aria-invalid")).toBe("true");
+  expect(document.getElementById(failedTitle.getAttribute("aria-describedby")!)?.textContent).toContain("正文不支持图片");
   expect(within(dialog).getByRole("button", {name: "确认模拟发布 ¥1.00"})).toBeTruthy();
   expect(feeValue("本次待预占")).toBe("¥1.00");
   expect(feeValue("软文媒体小计")).toBe("1 项 · ¥1.00");

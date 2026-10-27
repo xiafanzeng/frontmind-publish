@@ -3,7 +3,7 @@
 .monitoring-module .am-title-config .publishing-titles-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:24px; min-width:0; }
 .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-draft-card,
 .monitoring-module .am-title-config .publishing-title-draft-card { box-sizing:border-box; min-width:0; padding:24px; border:1px solid var(--publishing-line); border-radius:14px; background:var(--publishing-surface); box-shadow:none; }
-.monitoring-module .am-title-config .publishing-draft-summary { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin:0; padding:0 0 20px; }
+.monitoring-module .am-title-config .publishing-draft-summary { display:flex; align-items:center; flex-wrap:wrap; gap:14px; margin:0; padding:0 0 16px; }
 .monitoring-module .am-title-config .publishing-draft-summary > div { flex:1 1 240px; min-width:0; }
 .monitoring-module .am-title-config .publishing-draft-summary h2 { margin:0 0 6px; font-size:16px; line-height:1.55; overflow-wrap:anywhere; }
 .monitoring-module .am-title-config .publishing-draft-summary > div > span { color:var(--publishing-muted); font-size:12px; line-height:1.6; }
@@ -12,16 +12,15 @@
 .monitoring-module .am-title-config .publishing-title-selection { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin:0; font-size:13px; color:var(--publishing-muted); }
 .monitoring-module .am-title-config .publishing-title-selection strong { color:var(--publishing-purple); font-size:14px; font-variant-numeric:tabular-nums; }
 .monitoring-module .am-title-config .publishing-title-error-filter { display:inline-flex; align-items:center; gap:8px; font-size:12px; }
-.monitoring-module .am-title-config .publishing-title-selection-note { margin:0 0 16px; color:var(--publishing-muted); font-size:12px; line-height:1.7; }
+.monitoring-module .am-title-config .publishing-title-selection-note { margin:0 0 12px; color:var(--publishing-muted); font-size:12px; line-height:1.7; }
 .monitoring-module .am-title-config .publishing-title-table-wrap { container:publishing-title-table / inline-size; box-sizing:border-box; width:100%; min-width:0; border:1px solid var(--publishing-line); border-radius:10px; }
 .monitoring-module .am-title-config .publishing-title-table { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse; font-size:13px; line-height:1.65; }
 .monitoring-module .am-title-config .publishing-title-table .title-col-check { width:52px; }
-.monitoring-module .am-title-config .publishing-title-table .title-col-media { width:21%; }
-.monitoring-module .am-title-config .publishing-title-table .title-col-original { width:17%; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-media { width:24%; }
+.monitoring-module .am-title-config .publishing-title-table .title-col-original { width:19%; }
 .monitoring-module .am-title-config .publishing-title-table .title-col-publish { width:auto; }
-.monitoring-module .am-title-config .publishing-title-table .title-col-requirement { width:160px; }
 .monitoring-module .am-title-config .publishing-title-table th,
-.monitoring-module .am-title-config .publishing-title-table td { min-width:0; padding:16px 12px; vertical-align:top; border:0; border-bottom:1px solid var(--publishing-line); text-align:left; white-space:normal; overflow-wrap:anywhere; background:inherit; }
+.monitoring-module .am-title-config .publishing-title-table td { min-width:0; padding:12px; vertical-align:top; border:0; border-bottom:1px solid var(--publishing-line); text-align:left; white-space:normal; overflow-wrap:anywhere; background:inherit; }
 .monitoring-module .am-title-config .publishing-title-table thead th { padding-block:12px; color:var(--publishing-muted); font-size:12px; font-weight:600; white-space:normal; }
 /* Global dashboard th has a tinted fill; row-header cells inherit this table row instead. */
 .monitoring-module .am-title-config .publishing-title-table tr { background:var(--publishing-surface); }
@@ -33,39 +32,38 @@
 .monitoring-module .am-title-config .publishing-title-table .publishing-media-name strong { display:block; font-size:13px; line-height:1.65; white-space:normal; word-break:normal; overflow-wrap:anywhere; }
 .monitoring-module .am-title-config .publishing-title-table .publishing-media-name small { display:block; margin-top:5px; color:var(--publishing-muted); font-size:11px; white-space:normal; }
 .monitoring-module .am-title-config .publishing-title-original { color:var(--publishing-muted); }
-.monitoring-module .am-title-config .publishing-title-table textarea { box-sizing:border-box; width:100%; max-width:100%; min-width:0; min-height:66px; padding:11px 12px; border:1px solid var(--publishing-line); border-radius:8px; background:var(--publishing-surface); color:var(--publishing-ink); font:inherit; line-height:1.65; resize:vertical; white-space:pre-wrap; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-table textarea { display:block; box-sizing:border-box; width:100%; max-width:100%; min-width:0; min-height:44px; padding:9px 12px; border:1px solid var(--publishing-line); border-radius:8px; background:var(--publishing-surface); color:var(--publishing-ink); font:inherit; line-height:1.5; resize:none; white-space:pre-wrap; overflow-wrap:anywhere; }
 .monitoring-module .am-title-config .publishing-title-table textarea[aria-invalid=true] { border-color:var(--publishing-red); }
-.monitoring-module .am-title-config .publishing-title-input-label { display:block; margin-bottom:6px; color:var(--publishing-muted); font-size:11px; }
+/* The desktop column already names this field; retain its associated label for screen readers. */
+.monitoring-module .am-title-config .publishing-title-input-label { display:block; position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; color:var(--publishing-muted); font-size:11px; }
 .monitoring-module .am-title-config .publishing-title-check { display:flex; align-items:center; justify-content:center; width:28px; min-height:44px; padding:0; }
 .monitoring-module .am-title-config .publishing-title-check input[type=checkbox],
 .monitoring-module .am-title-config .publishing-title-error-filter input[type=checkbox] { box-sizing:border-box; flex:none; width:17px; height:17px; min-width:17px; min-height:17px; margin:0; padding:0; accent-color:var(--publishing-purple); }
-.monitoring-module .am-title-config .publishing-title-copy { display:block; margin-top:8px; padding:3px 0; border:0; background:transparent; color:var(--publishing-purple); font-size:12px; text-align:left; }
-.monitoring-module .am-title-config .publishing-title-requirement strong,
-.monitoring-module .am-title-config .publishing-title-requirement small,
-.monitoring-module .am-title-config .publishing-title-requirement span { display:block; font-size:12px; }
-.monitoring-module .am-title-config .publishing-title-requirement strong { font-weight:500; }
-.monitoring-module .am-title-config .publishing-title-requirement small { margin:5px 0; color:var(--publishing-muted); font-variant-numeric:tabular-nums; }
-.monitoring-module .am-title-config .publishing-title-requirement span { color:var(--publishing-green); }
-.monitoring-module .am-title-config .publishing-title-requirement.is-error span { color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-title-copy { display:block; margin-top:4px; padding:3px 0; border:0; background:transparent; color:var(--publishing-purple); font-size:12px; text-align:left; }
 .monitoring-module .am-title-config .publishing-title-table .is-excluded { background:var(--publishing-canvas); }
-.monitoring-module .am-title-config .publishing-title-table .is-excluded .publishing-title-requirement span { color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-rules-status { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; margin:0 0 12px; color:var(--publishing-muted); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-rules-status button,
+.monitoring-module .am-title-config .publishing-title-source-rule button { padding:3px 0; border:0; background:transparent; color:var(--publishing-purple); font:inherit; text-align:left; white-space:normal; }
+.monitoring-module .am-title-config .publishing-title-field-feedback { display:grid; gap:4px; margin-top:4px; min-width:0; color:var(--publishing-muted); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+.monitoring-module .am-title-config .publishing-title-field-feedback p { margin:0; }
+.monitoring-module .am-title-config .publishing-title-field-feedback .is-danger { color:var(--publishing-red); }
+.monitoring-module .am-title-config .publishing-title-source-rule { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; min-width:0; }
+.monitoring-module .am-title-config .publishing-title-source-rule > * { min-width:0; max-width:100%; }
+.monitoring-module .am-title-config .publishing-title-source-rule summary { color:var(--publishing-purple); cursor:pointer; }
+.monitoring-module .am-title-config .publishing-title-source-rule details[open] { flex-basis:100%; }
 .monitoring-module .am-title-config .publishing-title-empty { margin:0; padding:20px; color:var(--publishing-muted); font-size:13px; }
 .monitoring-module .am-title-config .publishing-workflow-footer { flex-wrap:wrap; gap:12px; margin-top:0; padding-top:20px; border-top:1px solid var(--publishing-line); }
 .monitoring-module .am-title-config .publishing-workflow-footer .publishing-button-accent { min-width:min(156px,100%); }
 .monitoring-module .am-title-config .publishing-title-submit-icon { display:inline-flex; width:17px; }
-.monitoring-module .am-title-config :is(input,button,textarea,a):focus-visible { outline:2px solid var(--publishing-purple); outline-offset:3px; }
+.monitoring-module .am-title-config :is(input,button,textarea,a,summary):focus-visible { outline:2px solid var(--publishing-purple); outline-offset:3px; }
 .monitoring-module .am-title-config button:disabled { cursor:not-allowed; }
 /* All hosts use the same order: editors, checks, fees, then final actions. */
 .monitoring-module .am-title-config .publishing-title-confirmation { display:block; min-width:0; }
 .monitoring-module .am-title-config .publishing-title-confirmation > .publishing-review-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:22px; width:100%; max-width:none; margin:24px 0 0; min-width:0; }
 .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees,
 .monitoring-module .am-title-config .publishing-title-confirmation .publishing-review-fees { container:publishing-review-fees / inline-size; box-sizing:border-box; padding:20px 24px; min-width:0; border:1px solid var(--publishing-line); border-radius:var(--publishing-radius); background:var(--publishing-surface); }
-.monitoring-module .am-title-config .publishing-title-content-check { margin-top:10px; padding-top:8px; border-top:1px solid var(--publishing-line); }
-.monitoring-module .am-title-config .publishing-title-content-check :is(span,strong) { display:block; margin-top:4px; color:var(--publishing-muted); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
-.monitoring-module .am-title-config .publishing-title-content-check .is-danger { color:var(--publishing-red); }
-.monitoring-module .am-title-config .publishing-title-content-check .is-success { color:var(--publishing-green); }
 .monitoring-module .am-title-config .publishing-title-single { display:block; color:var(--publishing-ink); overflow-wrap:anywhere; }
-.monitoring-module .am-title-config .publishing-title-single + small { display:block; margin-top:8px; color:var(--publishing-muted); }
+.monitoring-module .am-title-config .publishing-title-single + small { display:block; margin-top:4px; color:var(--publishing-muted); }
 .monitoring-module .am-title-config .publishing-title-check-feedback { display:grid; gap:12px; margin-top:16px; font-size:13px; line-height:1.7; }
 .monitoring-module .am-title-config .publishing-title-check-feedback:empty { display:none; }
 .monitoring-module .am-title-config .publishing-title-check-feedback .publishing-button { justify-self:start; }
@@ -84,14 +82,14 @@
   .monitoring-module .am-title-config .publishing-title-table colgroup { display:none; }
   /* Keep the real column headers available to assistive technology. */
   .monitoring-module .am-title-config .publishing-title-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  .monitoring-module .am-title-config .publishing-title-table tbody tr { display:block; padding:16px; border-bottom:1px solid var(--publishing-line); }
+  .monitoring-module .am-title-config .publishing-title-table tbody tr { display:block; padding:12px; border-bottom:1px solid var(--publishing-line); }
   .monitoring-module .am-title-config .publishing-title-table tbody tr:last-child { border-bottom:0; }
-  .monitoring-module .am-title-config .publishing-title-table tbody :is(td,th) { display:block; box-sizing:border-box; width:100%; min-width:0; padding:0 0 14px; border-bottom:0; }
+  .monitoring-module .am-title-config .publishing-title-table tbody :is(td,th) { display:block; box-sizing:border-box; width:100%; min-width:0; padding:0 0 10px; border-bottom:0; }
   .monitoring-module .am-title-config .publishing-title-table tbody tr > :first-child { display:flex; align-items:center; gap:12px; }
   .monitoring-module .am-title-config .publishing-title-table tbody tr > :last-child { padding-bottom:0; }
   .monitoring-module .am-title-config .publishing-title-table .publishing-title-mobile-label { display:block; margin:0 0 6px; font-size:12px; font-weight:500; line-height:1.65; color:var(--publishing-muted); }
   .monitoring-module .am-title-config .publishing-title-table tbody tr > :first-child .publishing-title-mobile-label { margin:0; }
-  .monitoring-module .am-title-config .publishing-title-input-label { font-size:12px; font-weight:500; }
+  .monitoring-module .am-title-config .publishing-title-input-label { position:static; width:auto; height:auto; margin:0 0 4px; overflow:visible; clip-path:none; white-space:normal; font-size:12px; font-weight:500; }
 }
 @container publishing-title-page (max-width:620px) {
   .user-brand-dashboard.operator-mode .monitoring-module .am-title-config .publishing-title-draft-card,
