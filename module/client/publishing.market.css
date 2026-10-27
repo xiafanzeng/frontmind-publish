@@ -731,6 +731,10 @@
 .fm-media .y-tip{max-width:490px!important;background:#333039!important;color:#fff!important;border:1px solid #48404a!important;box-shadow:0 8px 28px #24122728!important;border-radius:9px!important;padding:16px 18px!important;z-index:10000!important;max-height:65vh;overflow:auto;pointer-events:none;line-height:1.85;font-size:13px}
 .fm-media .y-tip h4{margin:0 0 9px;color:#fff!important;font-size:13px!important}
 .fm-media .y-tip .y-full-remark{white-space:pre-wrap;line-height:1.85;font-size:14px;overflow-wrap:anywhere}
+.y-other-list{margin:0;padding:0;list-style:none}
+.y-other-list li{position:relative;padding:2px 0 2px 14px;line-height:1.7;overflow-wrap:anywhere}
+.y-other-list li::before{content:"";position:absolute;left:2px;top:.72em;width:5px;height:5px;border-radius:50%;background:#c9a0b4}
+.fm-media .y-tip .y-other-list li::before{background:#d3b6c7}
 .fm-media .y-tip .y-tip-status{margin-top:11px;border-top:1px solid #665565;padding-top:8px;color:#d3b6c7;font-size:11px;line-height:1.75}
 .fm-media .y-tip .y-tip-status b{font-weight:400;color:#e5c9d9}
 .fm-media .y-tooltip-rules{color:#dbd5dc;margin-top:9px;font-size:11px}
