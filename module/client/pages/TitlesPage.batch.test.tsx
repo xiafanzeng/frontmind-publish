@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { configurePublishingHost } from "../host";
 import type { SaveDraftTitlesInput } from "../types";
 import { beginConfirmation, draft, feeValue, readyToConfirm, setup } from "./titlesConfirmationTestSupport";
+import { useMarketRules } from "../useMediaRules";
+import { parseMediaRules } from "../../server/providers/kol/media-rules";
+
+vi.mock("../useMediaRules", () => ({useMarketRules: vi.fn()}));
+const catalogueRules = (remark = "", limit?: number) => parseMediaRules(remark, "2026-10-27T00:00:00Z", limit);
+beforeEach(() => {vi.mocked(useMarketRules).mockReturnValue({key:"test", rules:{shared:catalogueRules(), other:catalogueRules()}, ready:true, error:"", loading:false, reload:vi.fn()});});
 
 afterEach(() => {cleanup(); configurePublishingHost({}); vi.restoreAllMocks(); window.history.replaceState({}, "", "/");});
 
@@ -43,7 +49,7 @@ it("keeps same-media edits independent and checks only locally selected combinat
   expect(within(dialog).queryByText("稿件 B · v1")).toBeNull();
   expect(task.location.history.at(-1)).toContain("/titles");
   expect(task.submitDraft).not.toHaveBeenCalled();
-  expect(task.container.querySelectorAll(".publishing-title-table thead th")).toHaveLength(10);
+  expect(task.container.querySelectorAll(".publishing-title-table thead th")).toHaveLength(8);
 });
 
 it("keeps every title field and row association when the responsive table stacks", async () => {
@@ -51,19 +57,87 @@ it("keeps every title field and row association when the responsive table stacks
   await readyToConfirm();
   for (const id of ["A", "B"]) {
     const table = within(screen.getByRole("region", {name:`稿件 ${id}的媒体和发布标题`})).getByRole("table");
-    for (const name of ["选择", "媒体", "稿件原标题", "实际发布标题", "标题要求与发布检查"])
+    for (const name of ["选择", "媒体", "稿件原标题", "实际发布标题"])
       expect(within(table).getByRole("columnheader", {name})).toBeTruthy();
+    expect(within(table).queryByRole("columnheader", {name:"标题要求与发布检查"})).toBeNull();
     expect(within(table).getAllByRole("rowheader")).toHaveLength(2);
     expect(within(table).getAllByRole("checkbox")).toHaveLength(2);
   }
   const editor = screen.getByRole("textbox", {name:"稿件 B · 媒体 shared独立标题"});
   expect(editor.tagName).toBe("TEXTAREA");
+  expect((editor as HTMLTextAreaElement).rows).toBe(1);
+  expect(fireEvent.keyDown(editor, {key:"Enter", isComposing:true})).toBe(true);
+  expect(fireEvent.keyDown(editor, {key:"Enter", isComposing:false})).toBe(false);
   fireEvent.change(editor, {target:{value:"保持换行显示但\n保存为单个标题"}});
   expect((editor as HTMLTextAreaElement).value).toBe("保持换行显示但 保存为单个标题");
   expect(screen.getByLabelText("稿件 A · 媒体 shared统一标题").textContent).toBe("A 的上游确认标题");
   expect(task.container.querySelector(".publishing-title-table-scroll")).toBeNull();
   expect(task.saveDraftTitles).not.toHaveBeenCalled();
   expect(task.preflightDraft).not.toHaveBeenCalled();
+});
+
+it("does not present normalized default limits or successful checks as catalogue requirements", async () => {
+  const value = draft("A");
+  value.items.forEach(item => {item.media.titleLimit = 200;});
+  const task = setup([value]);
+  await readyToConfirm();
+  expect(task.container.querySelector(".title-col-requirement")).toBeNull();
+  expect(task.container.querySelector(".publishing-title-field-feedback")).toBeNull();
+  expect(screen.queryByText(/200 字|长度有效|内容检查/)).toBeNull();
+  await beginConfirmation();
+  await screen.findByRole("alertdialog");
+  expect(screen.queryByText("正文符合要求")).toBeNull();
+  expect(screen.queryByText("内容检查通过")).toBeNull();
+  expect(task.submitDraft).not.toHaveBeenCalled();
+});
+
+it("shows evidenced media limits beside both single and independent titles without a fifth column", async () => {
+  vi.mocked(useMarketRules).mockReturnValue({key:"test", rules:{shared:catalogueRules("", 200), other:catalogueRules()}, ready:true, error:"", loading:false, reload:vi.fn()});
+  setup([draft("A", "single"), draft("B")]);
+  await readyToConfirm();
+  for (const id of ["A", "B"]) {
+    const region = screen.getByRole("region", {name:`稿件 ${id}的媒体和发布标题`});
+    expect(within(region).getByText(/目录要求：标题不超过 200 字/)).toBeTruthy();
+    expect(within(region).getByText("API title_limit=200")).toBeTruthy();
+    expect(within(region).getAllByRole("columnheader")).toHaveLength(4);
+    const title = id === "A" ? within(region).getByLabelText("稿件 A · 媒体 shared统一标题") : within(region).getByRole("textbox", {name:"稿件 B · 媒体 shared独立标题"});
+    const description = document.getElementById(title.getAttribute("aria-describedby")!);
+    expect(description?.textContent).toContain("目录要求：标题不超过 200 字");
+  }
+});
+
+it("keeps the frozen technical cap without calling it a media requirement when catalogue evidence is unknown", async () => {
+  const value = draft("A");
+  value.items[0]!.media.titleLimit = 200;
+  const task = setup([value]);
+  await readyToConfirm();
+  const input = screen.getByRole("textbox", {name:"稿件 A · 媒体 shared独立标题"});
+  fireEvent.change(input, {target:{value:"题".repeat(201)}});
+  expect(screen.getByText("超过当前提交上限 200 字，请缩短标题。")).toBeTruthy();
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toContain("当前提交上限 200 字");
+  expect((screen.getByRole("button", {name:"确认发布"}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", {name:"只看错误项 (1)"}));
+  expect(screen.getAllByRole("rowheader")).toHaveLength(1);
+  fireEvent.change(input, {target:{value:"修正标题"}});
+  expect(screen.queryByText(/超过当前提交上限/)).toBeNull();
+  await readyToConfirm();
+  expect(task.saveDraftTitles).not.toHaveBeenCalled();
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+});
+
+it("keeps a failed requirement read retryable without blocking title editing or faking a default media limit", async () => {
+  const reload = vi.fn();
+  vi.mocked(useMarketRules).mockReturnValue({key:"test", rules:{}, ready:false, error:"网络异常", loading:false, reload});
+  const task = setup([draft("A")]);
+  await readyToConfirm();
+  expect(screen.getByText("媒体标题要求暂时无法读取，请重试。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:"重试读取标题要求"}));
+  expect(reload).toHaveBeenCalledOnce();
+  expect(screen.queryByText(/上限 ≤|目录要求：/)).toBeNull();
+  expect((screen.getByRole("textbox", {name:"稿件 A · 媒体 shared独立标题"}) as HTMLTextAreaElement).disabled).toBe(false);
+  expect(task.preflightDraft).not.toHaveBeenCalled();
+  expect(task.submitDraft).not.toHaveBeenCalled();
 });
 
 it("blocks an entirely unchecked selection without writes or preflight", async () => {

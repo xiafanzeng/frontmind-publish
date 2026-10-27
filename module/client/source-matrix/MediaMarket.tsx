@@ -1,69 +1,19 @@
 /** Design-owned media library shell and rows. Data remains supplied by the live gateways. */
-import { Children, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { projectWorkspaceUrl, usePublishingWorkspaceKey } from '../host';
+import { projectWorkspaceUrl } from '../host';
 import { createPortal } from 'react-dom';
 
 import { formatPublishingMoney, type MediaResource, type PublicationDraftItem } from '../types';
 import { publicationSelectionAmounts } from '../publicationAmounts';
-import { mediaReadError } from '../mediaReadError';
+export { rulesRequest, useMarketRules } from '../useMediaRules';
 import type { MediaRules, RuleField } from '../../server/providers/kol/media-rules';
 import '../publishing.market.css';
 import {ReferenceSymbols,ReferenceIcon} from './ReferenceIcons';
 import {referenceScopeStyle} from './ReferenceScope';
 
 
-const api = '/api/modules/publish/media-requirements';
-export async function rulesRequest<T>(path: string, signal?: AbortSignal, input?: unknown): Promise<T> {
- const response = await fetch(api + path, {credentials:'same-origin',signal,...(input === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})});
- const body = await response.json().catch(()=>null);
- if (!response.ok) throw Object.assign(new Error(mediaReadError(body?.message, '媒体资料暂时不可用，请重试或联系管理员。')), { cause: body });
- return body as T;
-}
 export const credentialHelp = '请管理员准备：PUBLISHER_FEATURE_ENABLED=true、PUBLISHER_PROVIDER_ENABLED=true、PUBLISHER_MODE=live（或 test）、HTTPS 的 PUBLISHER_KOL_BASE_URL，以及 PUBLISHER_KOL_ACCESS_TOKEN；也可使用完整登录字段 PUBLISHER_KOL_API_KEY、MOBILE、PASSWORD、IDENTITY、CAPTCHA、CAPTCHA_TOKEN（后五项同样带 PUBLISHER_KOL_ 前缀）。凭据仅在服务端配置。';
-export function useMarketRules(ids: string[], revision = ''): {key:string;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean;reload:()=>void} {
- const workspace = usePublishingWorkspaceKey(), idsKey = [...new Set(ids)].sort().join(','), key = `${workspace}:${revision}:${idsKey}`;
- const [reloadToken,setReloadToken] = useState(0);
- const reload = useCallback(()=>setReloadToken(value=>value+1),[]);
- const [state,setState] = useState<{key:string;reloadToken:number;rules:Record<string,MediaRules>;ready:boolean;error:string;loading:boolean}>({key:'',reloadToken:0,rules:{},ready:false,error:'',loading:true});
- useEffect(()=>{
-   if (!idsKey) {
-    setState({key,reloadToken,rules:{},ready:false,error:'',loading:false});
-    return;
-   }
-  const abort=new AbortController();let active=true;
-  const current=()=>active&&!abort.signal.aborted;
-  setState({key,reloadToken,rules:{},ready:false,error:'',loading:true});
-  const timeout=setTimeout(()=>{
-   if(!current())return;
-   abort.abort();
-   setState({key,reloadToken,rules:{},ready:false,error:'媒体要求读取超时，请重试。',loading:false});
-  },20_000);
-  // The rules endpoint already checks the same authenticated runtime capability.
-  // Avoid an extra serial /status round trip for every page/filter/detail change.
-  void Promise.resolve().then(async()=>{
-   if(!current())return;
-   const items:Array<{id:string;rules:MediaRules}>=[],all=idsKey?idsKey.split(','):[];
-   for(let i=0;i<all.length;i+=100){
-    const data=await rulesRequest<{items:Array<{id:string;rules:MediaRules}>}>('?ids='+encodeURIComponent(all.slice(i,i+100).join(',')),abort.signal);
-    if(!current())return;
-    items.push(...data.items);
-   }
-   if(current()){
-    clearTimeout(timeout);
-    setState({key,reloadToken,rules:Object.fromEntries(items.map(x=>[x.id,x.rules])),ready:true,error:'',loading:false});
-   }
-  }).catch(e=>{
-   if(!current())return;
-   clearTimeout(timeout);
-   setState({key,reloadToken,rules:{},ready:false,error:mediaReadError(e,'投稿要求暂时无法读取，请重试。'),loading:false});
-  });
-  return()=>{active=false;clearTimeout(timeout);abort.abort();};
- },[key,idsKey,reloadToken]);
- // Mask the previous scope (and previous attempt) before the new effect runs.
-  const visible=state.key===key&&state.reloadToken===reloadToken?state:{key,rules:{},ready:false,error:'',loading:Boolean(idsKey)};
- return {...visible,reload};
-}
 export function MediaDialog({open,title,description,confirmLabel,onCancel,onConfirm,children,busy,confirmDisabled,footer,inline:_inline,wide:_wide}:{open:boolean;title:string;description?:string;confirmLabel:string;onCancel:()=>void;onConfirm:()=>void;children?:ReactNode;busy?:boolean;confirmDisabled?:boolean;inline?:boolean;wide?:boolean;footer?:ReactNode}) {
  const dialog=useRef<HTMLDialogElement>(null);
  useEffect(()=>{const node=dialog.current;if(!node)return;if(open&&!node.open)node.showModal();else if(!open&&node.open)node.close();},[open]);

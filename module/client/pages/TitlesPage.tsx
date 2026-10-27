@@ -19,6 +19,9 @@ import { reviewDraftContext } from "../reviewPreflight";
 import PublishingConfirmation, { type PreparedPublishingConfiguration } from "./ReviewPage";
 import { usePreparationEntryScroll } from "../usePreparationEntryScroll";
 import { preflightDisplayLineTotal, publicationLineTotal, publicationQuantity } from "../publicationAmounts";
+import { PublishingTitleInput } from "../components/PublishingTitleInput";
+import { useMarketRules } from "../useMediaRules";
+import { titleLimitMessage, titleRequirementDisplay } from "../titleRequirements";
 
 // Hosts without task-value persistence still retain edits while moving between steps.
 // Never share private snapshots between authenticated gateway instances.
@@ -142,6 +145,12 @@ export default function PublishingTitlesPage({ draftId }: {
   }, [state, gateway, scopeKey, operationScope, persistEditors]);
 
   const groups = batch.draftIds.map(id => editors[id]).filter((editor): editor is TitleEditor => Boolean(editor));
+  // Current catalogue evidence describes a media rule; frozen DTO limits still own submission validation.
+  // Keep keystrokes and local selection changes out of the rule-request identity.
+  const requirementsRevision = JSON.stringify(groups.map(editor => [editor.draft.id, editor.draft.revision,
+    editor.draft.articleVersionId, editor.draft.articleVersionHash,
+    editor.items.map(item => [item.media.id, item.media.catalogRevision])]));
+  const requirements = useMarketRules(groups.flatMap(editor => editor.items.map(item => item.media.id)), `${scopeKey}:${requirementsRevision}`, gateway);
   const titleStage = publishingTitleStage(groups.map(editor => editor.draft));
   const reviewScope = publishingTaskUrl("/", flow?.taskId) + ":" + (flow?.scopeKey ?? "") + ":";
   const protection = () => restoreReviewSession(gateway, reviewScope, batch.draftIds, reviewProgress, flow?.selections);
@@ -153,10 +162,10 @@ export default function PublishingTitlesPage({ draftId }: {
       const length = unicodeLength(value);
       const limit = titleLimit(item.media.titleLimit);
       const message = !editor.checked.includes(item.media.id) ? "" : !value.trim() ? "标题不能为空"
-        : length > limit ? `超过该媒体 ${limit} 字限制` : "";
+        : length > limit ? titleLimitMessage(limit, titleRequirementDisplay(requirements.rules[item.media.id])) : "";
       return [item.media.id, { value, length, limit, message }];
     })),
-  ])), [state, batchKey]);
+  ])), [state, batchKey, requirements.rules]);
   const invalidCount = groups.filter(editor => !protectedDraft(editor.draft.id)).reduce((sum, editor) => sum + [...(validation[editor.draft.id] ?? new Map<string, { value: string; length: number; limit: number; message: string }>()).values()].filter(item => item.message).length, 0);
   const selectedCount = groups.filter(editor => !protectedDraft(editor.draft.id)).reduce((sum, editor) => sum + editor.checked.length, 0);
   const ready = groups.length === batch.draftIds.length && !query.loading && !query.refreshing && !query.error && !flow?.pending;
@@ -279,6 +288,8 @@ export default function PublishingTitlesPage({ draftId }: {
       <div className="am-title-config" ref={entryRef}>
         {query.loading || (query.refreshing && !groups.length) || flow?.pending ? <PublishingLoading label="正在读取发布草稿…" /> : null}
         {query.error ? <PublishingError error={query.error} onRetry={query.reload} /> : null}
+        {groups.length && requirements.loading ? <p className="publishing-title-rules-status" role="status">正在读取媒体标题要求…</p> : null}
+        {groups.length && requirements.error ? <p className="publishing-title-rules-status" role="alert">媒体标题要求暂时无法读取，请重试。<button type="button" onClick={requirements.reload}>重试读取标题要求</button></p> : null}
         <PublishingConfirmation draftId={draftId}
           configuration={{signature:configurationSignature(editors, batch.draftIds), drafts:selectedDrafts(editors, batch.draftIds), ready, invalid:Boolean(invalidCount) || !titleStage, saving:busy, mediaHref:mediaPath, loading:query.loading || query.refreshing || Boolean(flow?.pending), error:query.error}}
           prepareConfiguration={prepareConfiguration} onReloadConfiguration={query.reload}>
@@ -292,7 +303,12 @@ export default function PublishingTitlesPage({ draftId }: {
             const unknown = view.unknownIds.includes(id);
             const locked = busy || view.busy || view.unknown || accepted;
             const states = validation[id] ?? new Map<string, { value: string; length: number; limit: number; message: string }>();
-            const invalid = editor.items.filter(item => states.get(item.media.id)?.message || group?.preflight?.items.find(result => result.media.id === item.media.id)?.blockers.length).length;
+            const itemHasError = (mediaId: string) => {
+              if (accepted || !editor.checked.includes(mediaId)) return false;
+              const check = group?.preflight?.items.find(result => result.media.id === mediaId);
+              return Boolean(states.get(mediaId)?.message || check?.blockers.length || check?.checks.some(entry => !entry.passed));
+            };
+            const invalid = editor.items.filter(item => itemHasError(item.media.id)).length;
             const lineAmount = (item: (typeof editor.items)[number]) => {
               const checked = group?.preflight?.items.find(result => result.media.id === item.media.id);
               return checked ? preflightDisplayLineTotal(checked, group?.preflight?.blockerCodes) : publicationLineTotal(item);
@@ -300,7 +316,7 @@ export default function PublishingTitlesPage({ draftId }: {
             const checkedAmounts = editor.items.filter(item => editor.checked.includes(item.media.id)).map(lineAmount);
             const checkedTotal = checkedAmounts.reduce<bigint>((sum, amount) => sum + BigInt(amount ?? '0'), 0n);
             const unknownAmount = checkedAmounts.some(amount => amount === null);
-            const visible = editor.items.filter(item => !editor.onlyErrors || states.get(item.media.id)?.message || group?.preflight?.items.find(result => result.media.id === item.media.id)?.blockers.length);
+            const visible = editor.items.filter(item => !editor.onlyErrors || itemHasError(item.media.id));
             const domId = `title-draft-${encodeURIComponent(id)}`;
             return (
               <section className="publishing-panel publishing-title-draft-card" key={id} aria-labelledby={`${domId}-heading`}>
@@ -314,37 +330,46 @@ export default function PublishingTitlesPage({ draftId }: {
                   <label className="publishing-title-error-filter"><input type="checkbox" checked={editor.onlyErrors} disabled={locked} onChange={event => updateEditor(id, current => ({ ...current, onlyErrors: event.target.checked }))} />只看错误项 ({invalid})</label>
                   {editor.mode === "per_media" ? <button className="publishing-button publishing-button-secondary" type="button" disabled={locked} onClick={() => applyTitleToAll(id, editor.draft.articleTitle)}><WandSparkles size={15} />用稿件标题填充本稿全部媒体</button> : <span className="publishing-title-selection-note">沿用稿件阶段确认的统一标题</span>}
                 </div>
-                <p className="publishing-title-selection-note">{accepted ? "本稿发布请求已受理，以下配置仅供核对，不计入本次待提交费用。" : "取消勾选的媒体不计入费用、校验与本次发布；重新勾选后保留已填写标题。标题限制以媒体目录为准，缺失时上限为 200 字。"}</p>
+                <p className="publishing-title-selection-note">{accepted ? "本稿发布请求已受理，以下配置仅供核对，不计入本次待提交费用。" : "取消勾选的媒体不计入费用、校验与本次发布；重新勾选后保留已填写标题。"}</p>
                 <div className="publishing-title-table-wrap" role="region" aria-label={`${editor.draft.articleTitle}的媒体和发布标题`}>
                   <table className="publishing-title-table" role="table">
-                    <colgroup><col className="title-col-check" /><col className="title-col-media" /><col className="title-col-original" /><col className="title-col-publish" /><col className="title-col-requirement" /></colgroup>
-                    <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">选择</th><th scope="col" role="columnheader">媒体</th><th scope="col" role="columnheader">稿件原标题</th><th scope="col" role="columnheader">实际发布标题</th><th scope="col" role="columnheader">标题要求与发布检查</th></tr></thead>
+                    <colgroup><col className="title-col-check" /><col className="title-col-media" /><col className="title-col-original" /><col className="title-col-publish" /></colgroup>
+                    <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">选择</th><th scope="col" role="columnheader">媒体</th><th scope="col" role="columnheader">稿件原标题</th><th scope="col" role="columnheader">实际发布标题</th></tr></thead>
                     <tbody role="rowgroup">{visible.map(item => {
                       const result = states.get(item.media.id)!;
                       const included = editor.checked.includes(item.media.id);
                       const check = included && !accepted ? group?.preflight?.items.find(value => value.media.id === item.media.id) : undefined;
                       const inputId = `${domId}-${encodeURIComponent(item.media.id)}`;
+                      const requirement = requirements.ready ? titleRequirementDisplay(requirements.rules[item.media.id]) : undefined;
+                      const errors = [...new Set([!accepted ? result.message : "", ...(check?.blockers ?? []),
+                        ...(check?.checks.filter(entry => !entry.passed).map(entry => entry.label) ?? [])].filter(Boolean))];
+                      const warnings = [...new Set(check?.warnings ?? [])].filter(message => !errors.includes(message));
+                      const hasFeedback = Boolean(requirement?.text || errors.length || warnings.length);
                       const unitAmount = check?.media.priceTenThousandths ?? item.media.priceTenThousandths;
                       const unitLabel = lineAmount(item) !== null && /^\d+$/.test(unitAmount) && BigInt(unitAmount) > 0n ? formatPublishingMoney(unitAmount) : "待核验";
                       return <tr key={item.media.id} role="row" className={included ? "" : "is-excluded"}>
                         <td role="cell"><span className="publishing-title-mobile-label" aria-hidden="true">选择</span><label className="publishing-title-check"><input type="checkbox" checked={included} disabled={locked} onChange={() => updateEditor(id, current => ({ ...current, checked: current.checked.includes(item.media.id) ? current.checked.filter(mediaId => mediaId !== item.media.id) : [...current.checked, item.media.id] }))} aria-label={`${editor.draft.articleTitle} · ${item.media.name}参与本次发布`} /></label></td>
                         <th scope="row" role="rowheader"><span className="publishing-title-mobile-label" aria-hidden="true">媒体</span><span className="publishing-media-name"><MediaMark name={item.media.shortName} id={item.media.id} logoUrl={item.media.logoUrl} logoSource={item.media.logoSource} logoResolutionStatus={item.media.logoResolutionStatus} /><span><strong>{item.media.name}</strong><small>{item.media.kind === "self_media" ? "自媒体" : "软文媒体"} · 单价 {unitLabel}</small>{item.publication ? <small>{publicationQuantity(item) ?? '待确认'} 次发布 · 小计 {lineAmount(item) === null ? '待确认' : formatPublishingMoney(lineAmount(item)!)}{item.publication.quantityMeaning === 'repeat_same_article' ? ' · 同稿同标题重复发布' : ''}</small> : null}</span></span></th>
                         <td role="cell" className="publishing-title-original"><span className="publishing-title-mobile-label" aria-hidden="true">稿件原标题</span>{editor.draft.articleTitle}</td>
-                        <td role="cell">{editor.mode === "single" ? <><span className="publishing-title-mobile-label" aria-hidden="true">实际发布标题</span><span className="publishing-title-single" aria-label={`${editor.draft.articleTitle} · ${item.media.name}统一标题`}>{result.value || "尚未确认统一标题"}</span><small>统一标题 · 请返回稿件编辑调整</small></> : <><label className="publishing-title-input-label" htmlFor={inputId}>实际发布标题</label><textarea rows={2} id={inputId} value={result.value} disabled={locked || !included} aria-invalid={Boolean(result.message)} aria-describedby={`${inputId}-state`} aria-label={`${editor.draft.articleTitle} · ${item.media.name}独立标题`} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }} onChange={event => updateEditor(id, current => ({ ...current, titles: { ...current.titles, [item.media.id]: event.target.value.replace(/[\r\n]+/g, " ") } }))} /><button type="button" className="publishing-title-copy" disabled={locked || !included} onClick={() => applyTitleToAll(id, result.value)}>应用到本稿全部媒体</button></>}</td>
-                        <td role="cell" id={`${inputId}-state`} className={result.message ? "publishing-title-requirement is-error" : "publishing-title-requirement"}><span className="publishing-title-mobile-label" aria-hidden="true">标题要求与发布检查</span><strong>上限 ≤ {result.limit} 字</strong><small>{included ? `${result.length} / ${result.limit} 字` : "未纳入本次发布"}</small><span>{!included ? "重新勾选后恢复" : result.message || "长度有效"}</span>
-                          {included ? <div className="publishing-title-content-check" aria-live="polite">{accepted ? <span>已受理，不重复提交</span> : check ? <><strong className={check.blockers.length ? "is-danger" : "is-success"}>{check.blockers.length ? "内容检查不通过" : "内容检查通过"}</strong>{check.checks.map((entry, index) => <span key={`check-${index}`} className={entry.passed ? "is-success" : "is-danger"}>{entry.passed ? "✓ " : "× "}{entry.label}</span>)}{check.blockers.map((message, index) => <span className="is-danger" key={`blocker-${index}`}>{message}</span>)}{check.warnings.map((message, index) => <span key={`warning-${index}`}>{message}</span>)}</> : <span>{unknown ? "受理结果待核实" : view.unknown ? "尚未提交，等待原请求核实" : group?.check?.phase === "checking" ? "正在核验…" : group?.check?.phase === "failed" ? "核验失败，请重试" : "内容检查：— · 待核验"}</span>}</div> : null}
+                        <td role="cell">{editor.mode === "single" ? <><span className="publishing-title-mobile-label" aria-hidden="true">实际发布标题</span><span className="publishing-title-single" aria-describedby={hasFeedback ? `${inputId}-state` : undefined} aria-label={`${editor.draft.articleTitle} · ${item.media.name}统一标题`}>{result.value || "尚未确认统一标题"}</span><small>统一标题 · 请返回稿件编辑调整</small></> : <><label className="publishing-title-input-label" htmlFor={inputId}>实际发布标题</label><PublishingTitleInput id={inputId} value={result.value} disabled={locked || !included} aria-invalid={Boolean(errors.length)} aria-describedby={hasFeedback ? `${inputId}-state` : undefined} aria-label={`${editor.draft.articleTitle} · ${item.media.name}独立标题`} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) event.preventDefault(); }} onChange={event => updateEditor(id, current => ({ ...current, titles: { ...current.titles, [item.media.id]: event.target.value.replace(/[\r\n]+/g, " ") } }))} /></>}
+                          {hasFeedback ? <div id={`${inputId}-state`} className="publishing-title-field-feedback" aria-live="polite">
+                            {requirement?.text ? <div className="publishing-title-source-rule"><span>{requirement.text}{requirement.state === "constrained" ? `（已填 ${result.length} 字）` : ""}</span>{requirement.state === "unavailable" ? <button type="button" onClick={requirements.reload}>重试读取标题要求</button> : null}{requirement.evidence.length ? <details><summary>查看媒体资料依据</summary>{requirement.evidence.map((evidence, index) => <p key={index}>{evidence}</p>)}{requirement.source ? <p>当前目录来源：{requirement.source}</p> : null}{requirement.collectedAt ? <p>目录资料记录时间：{requirement.collectedAt}</p> : null}<p>以上为当前目录资料，本稿提交仍按冻结版本及服务端校验确认。</p></details> : null}</div> : null}
+                            {errors.map(message => <p className="is-danger" key={`error-${message}`}>{message}</p>)}
+                            {warnings.map(message => <p key={`warning-${message}`}>{message}</p>)}
+                          </div> : null}
+                          {editor.mode === "per_media" ? <button type="button" className="publishing-title-copy" disabled={locked || !included} onClick={() => applyTitleToAll(id, result.value)}>应用到本稿全部媒体</button> : null}
                         </td>
                       </tr>;
                     })}</tbody>
                   </table>
-                  {!visible.length ? <p className="publishing-title-empty">{editor.onlyErrors ? "本稿没有需要修改的标题。" : "本稿暂无媒体，请返回选择媒体。"}</p> : null}
+                  {!visible.length ? <p className="publishing-title-empty">{editor.onlyErrors ? "本稿没有需要处理的错误项。" : "本稿暂无媒体，请返回选择媒体。"}</p> : null}
                 </div>
                 {view.feedback(id)}
               </section>
             );
           })}
         </div>
-        {invalidSingleGroups.length ? <p className="publishing-form-error" role="alert">{invalidSingleGroups.map(editor => editor.draft.articleTitle).join("、")}的单标题尚未确认或不符合已选媒体要求，请返回稿件或媒体选择环节调整。</p> : null}
+        {invalidSingleGroups.length ? <p className="publishing-form-error" role="alert">{invalidSingleGroups.map(editor => editor.draft.articleTitle).join("、")}的统一标题尚未确认或超出当前提交上限，请根据对应媒体行的提示返回稿件或媒体选择环节调整。</p> : null}
         {ready && !titleStage ? <p className="publishing-form-error" role="alert">标题模式无法恢复，请返回稿件或媒体选择环节重新确认。</p> : null}
         {ready && !selectedCount && !Object.keys(view.acceptedIds).length && !view.unknown ? <p className="publishing-form-error" role="status">本次未选择投放媒体，无法确认发布；请重新勾选或返回选择媒体。</p> : null}
         {error ? <p className="publishing-form-error" role="alert">{error}</p> : null}
