@@ -117,6 +117,10 @@
       "types": "./dist/server/providers/kol/*.d.ts",
       "import": "./dist/server/providers/kol/*.js",
       "default": "./dist/server/providers/kol/*.js"
+    },
+    "./client/businessNav": {
+      "types": "./client/businessNav.ts",
+      "import": "./client/businessNav.ts"
     }
   }
 }
