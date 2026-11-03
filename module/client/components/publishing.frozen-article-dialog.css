@@ -12,10 +12,10 @@
   min-height:0;
   overflow:hidden;
   padding:0;
-  border:1px solid var(--publishing-line,#e6e8f1);
+  border:1px solid var(--publishing-line,#ececec);
   border-radius:var(--publishing-radius,16px);
   background:var(--publishing-surface,#fff);
-  color:var(--publishing-ink,#202134);
+  color:var(--publishing-ink,#2a2a2a);
   font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
   font-size:14px;
   line-height:1.7;
@@ -27,7 +27,7 @@
   gap:16px;
   min-width:0;
   padding:20px 24px;
-  border-bottom:1px solid var(--publishing-line,#e6e8f1);
+  border-bottom:1px solid var(--publishing-line,#ececec);
 }
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-heading {
   flex:1 1 auto;
@@ -39,13 +39,13 @@
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-eyebrow {
   display:block;
   margin-bottom:4px;
-  color:var(--publishing-purple,#b33467);
+  color:var(--publishing-purple,#737373);
   font-size:13px;
   font-weight:600;
 }
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-title {
   margin:0;
-  color:var(--publishing-ink,#202134);
+  color:var(--publishing-ink,#2a2a2a);
   font-size:20px;
   font-weight:650;
   line-height:1.5;
@@ -54,7 +54,7 @@
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-description,
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-hash {
   margin:6px 0 0;
-  color:var(--publishing-muted,#737991);
+  color:var(--publishing-muted,#828282);
   font-size:13px;
   line-height:1.6;
   overflow-wrap:anywhere;
@@ -66,24 +66,24 @@
   justify-content:center;
   min-height:40px;
   padding:8px 16px;
-  border:1px solid var(--publishing-line,#e6e8f1);
+  border:1px solid var(--publishing-line,#ececec);
   border-radius:8px;
   background:var(--publishing-surface,#fff);
-  color:var(--publishing-ink,#202134);
+  color:var(--publishing-ink,#2a2a2a);
   font:inherit;
   line-height:1.5;
   cursor:pointer;
 }
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-close:hover {
-  border-color:var(--publishing-purple,#b33467);
-  background:var(--publishing-purple-soft,#f9eff5);
-  color:var(--publishing-purple,#b33467);
+  border-color:var(--publishing-purple,#737373);
+  background:var(--publishing-purple-soft,#f4f4f4);
+  color:var(--publishing-purple,#737373);
 }
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-close:active {
-  color:var(--publishing-purple-dark,#962654);
+  color:var(--publishing-purple-dark,#5e5e5e);
 }
 .publishing-frozen-article-dialog :is(button,a,[tabindex]):focus-visible {
-  outline:3px solid var(--publishing-focus,#cf77a2);
+  outline:3px solid var(--publishing-focus,#a3a3a3);
   outline-offset:2px;
 }
 .publishing-frozen-article-dialog .publishing-frozen-article-dialog-scroll {
@@ -107,12 +107,12 @@
 .publishing-frozen-article-dialog-body :is(img,video,iframe) { max-width:100%; height:auto; }
 .publishing-frozen-article-dialog-body :is(p,ul,ol,blockquote,pre,table) { margin-block:0 1em; }
 .publishing-frozen-article-dialog-body :is(ul,ol) { padding-left:1.75em; }
-.publishing-frozen-article-dialog-body a { color:var(--publishing-purple,#b33467); text-decoration:underline; overflow-wrap:anywhere; }
-.publishing-frozen-article-dialog-body a:hover { color:var(--publishing-purple-dark,#962654); }
+.publishing-frozen-article-dialog-body a { color:var(--publishing-purple,#737373); text-decoration:underline; overflow-wrap:anywhere; }
+.publishing-frozen-article-dialog-body a:hover { color:var(--publishing-purple-dark,#5e5e5e); }
 .publishing-frozen-article-dialog-body pre { max-width:100%; overflow:auto; white-space:pre-wrap; }
 .publishing-frozen-article-dialog-body table { display:block; max-width:100%; overflow:auto; border-collapse:collapse; }
-.publishing-frozen-article-dialog-body :is(td,th) { padding:8px 12px; border:1px solid var(--publishing-line,#e6e8f1); overflow-wrap:anywhere; }
-.publishing-frozen-article-dialog .publishing-frozen-article-dialog-empty { margin:0; color:var(--publishing-muted,#737991); }
+.publishing-frozen-article-dialog-body :is(td,th) { padding:8px 12px; border:1px solid var(--publishing-line,#ececec); overflow-wrap:anywhere; }
+.publishing-frozen-article-dialog .publishing-frozen-article-dialog-empty { margin:0; color:var(--publishing-muted,#828282); }
 @media(max-width:650px) {
   .publishing-frozen-article-dialog[data-slot="dialog-content"] { width:calc(100vw - 24px); max-width:calc(100vw - 24px); height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); }
   .publishing-frozen-article-dialog .publishing-frozen-article-dialog-header { gap:12px; padding:16px; }

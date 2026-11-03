@@ -6,7 +6,7 @@
 
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page {
   background: #fff;
-  color: #30343b;
+  color: #363636;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", "Noto Sans SC", sans-serif;
   font-size: 14px;
@@ -18,29 +18,29 @@
   line-height: 1.5;
   font-weight: 600;
   letter-spacing: 0;
-  color: #22252c;
+  color: #272727;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page h2 {
   font-size: 15px;
   font-weight: 600;
-  color: #22252c;
+  color: #272727;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel {
-  border: 1px solid #e8e9ed;
+  border: 1px solid #ebebeb;
   border-radius: 10px;
   box-shadow: none;
   overflow: hidden;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel-heading {
   padding: 12px 16px;
-  border-bottom: 1px solid #e8e9ed;
+  border-bottom: 1px solid #ebebeb;
   background: #fff;
   min-height: 0;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel-heading h2 {
   font-size: 15px;
   font-weight: 600;
-  color: #22252c;
+  color: #272727;
   letter-spacing: 0;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button {
@@ -50,10 +50,10 @@
   gap: 7px;
   min-height: 36px;
   padding: 7px 13px;
-  border: 1px solid #e8e9ed;
+  border: 1px solid #ebebeb;
   border-radius: 8px;
   background: #fff;
-  color: #30343b;
+  color: #363636;
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
@@ -61,26 +61,26 @@
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button:hover:not(:disabled) {
   background: #f5f6f8;
-  border-color: #ccd1da;
+  border-color: #d3d3d3;
   transform: none;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-primary,
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-accent {
-  background: #b33467;
-  border-color: #b33467;
+  background: #737373;
+  border-color: #737373;
   color: #fff;
   box-shadow: none;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-primary:hover:not(:disabled),
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-accent:hover:not(:disabled) {
-  background: #962654;
-  border-color: #962654;
+  background: #5e5e5e;
+  border-color: #5e5e5e;
   transform: none;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-secondary {
   background: #fff;
-  border-color: #e8e9ed;
-  color: #30343b;
+  border-color: #ebebeb;
+  color: #363636;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status {
   display: inline-flex;
@@ -90,8 +90,8 @@
   padding: 2px 7px;
   border: 0;
   border-radius: 4px;
-  background: #f0f2f5;
-  color: #626d7d;
+  background: #f2f2f2;
+  color: #707070;
   font-size: 12px;
   font-weight: 400;
   line-height: 1.6;
@@ -118,25 +118,25 @@
   color: #b12e46;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-info {
-  background: #eef3fa;
-  color: #325c91;
+  background: #f4f4f4;
+  color: #626262;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-neutral {
-  background: #f0f2f5;
-  color: #626d7d;
+  background: #f2f2f2;
+  color: #707070;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page th,
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-table-head {
   background: #f9fafb;
-  color: #626872;
+  color: #6a6a6a;
   font-size: 12px;
   font-weight: 500;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-list-row {
   min-height: 0;
   padding: 12px 16px;
-  border-bottom-color: #eceef2;
-  color: #30343b;
+  border-bottom-color: #efefef;
+  color: #363636;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-list-row:hover {
   background: #fcfcfe;
@@ -148,15 +148,15 @@
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-state,
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-empty {
   border-radius: 10px;
-  border-color: #e8e9ed;
+  border-color: #ebebeb;
 }
 
 /* ---------- Media-selection surfaces (fm-media) on the confirmed white pass ----------
- * Tokens are supplied inline via ReferenceScope (white canvas, blue accent).
+ * Tokens are supplied inline via ReferenceScope (white canvas, near-black accent).
  * This layer aligns type scale, corner radii and leftover berry accents of the
  * design transcription with the index3 pages: 20px page titles (prompt notes
  * removed), 15/14px section titles, 36x8px rectangular buttons, 10px panels,
- * 4px badges, neutral greys with a single blue accent. The hardened shell
+ * 4px badges, neutral greys with a single near-black accent. The hardened shell
  * prefix outranks the transcription sheets regardless of injection order. */
 
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media {
@@ -174,7 +174,7 @@
   font-size: 20px;
   line-height: 1.5;
   font-weight: 600;
-  color: #22252c;
+  color: #272727;
 }
 /* Later media sheets still re-declare a larger catalogue title at equal or
  * higher specificity; pin the confirmed 20px scale for this one selector. */
@@ -188,12 +188,12 @@
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media h2 {
   font-size: 15px;
   font-weight: 600;
-  color: #22252c;
+  color: #272727;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media h3 {
   font-size: 14px;
   font-weight: 500;
-  color: #22252c;
+  color: #272727;
 }
 
 /* Buttons: rectangular, 36px, quiet shadows. */
@@ -209,13 +209,13 @@
   box-shadow: none;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .secondary {
-  border-color: #e8e9ed;
-  color: #30343b;
+  border-color: #ebebeb;
+  color: #363636;
   background: #fff;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .secondary:hover:not(:disabled) {
   background: #f5f6f8;
-  border-color: #ccd1da;
+  border-color: #d3d3d3;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .link {
   font-weight: 500;
@@ -237,9 +237,9 @@
   border-radius: 8px;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .notice {
-  border-color: #d5e0ed;
-  background: #f5f8fc;
-  color: #4d637e;
+  border-color: #e1e1e1;
+  background: #f9f9f9;
+  color: #666666;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-layer-row,
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-layer-row > header,
@@ -255,32 +255,32 @@
   border: 0;
   border-radius: 4px;
   padding: 2px 7px;
-  background: #f0f2f5;
-  color: #626d7d;
+  background: #f2f2f2;
+  color: #707070;
   font-size: 12px;
   font-weight: 400;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .status {
   border-radius: 4px;
   padding: 2px 7px;
-  background: #f0f2f5;
-  color: #626d7d;
+  background: #f2f2f2;
+  color: #707070;
   font-size: 12px;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .metric-icon {
   border-radius: 8px;
-  background: #eff4ff;
-  color: #2563eb;
+  background: #f7f7f7;
+  color: #111111;
 }
 
-/* Inputs and focus: blue accent, 8px controls. */
+/* Inputs and focus: near-black accent, 8px controls. */
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
   border-radius: 8px;
-  border-color: #d5d9e1;
+  border-color: #dbdbdb;
   min-height: 36px;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media :is(button, a, input, select, textarea, summary):focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid #111111;
   outline-offset: 2px;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media dialog {
@@ -369,7 +369,7 @@
 
 /* Media-library typography pass, round 2: div-grid header row, result count
  * and origin micro-text join the same 12px scale. */
-.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span { font-size: 12px; font-weight: 500; color: #626872; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span { font-size: 12px; font-weight: 500; color: #6a6a6a; }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-result-count strong { font-size: 12px; font-weight: 600; }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-origin span { font-size: 12px; }
 

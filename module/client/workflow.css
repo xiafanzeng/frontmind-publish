@@ -34,7 +34,7 @@
   gap: 4px;
   text-align: left;
   min-height: 44px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid #d6d6d6;
   border-radius: 8px;
   background: white;
   color: #000;
@@ -48,8 +48,8 @@
 }
 .workflow-choices > button:hover,
 .workflow-choices > button[aria-pressed="true"] {
-  border-color: var(--module-color, #491060);
-  background: color-mix(in srgb, var(--module-color, #491060) 7%, white);
+  border-color: var(--module-color, #383838);
+  background: color-mix(in srgb, var(--module-color, #383838) 7%, white);
 }
 .workflow-choices > button small,
 .workflow-note {
@@ -63,7 +63,7 @@
 }
 .workflow-section {
   padding: 24px 0;
-  border-top: 1px solid #eaecf0;
+  border-top: 1px solid #ededed;
 }
 .workflow-section[data-divider="none"] {
   border-top: 0;
@@ -100,7 +100,7 @@
   min-height: 44px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid #d6d6d6;
   border-radius: 8px;
   background: #fff;
   color: #000;
@@ -129,7 +129,7 @@
 ) {
   min-height: 40px;
   padding: 8px 14px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid #d6d6d6;
   border-radius: 8px;
   background: #fff;
   color: #000;
@@ -137,8 +137,8 @@
   cursor: pointer;
 }
 .workflow-actions > .workflow-primary {
-  background: var(--module-color, #491060);
-  border-color: var(--module-color, #491060);
+  background: var(--module-color, #383838);
+  border-color: var(--module-color, #383838);
   color: white;
 }
 :where(
@@ -180,7 +180,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 16px 0;
-  border-bottom: 1px solid #eaecf0;
+  border-bottom: 1px solid #ededed;
   font-size: 14px;
   line-height: 24px;
   color: #000;
@@ -213,7 +213,7 @@
   min-width: 0;
 }
 .workflow-resource-list > li {
-  border-bottom: 1px solid #eaecf0;
+  border-bottom: 1px solid #ededed;
 }
 .workflow-resource-list > li > button {
   width: 100%;
@@ -227,7 +227,7 @@
   cursor: pointer;
 }
 .workflow-resource-list > li > button[aria-pressed="true"] {
-  color: var(--module-color, #491060);
+  color: var(--module-color, #383838);
 }
 .workflow-resource-list small {
   display: block;
@@ -251,7 +251,7 @@
 .workflow-table-scroll :is(th, td) {
   padding: 12px;
   text-align: left;
-  border-bottom: 1px solid #eaecf0;
+  border-bottom: 1px solid #ededed;
 }
 .workflow-pagination {
   display: flex;
@@ -269,7 +269,7 @@
 }
 .workflow-result {
   padding: 16px 0;
-  border-bottom: 1px solid #eaecf0;
+  border-bottom: 1px solid #ededed;
   color: #000;
 }
 .workflow-result h3 {
@@ -333,7 +333,7 @@
     .workflow-scope
   )
   button:focus-visible {
-  outline: 2px solid var(--module-color, #491060);
+  outline: 2px solid var(--module-color, #383838);
   outline-offset: 3px;
 }
 @media (max-width: 767px) {
@@ -356,13 +356,13 @@
   font-size: 24px;
   line-height: 34px;
   font-weight: 600;
-  color: var(--fm-text, #20232b);
+  color: var(--fm-text, #262626);
 }
 .workflow-question--entry > p {
   font-size: 16px;
   line-height: 26px;
   font-weight: 400;
-  color: var(--fm-muted, #667085);
+  color: var(--fm-muted, #767676);
 }
 .workflow-question--entry > .operator-action-list {
   margin-top: 24px;
@@ -375,19 +375,19 @@
 }
 .workspace-work-records article {
   padding: 12px 0;
-  border-bottom: 1px solid #e2e5e9;
+  border-bottom: 1px solid #e5e5e5;
 }
 .workspace-work-records p {
   margin: 4px 0;
 }
 .workspace-work-records small {
   display: block;
-  color: #626b76;
+  color: #6c6c6c;
 }
 .workspace-work-records a {
   display: inline-block;
   margin-top: 8px;
-  color: var(--module-color, #2867a5);
+  color: var(--module-color, #666666);
   text-decoration: underline;
 }
 
@@ -414,7 +414,7 @@
   gap: 12px;
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #ececf0;
-  color: #6f6880;
+  border-bottom: 1px solid #eeeeee;
+  color: #747474;
   font-size: 13px;
 }

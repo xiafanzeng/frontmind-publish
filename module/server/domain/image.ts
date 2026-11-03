@@ -28,10 +28,10 @@ const SUPPORTED_DECODED_FORMATS = new Set([
 ]);
 
 const WORDMARK_PALETTES = [
-  ["#3636E2", "#7777F4"],
+  ["#111111", "#b6b6b6"],
   ["#B71424", "#E15B65"],
-  ["#2457D6", "#55A3F3"],
-  ["#6F2DA8", "#A86CDC"],
+  ["#111111", "#a4a4a4"],
+  ["#6a6a6a", "#a4a4a4"],
   ["#137D68", "#46AE94"],
   ["#9A4C13", "#D28A4C"],
 ] as const;

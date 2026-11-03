@@ -44,7 +44,7 @@
 ),
 .monitoring-module .publishing-article-content > .publishing-page > .publishing-editor-layout > .publishing-editor-card,
 .monitoring-module .publishing-article-content > .publishing-page > .publishing-editor-layout > .publishing-editor-inspector > .publishing-panel {
-  border: 1px solid var(--publishing-line, #e6e8f1);
+  border: 1px solid var(--publishing-line, #ececec);
   border-radius: var(--publishing-radius, 16px);
 }
 
@@ -85,7 +85,7 @@
     .publishing-article-table,
     .publishing-batch-list
   ) {
-    border: 1px solid var(--publishing-line, #e6e8f1);
+    border: 1px solid var(--publishing-line, #ececec);
     border-radius: var(--publishing-radius, 16px);
   }
 }

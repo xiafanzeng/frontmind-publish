@@ -83,13 +83,13 @@ describe("frozen article dialog", () => {
 
   it("copies the resolved publishing theme into the portal and reports missing body content without a substitute", async () => {
     const trigger = document.createElement("button");
-    trigger.style.setProperty("--publishing-purple", "#883366");
+    trigger.style.setProperty("--publishing-purple", "#5e5e5e");
     trigger.style.fontFamily = '"Microsoft YaHei"';
     document.body.append(trigger);
     try {
       render(<PublishingFrozenArticleDialog article={{ ...first, bodyHtml: "" }} trigger={trigger} onClose={vi.fn()} />);
       const dialog = await screen.findByRole("dialog");
-      expect(dialog.style.getPropertyValue("--publishing-purple")).toBe("#883366");
+      expect(dialog.style.getPropertyValue("--publishing-purple")).toBe("#5e5e5e");
       expect(within(dialog).getByRole("status").textContent).toBe("该冻结版本未返回正文内容。");
       expect(screen.queryByText("甲稿冻结内容")).toBeNull();
     } finally {

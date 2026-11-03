@@ -23,7 +23,7 @@ import "./standalone.css";
 const logo = new URL("../vendor/module-ui/src/assets/frontmind-wordmark.svg", import.meta.url).href;
 
 /** Standalone shell transcribed from the week3 index3 reference (白底操作台).
- * The accent color is fixed to blue per the confirmed design decision. */
+ * The accent color is fixed to near-black per the confirmed 黑白 design decision. */
 export default function PublishingShell({ gateway, preview, children }: {
   gateway: PublisherGateway | null; preview: boolean; children: ReactNode;
 }) {

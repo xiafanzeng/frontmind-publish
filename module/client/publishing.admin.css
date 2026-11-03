@@ -48,7 +48,7 @@
   border: 1px solid var(--publishing-line);
   border-radius: 7px;
   background: white;
-  color: #483e56;
+  color: #4a4a4a;
   font-size: 11px;
   font-weight: 650;
   cursor: pointer;
@@ -81,7 +81,7 @@
   border: 1px solid var(--publishing-line);
   border-radius: 7px;
   background: white;
-  color: #483e56;
+  color: #4a4a4a;
   font-size: 11px;
   font-weight: 650;
 }
@@ -144,7 +144,7 @@
   .publishing-admin-health-grid
   article
   small {
-  color: #8a8294;
+  color: #8b8b8b;
   font-size: 9px;
 }
 
@@ -154,7 +154,7 @@
   height: 40px;
   place-items: center;
   border-radius: 9px;
-  background: #f2eef8;
+  background: #f3f3f3;
   color: var(--publishing-purple);
 }
 
@@ -175,7 +175,7 @@
   gap: 16px;
   padding: 10px 20px;
   border-bottom: 1px solid var(--publishing-line);
-  color: #51485e;
+  color: #535353;
   font-size: 12px;
 }
 
@@ -238,7 +238,7 @@
   gap: 16px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--publishing-line);
-  color: #5d5469;
+  color: #5e5e5e;
   font-size: 11px;
 }
 
@@ -286,7 +286,7 @@
   border: 1px solid var(--publishing-line);
   border-radius: 7px;
   background: white;
-  color: #483e56;
+  color: #4a4a4a;
   font-size: 10px;
   font-weight: 650;
   cursor: pointer;
@@ -356,7 +356,7 @@
   div {
   padding: 12px;
   border-radius: 8px;
-  background: #faf8fc;
+  background: #fafafa;
 }
 
 .monitoring-module
@@ -477,19 +477,19 @@
 .monitoring-module .publishing-article-table .publishing-table-head {
   min-height: 46px;
   background: #fbfafd;
-  color: var(--publishing-muted, #737991);
+  color: var(--publishing-muted, #828282);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .2px;
 }
 .monitoring-module .publishing-article-row:not(.publishing-table-head) {
-  border-bottom: 1px solid #f0eef5;
-  color: var(--publishing-ink, #202134);
+  border-bottom: 1px solid #f2f2f2;
+  color: var(--publishing-ink, #2a2a2a);
   text-decoration: none;
   transition: background .15s ease;
 }
 .monitoring-module .publishing-article-row:not(.publishing-table-head):hover {
-  background: #fff9fc;
+  background: #fcfcfc;
 }
 .monitoring-module .publishing-article-name { gap: 12px; min-width: 0; }
 .monitoring-module .publishing-article-name > span:last-child { min-width: 0; }
@@ -497,11 +497,11 @@
   display: block; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6;
 }
 .monitoring-module .publishing-article-name small {
-  display: block; color: var(--publishing-muted, #737991); font-size: 10px; margin-top: 4px;
+  display: block; color: var(--publishing-muted, #828282); font-size: 10px; margin-top: 4px;
 }
 .monitoring-module .publishing-article-row > span:nth-child(3),
 .monitoring-module .publishing-article-row > span:nth-child(4) {
-  color: var(--publishing-muted, #737991); font-size: 11px; line-height: 1.7;
+  color: var(--publishing-muted, #828282); font-size: 11px; line-height: 1.7;
 }
 @media (max-width: 900px) {
   .monitoring-module .publishing-article-row {

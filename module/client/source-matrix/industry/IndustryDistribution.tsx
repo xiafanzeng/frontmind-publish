@@ -57,16 +57,16 @@ function PeriodSelect({ id, granularity, period, periods, onSelect }: { id: stri
   </div>;
 }
 
-const COLORS = ['var(--brand,#b33467)', 'var(--plum,#4c1467)', 'var(--x-good,#20815b)', 'var(--x-warning,#aa7227)', 'var(--muted,#737991)', '#7c5689', '#bbc0ce'];
+const COLORS = ['var(--brand,#737373)', 'var(--plum,#3e3e3e)', 'var(--x-good,#20815b)', 'var(--x-warning,#aa7227)', 'var(--muted,#828282)', '#707070', '#c4c4c4'];
 function Donut({ slices, total, unit, title, emptyMessage }: { slices: DistributionSlice[]; total: number | null; unit: string; title: string; emptyMessage?: string }) {
   let start = 0;
   const segments = slices.flatMap((slice, index) => {
-    const end = start + (slice.share ?? 0) * 100, color = slice.key === 'unknown' || slice.label === '未知' ? '#bbc0ce' : COLORS[index % COLORS.length]!;
+    const end = start + (slice.share ?? 0) * 100, color = slice.key === 'unknown' || slice.label === '未知' ? '#c4c4c4' : COLORS[index % COLORS.length]!;
     const segment = slice.count > 0 ? `${color} ${start}% ${end}%` : null;
     start = end;
     return segment ? [segment] : [];
   });
-  return <div className="sm-industry-chart"><div className="sm-industry-ring" role="img" aria-label={`${title}，${total === null ? emptyMessage : total ? slices.map(s => `${s.label} ${s.count}${unit} ${percentageText(s.share)}`).join('；') : '无数据'}`} style={{ background: total ? `conic-gradient(${segments.join(',')})` : 'var(--line,#e6e8f1)' }}><div><strong>{total === null ? '—' : total.toLocaleString('zh-CN')}</strong><span>{unit}</span></div></div><div className="sm-industry-legend-area">{emptyMessage && <p className="sm-industry-chart-state">{emptyMessage}</p>}<ul className="sm-industry-legend">{total === null ? <li><span className="sm-industry-dot sm-industry-dot-empty" aria-hidden="true"/><span>{title === '媒体类型分布' ? '媒体类型待接入' : '时间区间待接入'}</span><strong>—</strong><span>—</span></li> : slices.map((slice, index) => <li key={slice.key}><span className="sm-industry-dot" aria-hidden="true" style={{ background: slice.key === 'unknown' || slice.label === '未知' ? '#bbc0ce' : COLORS[index % COLORS.length] }} /><span>{slice.label}</span><strong>{slice.count.toLocaleString('zh-CN')}</strong><span>{percentageText(slice.share)}</span></li>)}</ul></div></div>;
+  return <div className="sm-industry-chart"><div className="sm-industry-ring" role="img" aria-label={`${title}，${total === null ? emptyMessage : total ? slices.map(s => `${s.label} ${s.count}${unit} ${percentageText(s.share)}`).join('；') : '无数据'}`} style={{ background: total ? `conic-gradient(${segments.join(',')})` : 'var(--line,#ececec)' }}><div><strong>{total === null ? '—' : total.toLocaleString('zh-CN')}</strong><span>{unit}</span></div></div><div className="sm-industry-legend-area">{emptyMessage && <p className="sm-industry-chart-state">{emptyMessage}</p>}<ul className="sm-industry-legend">{total === null ? <li><span className="sm-industry-dot sm-industry-dot-empty" aria-hidden="true"/><span>{title === '媒体类型分布' ? '媒体类型待接入' : '时间区间待接入'}</span><strong>—</strong><span>—</span></li> : slices.map((slice, index) => <li key={slice.key}><span className="sm-industry-dot" aria-hidden="true" style={{ background: slice.key === 'unknown' || slice.label === '未知' ? '#c4c4c4' : COLORS[index % COLORS.length] }} /><span>{slice.label}</span><strong>{slice.count.toLocaleString('zh-CN')}</strong><span>{percentageText(slice.share)}</span></li>)}</ul></div></div>;
 }
 
 function ContentTrace({ content }: { content: ContentGroup }) {
