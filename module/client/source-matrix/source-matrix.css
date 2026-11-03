@@ -159,9 +159,9 @@
 .fm-media:has(.sm-recommendation-workspace) #dialog .dialog-header h2{font-size:17px;font-weight:600}
 .fm-media .sm-role-help{display:inline-grid;place-items:center;flex-shrink:0;width:22px;height:22px;border:1px solid var(--line);border-radius:50%;color:var(--muted);background:var(--surface);font-size:12px;cursor:pointer;padding:0}
 .fm-media .sm-role-help:hover{border-color:var(--brand);color:var(--brand);background:var(--selected)}
-.sm-role-popover[data-slot="popover-content"]{width:min(340px,calc(100vw - 32px));max-height:min(420px,var(--radix-popover-content-available-height));overflow:auto;scrollbar-gutter:stable;z-index:70;font-size:13px;line-height:1.7;color:var(--sm-help-ink,#2a2a2a);border-color:var(--sm-help-line,#ececec);background:var(--sm-help-surface,#fff);border-radius:12px;padding:16px}
+.sm-role-popover[data-slot="popover-content"]{width:min(340px,calc(100vw - 32px));max-height:min(420px,var(--radix-popover-content-available-height));overflow:auto;scrollbar-gutter:stable;z-index:70;font-size:13px;line-height:1.7;color:var(--sm-help-ink,#202134);border-color:var(--sm-help-line,#e6e8f1);background:var(--sm-help-surface,#fff);border-radius:12px;padding:16px}
 .sm-role-popover dl{margin:10px 0}.sm-role-popover dt{font-weight:600;margin-top:8px}.sm-role-popover dd{margin:2px 0}.sm-role-popover .sm-role-close{font:inherit;text-decoration:underline;cursor:pointer;min-height:32px}
-.fm-media .sm-recommendation-workspace :is(button,a,summary):focus-visible,.sm-role-popover button:focus-visible{outline:2px solid var(--brand,#737373);outline-offset:3px}
+.fm-media .sm-recommendation-workspace :is(button,a,summary):focus-visible,.sm-role-popover button:focus-visible{outline:2px solid var(--brand,#2563eb);outline-offset:3px}
 .fm-media .sm-recommendation-workspace button:disabled{cursor:not-allowed}
 @media(min-width:1600px){.fm-media .sm-recommendation-workspace .sm-layer-row{min-height:116px}.fm-media .sm-recommendation-workspace .sm-candidate{padding:11px 12px}}
 @media(max-width:1050px){.fm-media .sm-recommendation-workspace .sm-recommendation-layout{grid-template-columns:minmax(0,1fr)}.fm-media .sm-recommendation-workspace .sm-demand-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}

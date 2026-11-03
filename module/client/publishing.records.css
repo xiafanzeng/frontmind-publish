@@ -520,10 +520,10 @@
   .publishing-publication-filters
   select {
   height: 34px;
-  border: 1px solid #e3e3e3;
+  border: 1px solid #dedfe8;
   border-radius: 7px;
   background: #fff;
-  color: #464646;
+  color: #3d3f50;
   font-size: var(--operator-caption-size, 12px);
 }
 
@@ -544,7 +544,7 @@
   position: relative;
   display: grid;
   gap: 5px;
-  color: #888888;
+  color: #7e8091;
   font-size: var(--operator-caption-size, 10px);
 }
 .monitoring-module
@@ -635,7 +635,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--publishing-purple, #111111);
+  color: var(--publishing-purple, #3636e2);
   font-size: var(--operator-caption-size, 11px);
   cursor: pointer;
 }
@@ -644,7 +644,7 @@
   :where(.publishing-page)
   .publishing-result-copy
   .publishing-result-id {
-  color: #9a9a9a;
+  color: #9294a3;
   font-size: var(--operator-caption-size, 10px);
 }
 
@@ -654,7 +654,7 @@
 }
 
 .monitoring-module :where(.publishing-page) .publishing-result-qr > summary {
-  color: var(--publishing-purple, #111111);
+  color: var(--publishing-purple, #3636e2);
   cursor: pointer;
   font-size: var(--operator-caption-size, 11px);
   list-style: none;
@@ -672,7 +672,7 @@
   width: fit-content;
   margin-top: 7px;
   padding: 7px;
-  border: 1px solid #ececec;
+  border: 1px solid #e7e8f0;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 8px 24px rgb(28 30 54 / 12%);

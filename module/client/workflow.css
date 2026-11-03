@@ -34,7 +34,7 @@
   gap: 4px;
   text-align: left;
   min-height: 44px;
-  border: 1px solid #d6d6d6;
+  border: 1px solid #d0d5dd;
   border-radius: 8px;
   background: white;
   color: #000;
@@ -63,7 +63,7 @@
 }
 .workflow-section {
   padding: 24px 0;
-  border-top: 1px solid #ededed;
+  border-top: 1px solid #eaecf0;
 }
 .workflow-section[data-divider="none"] {
   border-top: 0;
@@ -100,7 +100,7 @@
   min-height: 44px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d6d6d6;
+  border: 1px solid #d0d5dd;
   border-radius: 8px;
   background: #fff;
   color: #000;
@@ -129,7 +129,7 @@
 ) {
   min-height: 40px;
   padding: 8px 14px;
-  border: 1px solid #d6d6d6;
+  border: 1px solid #d0d5dd;
   border-radius: 8px;
   background: #fff;
   color: #000;
@@ -180,7 +180,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 16px 0;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid #eaecf0;
   font-size: 14px;
   line-height: 24px;
   color: #000;
@@ -213,7 +213,7 @@
   min-width: 0;
 }
 .workflow-resource-list > li {
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid #eaecf0;
 }
 .workflow-resource-list > li > button {
   width: 100%;
@@ -251,7 +251,7 @@
 .workflow-table-scroll :is(th, td) {
   padding: 12px;
   text-align: left;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid #eaecf0;
 }
 .workflow-pagination {
   display: flex;
@@ -269,7 +269,7 @@
 }
 .workflow-result {
   padding: 16px 0;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid #eaecf0;
   color: #000;
 }
 .workflow-result h3 {
@@ -356,13 +356,13 @@
   font-size: 24px;
   line-height: 34px;
   font-weight: 600;
-  color: var(--fm-text, #262626);
+  color: var(--fm-text, #20232b);
 }
 .workflow-question--entry > p {
   font-size: 16px;
   line-height: 26px;
   font-weight: 400;
-  color: var(--fm-muted, #767676);
+  color: var(--fm-muted, #667085);
 }
 .workflow-question--entry > .operator-action-list {
   margin-top: 24px;
@@ -375,19 +375,19 @@
 }
 .workspace-work-records article {
   padding: 12px 0;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid #e2e5e9;
 }
 .workspace-work-records p {
   margin: 4px 0;
 }
 .workspace-work-records small {
   display: block;
-  color: #6c6c6c;
+  color: #626b76;
 }
 .workspace-work-records a {
   display: inline-block;
   margin-top: 8px;
-  color: var(--module-color, #666666);
+  color: var(--module-color, #2867a5);
   text-decoration: underline;
 }
 
@@ -414,7 +414,7 @@
   gap: 12px;
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #eeeeee;
+  border-bottom: 1px solid #ececf0;
   color: #747474;
   font-size: 13px;
 }

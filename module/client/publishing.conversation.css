@@ -32,7 +32,7 @@
   font-size: 14px;
 }
 .publishing-confirmed-media-list small {
-  color: #7a7a7a;
+  color: #737680;
 }
 .publishing-conversation-back {
   margin-bottom: 20px;
@@ -49,7 +49,7 @@
 }
 .publishing-flow-intro > p {
   margin: 0;
-  color: #767676;
+  color: #667085;
   font-size: 16px;
   line-height: 1.75;
 }
@@ -81,7 +81,7 @@
 .publishing-flow-step .publishing-context-bar {
   padding: 14px 0;
   border: 0;
-  border-bottom: 1px solid #ededed;
+  border-bottom: 1px solid #eaecf0;
   border-radius: 0;
   background: #fff;
 }
@@ -91,34 +91,34 @@
   left: auto;
   width: auto;
   margin: 18px 0 0;
-  border: 1px solid #e8e8e8;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 -4px 20px #1c1c1c05;
-  color: #444444;
+  box-shadow: 0 -4px 20px #10182805;
+  color: #344054;
 }
 .publishing-flow-step .publishing-selection-summary,
 .publishing-flow-step .publishing-selection-summary b,
 .publishing-flow-step .publishing-button-dark {
-  color: #444444;
+  color: #344054;
   background: transparent;
 }
 .publishing-inline-step {
   margin-top: 28px;
   padding: 24px 0;
-  border-top: 1px solid #ededed;
+  border-top: 1px solid #eaecf0;
   scroll-margin-top: 20px;
 }
 .publishing-inline-step h2 {
   margin: 0 0 8px;
-  color: #262626;
+  color: #20232b;
   font-size: 18px;
   font-weight: 600;
   line-height: 1.5;
 }
 .publishing-inline-step > p {
   margin: 0 0 20px;
-  color: #767676;
+  color: #667085;
   font-size: 14px;
   line-height: 1.75;
 }
@@ -135,8 +135,8 @@
   gap: 12px;
   margin: 24px 0;
   padding: 18px 0;
-  border-top: 1px solid #ededed;
-  border-bottom: 1px solid #ededed;
+  border-top: 1px solid #eaecf0;
+  border-bottom: 1px solid #eaecf0;
 }
 .publishing-flow-result > svg {
   color: #19805a;
@@ -148,12 +148,12 @@
   min-width: 0;
 }
 .publishing-flow-result strong {
-  color: #262626;
+  color: #20232b;
   font-size: 16px;
 }
 .publishing-flow-result p {
   margin-top: 5px;
-  color: #767676;
+  color: #667085;
   font-size: 14px;
   line-height: 1.7;
 }
@@ -169,7 +169,7 @@
 @container publishing-task (max-width: 1100px) {
   .monitoring-module .publishing-flow-step .publishing-media-entry {
     display: block;
-    border-bottom: 1px solid #ededed;
+    border-bottom: 1px solid #eaecf0;
   }
   .monitoring-module
     .publishing-flow-step
@@ -236,7 +236,7 @@
     height: auto;
     padding: 4px 0;
     border: 0;
-    color: #767676;
+    color: #667085;
     font-size: 12px;
     transform: none;
   }
@@ -296,8 +296,8 @@
   --publishing-canvas: #fff;
   --publishing-ink: #000;
   --publishing-muted: #595959;
-  --publishing-purple: #111111;
-  --publishing-purple-dark: #111111;
+  --publishing-purple: #2563eb;
+  --publishing-purple-dark: #2563eb;
   --publishing-purple-soft: color-mix(
     in srgb,
     var(--publishing-purple) 7%,
@@ -386,7 +386,7 @@
     .publishing-advanced-grid select
   ) {
   min-height: 44px;
-  border-color: #d6d6d6;
+  border-color: #d0d5dd;
   border-radius: 8px;
   color: #000;
   font-size: 14px;
@@ -453,7 +453,7 @@
   border-radius: 15px;
 }
 .monitoring-module .publishing-flow-step .publishing-question {
-  border: 1px solid var(--publishing-line, #ececec);
+  border: 1px solid var(--publishing-line, #e6e8f1);
   box-shadow: 0 3px 14px rgb(46, 46, 46, .025);
 }
 .monitoring-module .publishing-flow-step .publishing-question h2,
@@ -465,5 +465,5 @@
 .monitoring-module .publishing-flow-step .publishing-question [aria-checked="true"] {
   border-color: #bcbcbc;
   background: #f7f7f7;
-  color: var(--publishing-purple, #737373);
+  color: var(--publishing-purple, #2563eb);
 }

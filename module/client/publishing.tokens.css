@@ -4,13 +4,13 @@
 .monitoring-module .publishing-page {
   --publishing-canvas: #ffffff;
   --publishing-surface: #ffffff;
-  --publishing-ink: #363636;
-  --publishing-muted: #6a6a6a;
-  --publishing-line: #ebebeb;
-  --publishing-purple:#111111;
-  --publishing-purple-dark:#000000;
-  --publishing-purple-soft:#f2f2f2;
-  --publishing-plum: #363636;
+  --publishing-ink: #30343b;
+  --publishing-muted: #626872;
+  --publishing-line: #e8e9ed;
+  --publishing-purple:#2563eb;
+  --publishing-purple-dark:#1d4ed8;
+  --publishing-purple-soft:#eff4ff;
+  --publishing-plum: #30343b;
   --publishing-gold: #925b12;
   --publishing-green: #18704a;
   --publishing-red: #b12e46;
@@ -18,7 +18,7 @@
   --publishing-radius: 10px;
   --publishing-shadow: none;
   --publishing-shadow-hover: none;
-  --publishing-focus:#111111;
+  --publishing-focus:#2563eb;
   --publishing-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --publishing-font-data: "SFMono-Regular", Consolas, "PingFang SC",
