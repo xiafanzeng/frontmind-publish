@@ -13,8 +13,8 @@ it('shows all five layers and hides undecided candidates instead of a research l
  render(<MatrixRecommendation result={result} highlightedPlan={null} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
  expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
  expect(screen.getAllByText('暂无合适候选；当前依据不足，保留本层缺口。')).toHaveLength(4);
- // 无主层决定的候选不再进入页面（需求：删除未分层列表）
- expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','A']);
+ // 无主层决定的候选不再进入页面（需求：删除未分层列表）；候选现为每层表格的行头
+ expect(screen.getAllByRole('rowheader').map(node=>node.textContent)).toEqual(['B','A']);
  expect(screen.queryByText('待判断与研究候选')).toBeNull();
  expect(screen.queryByRole('checkbox')).toBeNull();expect(screen.getAllByRole('button',{name:'查看推荐理由'})).toHaveLength(2);
 });
@@ -32,10 +32,10 @@ it('shows three semantic candidates first and expands the rest without changing 
  const entries=['D','B','A','C'].map(id=>({...candidate(id,'industry'),media_intro:'专业软件技术媒体',content_direction:'本次采购问答选题'}));
  const extended={...result,matrix:{...result.matrix,candidates:entries,fit_order:['B','C','A','D'],layers:[{role:'industry',display_name:'行业核心',status:'complete',candidate_ids:entries.map(item=>item.candidate_id),auxiliary_candidate_ids:[]}]}};
  render(<MatrixRecommendation result={extended} highlightedPlan={null} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
- expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','C','A']);
+ expect(screen.getAllByRole('rowheader').map(node=>node.textContent)).toEqual(['B','C','A']);
  expect(screen.queryByText('本次采购问答选题')).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'更多候选（1）'}));
- expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','C','A','D']);
+ expect(screen.getAllByRole('rowheader').map(node=>node.textContent)).toEqual(['B','C','A','D']);
  expect(screen.getByRole('button',{name:'收起候选'}).getAttribute('aria-expanded')).toBe('true');
 });
 it('does not auto-select the cheapest same-name resource and preserves explicit quote identity',()=>{

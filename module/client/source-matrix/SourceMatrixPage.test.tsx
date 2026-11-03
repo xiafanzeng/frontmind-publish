@@ -440,9 +440,9 @@ it('does not let an old cancellation clear a newly opened matrix task',async()=>
  openMatrix('draftId=draft-1&articleVersion=version-1');fireEvent.click(await screen.findByRole('button',{name:'取消生成'}));
  await waitFor(()=>expect(typeof finish).toBe('function'));
  await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-2&draftId=draft-1&articleVersion=version-1');window.dispatchEvent(new PopStateEvent('popstate'));});
- await screen.findByRole('heading',{name:'任务二研究媒体'});
+ await screen.findByRole('rowheader',{name:'任务二研究媒体'});
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'cancelled'})}));
- expect(screen.getByRole('heading',{name:'任务二研究媒体'})).toBeTruthy();expect(screen.queryByText('等待生成矩阵')).toBeNull();
+ expect(screen.getByRole('rowheader',{name:'任务二研究媒体'})).toBeTruthy();expect(screen.queryByText('等待生成矩阵')).toBeNull();
 });
 
 it('pins export to the currently displayed persisted plan rather than the task latest report',async()=>{
@@ -559,7 +559,7 @@ it('shows the actual saved sample without configured services and never writes a
  expect(screen.queryByRole('button',{name:'加入本组合'})).toBeNull();
  expect(screen.queryByRole('checkbox',{name:/^选择 /})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/^组合 2/}));
- expect([...document.querySelectorAll('.sm-candidate.is-highlighted')].map(node=>node.getAttribute('data-source-id')).sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
+ expect([...document.querySelectorAll('.sm-layer-table tbody tr.is-highlighted')].map(node=>node.getAttribute('data-source-id')).sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(fetcher.mock.calls.some(call=>String(call[0]).includes('/matrix/generate'))).toBe(false);
 });
