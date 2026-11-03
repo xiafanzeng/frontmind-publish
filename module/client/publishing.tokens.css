@@ -1,20 +1,26 @@
-/* FrontMind Publish design tokens. Scoped to the publishing module only. */
+/* FrontMind Publish design tokens. Scoped to the publishing module only.
+ * Values follow the week3 "白底操作台" reference (index3): white canvas,
+ * compact editorial type scale, 10px panels, 8px controls. */
 .monitoring-module .publishing-page {
-  --publishing-canvas: #f5f6fa;
+  --publishing-canvas: #ffffff;
   --publishing-surface: #ffffff;
-  --publishing-ink: #202134;
-  --publishing-muted: #737991;
-  --publishing-line: #e6e8f1;
+  --publishing-ink: #30343b;
+  --publishing-muted: #626872;
+  --publishing-line: #e8e9ed;
   --publishing-purple: #b33467;
   --publishing-purple-dark: #962654;
   --publishing-purple-soft: #f9eff5;
-  --publishing-plum: #4c1467;
-  --publishing-gold: #b98227;
-  --publishing-green: #178558;
-  --publishing-red: #b63d51;
-  --publishing-orange: #a47421;
-  --publishing-radius: 16px;
-  --publishing-shadow: 0 8px 28px rgba(54, 28, 58, 0.055);
-  --publishing-shadow-hover: 0 12px 32px rgba(76, 20, 103, 0.09);
-  --publishing-focus: #cf77a2;
+  --publishing-plum: #30343b;
+  --publishing-gold: #925b12;
+  --publishing-green: #18704a;
+  --publishing-red: #b12e46;
+  --publishing-orange: #925b12;
+  --publishing-radius: 10px;
+  --publishing-shadow: none;
+  --publishing-shadow-hover: none;
+  --publishing-focus: #b33467;
+  --publishing-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --publishing-font-data: "SFMono-Regular", Consolas, "PingFang SC",
+    var(--publishing-font-ui);
 }

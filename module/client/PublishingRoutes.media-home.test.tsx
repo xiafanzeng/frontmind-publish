@@ -8,10 +8,12 @@ import type { PublisherGateway } from "./gateway";
 
 // Test real route dispatch, with page bodies replaced so no business APIs run.
 vi.mock("./pages/MediaLibraryPage", () => ({ default: ({ view = "third", draftId }: {view?: string; draftId?: string}) => <output data-testid="media-route">{view}:{draftId ?? "none"}</output> }));
-vi.mock("./pages/ArticlesPage", () => ({ default: () => <h1>稿件管理入口</h1> }));
-vi.mock("./pages/ArticleEditorPage", () => ({ default: ({ articleId }: {articleId: string}) => <h1>稿件编辑 {articleId}</h1> }));
+vi.mock("./index3/Articles", () => ({ default: () => <h1>稿件管理入口</h1> }));
+vi.mock("./index3/Editor", () => ({ default: ({ articleId }: {articleId: string}) => <h1>稿件编辑 {articleId}</h1> }));
+vi.mock("./index3/Records", () => ({ default: () => <h1>发布记录入口</h1> }));
+vi.mock("./index3/Workbench", () => ({ default: () => <h1>工作台入口</h1> }));
+vi.mock("./index3/Titles", () => ({ default: ({ draftId }: { draftId: string }) => <output data-testid="titles-route">{draftId}:titles</output> }));
 vi.mock("./source-matrix/SourceMatrixPage", () => ({ default: () => <h1>信源矩阵入口</h1> }));
-vi.mock("./pages/DraftConversationPage", () => ({ default: ({ draftId, initialStage }: { draftId: string; initialStage: string }) => <output data-testid="titles-route">{draftId}:{initialStage}</output> }));
 
 afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 

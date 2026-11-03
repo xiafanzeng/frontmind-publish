@@ -50,9 +50,7 @@ describe('source distribution interactions', () => {
     // Two distinct media groups share this name; the first row is the top-ranked m.360189.com group.
     fireEvent.click(within(ranking).getAllByRole('button', { name: /北京九运百行文化传播有限公司/ })[0]!);
     expect(screen.getByRole('button', { name: '返回全部媒体' })).toBeTruthy();
-    expect(screen.getByText(/占比仍按全筛选范围计算/)).toBeTruthy();
-    expect(screen.getByText(/分母 502 条/)).toBeTruthy();
-    expect(screen.getByText(/分母 114 项/)).toBeTruthy();
+    // 统计口径小字已随界面清理移除；选中媒体后内容表与返回操作仍正常。
     fireEvent.click(screen.getByRole('button', { name: '返回全部媒体' }));
     expect(screen.queryByRole('button', { name: '返回全部媒体' })).toBeNull();
   });
@@ -64,7 +62,8 @@ describe('source distribution interactions', () => {
     fireEvent.click(screen.getByRole('tab', { name: '按日' }));
     fireEvent.click(screen.getByRole('tab', { name: '按日' }));
     fireEvent.click(screen.getAllByRole('button', { name: /2026-09-12/ })[0]!);
-    expect(screen.getByText((_, element) => element?.tagName === 'P' && element.textContent?.includes('媒体 46 · 内容 80 · 引用 262 条记录') === true)).toBeTruthy();
+    // 标题下的统计小字已移除；改用分页条校验该筛选下的内容规模。
+    expect(screen.getByRole('navigation', { name: '引用内容分页' }).textContent).toContain('共 80 项');
     // 空状态：URL 恢复一个不存在的模型值（也覆盖筛选参数的刷新恢复路径）
     window.history.replaceState({}, '', '/publishing/source-matrix?smModel=不存在的模型&smGranularity=day&smPeriod=2026-09-12');
     window.dispatchEvent(new PopStateEvent('popstate'));

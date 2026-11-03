@@ -30,5 +30,5 @@ export default function App({preview=false}:{preview?:boolean}) {
     }).catch(cause=>{if(!abort.signal.aborted)setError(cause instanceof Error?cause.message:String(cause));});
     return()=>abort.abort();
   },[preview]);
-return <PublishingShell key={workspaceKey} gateway={gateway} preview={preview} ownerUserId={ownerUserId}>{error?<p role="alert">{error}</p>:gateway?<StandalonePublishingFlow key={workspaceKey} workspaceKey={workspaceKey}><SourceMatrixPreviewContext.Provider value={preview}><PublishingRoutes gateway={gateway}/></SourceMatrixPreviewContext.Provider></StandalonePublishingFlow>:<p role="status">正在打开发布工作台…</p>}</PublishingShell>;
+return <PublishingShell key={workspaceKey} gateway={gateway} preview={preview}>{error?<p role="alert">{error}</p>:gateway?<StandalonePublishingFlow key={workspaceKey} workspaceKey={workspaceKey}><SourceMatrixPreviewContext.Provider value={preview}><PublishingRoutes gateway={gateway}/></SourceMatrixPreviewContext.Provider></StandalonePublishingFlow>:<p role="status">正在打开发布工作台…</p>}</PublishingShell>;
 }

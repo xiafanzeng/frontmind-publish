@@ -548,7 +548,7 @@ it('shows the actual saved sample without configured services and never writes a
  const fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{throw new Error('service unavailable');});vi.stubGlobal('fetch',fetcher);
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});
- expect(screen.getByText('一航软件 · 已保存样本')).toBeTruthy();
+ expect(screen.getByText(/已保存的样本矩阵/)).toBeTruthy();
  expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
  expect(screen.getAllByRole('heading',{level:3}).filter(node=>/层$/.test(node.textContent??''))).toHaveLength(5);
@@ -577,7 +577,7 @@ it('keeps the saved matrix unchanged on budget-only edits and distinguishes sema
  expect(screen.getByRole('button',{name:'按当前要求在线生成'})).toBeTruthy();
  expect(screen.queryByRole('button',{name:'更新组合'})).toBeNull();
  fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'新的采购场景'}});
- expect(screen.getByText(/投放要求已修改，下方保存矩阵/)).toBeTruthy();
+ expect(screen.getByText(/当前要求或预算与保存样本不同/)).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
  expect(screen.getByRole('heading',{name:'一航软件信源矩阵与研究组合'})).toBeTruthy();
  expect(screen.getByText(/保存条件下的历史对照/)).toBeTruthy();
@@ -614,7 +614,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?{industries:[{id:'configured-industry',name:'已接入行业'}]}:url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByText('一航软件 · 已保存样本');
+ await screen.findByText(/已保存的样本矩阵/);
  fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
  for(const id of ['A','B','A']){
   await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});

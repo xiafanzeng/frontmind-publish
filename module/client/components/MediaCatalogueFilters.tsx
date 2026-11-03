@@ -189,11 +189,10 @@ export default function MediaCatalogueFilters(props: Props) {
         return <button type="button" key={range.label} className={active ? "active" : ""} aria-pressed={active} onClick={() => { setPriceError(""); setMinimum(range.min); setMaximum(range.max); change({ priceMin: range.min, priceMax: range.max, priceMinExclusive: range.exclusive, price: "" }); }}>{range.label}</button>;
       })}
       <form className="mc-price-form" noValidate onSubmit={event => { event.preventDefault(); applyPrice(); }}>
-        <label className="sr" htmlFor="mc-price-min">最低价（元）</label><input id="mc-price-min" inputMode="decimal" value={minimum} placeholder="最低价" aria-invalid={!!priceError} aria-describedby={priceError ? "mc-price-error" : "mc-price-note"} onChange={event => setMinimum(event.target.value)} />
-        <span>～</span><label className="sr" htmlFor="mc-price-max">最高价（元）</label><input id="mc-price-max" inputMode="decimal" value={maximum} placeholder="最高价" aria-invalid={!!priceError} aria-describedby={priceError ? "mc-price-error" : "mc-price-note"} onChange={event => setMaximum(event.target.value)} /><span>元</span><button type="submit" className="mc-apply">确定</button>
+        <label className="sr" htmlFor="mc-price-min">最低价（元）</label><input id="mc-price-min" inputMode="decimal" value={minimum} placeholder="最低价" aria-invalid={!!priceError} aria-describedby={priceError ? "mc-price-error" : undefined} onChange={event => setMinimum(event.target.value)} />
+        <span>～</span><label className="sr" htmlFor="mc-price-max">最高价（元）</label><input id="mc-price-max" inputMode="decimal" value={maximum} placeholder="最高价" aria-invalid={!!priceError} aria-describedby={priceError ? "mc-price-error" : undefined} onChange={event => setMaximum(event.target.value)} /><span>元</span><button type="submit" className="mc-apply">确定</button>
       </form>
       {priceError && <p id="mc-price-error" className="mc-error mc-full" role="alert">{priceError}</p>}
-      <p id="mc-price-note" className="mc-note mc-full">区间上限包含边界，下限标注“大于”的不含边界；自定义范围含两端，可只填一端。价格与下方展示口径一致。</p>
     </FilterRow>
     <div className="mc-search-row">
       <form className="mc-search-form" noValidate onSubmit={event => { event.preventDefault(); searchNow(); }}>

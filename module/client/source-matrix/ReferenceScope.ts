@@ -1,27 +1,27 @@
 import type { CSSProperties } from 'react';
 
 /**
- * Exact reference declarations attached to the existing media scope boundary.
- * Custom properties come from top-level :root rules in source order (later wins).
+ * Reference declarations attached to the existing media scope boundary.
+ * Values follow the confirmed 白底操作台 theme: white canvas, neutral ink,
+ * 10px panels and the blue accent (#2563eb), matching the index3 pages.
  * color, background and font come from the reference body rule, without changes.
- * CSS selectors retain only the uniform .fm-media prefix; no root/body aliases.
  */
 export const referenceScopeStyle: CSSProperties & Record<`--${string}`, string> = {
-  "--brand": "#b33467",
-  "--brand-hover": "#962654",
-  "--plum": "#4c1467",
-  "--ink": "#202134",
-  "--muted": "#737991",
-  "--canvas": "#f5f6fa",
+  "--brand": "#2563eb",
+  "--brand-hover": "#1d4ed8",
+  "--plum": "#22252c",
+  "--ink": "#30343b",
+  "--muted": "#626872",
+  "--canvas": "#ffffff",
   "--surface": "#fff",
-  "--line": "#e6e8f1",
-  "--selected": "#f9eff5",
-  "--radius": "16px",
+  "--line": "#e8e9ed",
+  "--selected": "#eff4ff",
+  "--radius": "10px",
   "--sidebar": "184px",
-  "--x-soft": "#faf5f8",
-  "--x-good": "#20815b",
-  "--x-warning": "#aa7227",
+  "--x-soft": "#eff4ff",
+  "--x-good": "#18704a",
+  "--x-warning": "#925b12",
   "color": "var(--ink)",
   "background": "var(--canvas)",
-  "font": "14px 'Microsoft YaHei','PingFang SC',system-ui,Arial,sans-serif",
+  "font": "14px -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif",
 };

@@ -1,12 +1,21 @@
-import { PublisherGatewayError, type PublisherGateway } from '../module/client/gateway';
-import type { ArticleDetail, MediaResource, PublicationDraft, MediaFacets } from '../module/client/types';
+﻿import { PublisherGatewayError, type PublisherGateway } from '../module/client/gateway';
+import type { ArticleDetail, MediaResource, PublicationBatch, PublicationDraft, PublicationItem, MediaFacets } from '../module/client/types';
 /** Synthetic local UI adapter. It never submits work or pretends a provider ran. */
 export function createPreviewGateway():PublisherGateway {
   const now=()=>new Date().toISOString();
   const article:ArticleDetail={id:'preview-article',title:'本地预览：企业知识服务介绍',status:'draft',currentVersion:0,wordCount:18,imageCount:0,updatedAt:now(),revision:1,bodyText:'这是一份用于检查编辑、选媒和报价界面的合成稿件。',bodyHtml:'<p>这是一份用于检查编辑、选媒和报价界面的合成稿件。</p>',images:[],versions:[],importChecks:{docxSafe:true,externalLinkCount:0,structureValid:true}};
   const articles=new Map([[article.id,article]]),drafts=new Map<string,PublicationDraft>();
+  // A ready-made frozen version and draft let the titles step be previewed directly.
+  article.status='frozen';article.currentVersion=1;article.currentVersionId='preview-version-1';article.currentVersionHash='preview-version';
+  article.versions.push({id:'preview-version-1',version:1,hash:'preview-version',containsImages:false,frozen:true,createdAt:now(),createdBy:'本地预览'});
+  const makeDraft=():PublicationDraft=>({id:'preview-draft',articleId:article.id,articleVersionId:'preview-version-1',articleTitle:article.title,articleVersion:1,articleVersionHash:'preview-version',articleContainsImages:false,revision:1,titleMode:'per_media',items:media.map(m=>({media:m,title:article.title})),updatedAt:now()});
   const media:MediaResource[]=[{id:'preview-media',name:'预览科技资讯',shortName:'预览',kind:'news',platform:'合成媒体',taxonomy:'科技',mediaType:'行业资讯',channel:'科技',region:'全国',logoSource:'generated_fallback',logoResolutionStatus:'missing',titleLimit:60,priceTenThousandths:'500000',turnaround:'仅预览',capability:'text',active:true,catalogRevision:'preview-catalog'}];
+  const sampleItems=(status:PublicationItem['status']):PublicationItem[]=>[{id:'preview-item-'+status,media:media[0]!,title:'本地预览：企业知识服务介绍',status,fundStatus:status==='success'?'consumed':status==='processing'?'frozen':'released',priceTenThousandths:media[0]!.priceTenThousandths!,resultUrl:status==='success'?'https://example.com/preview/result':undefined,updatedAt:now()}];
+  const batches:PublicationBatch[]=[{id:'preview-batch-1',articleTitle:'本地预览：企业知识服务介绍',articleVersion:1,articleVersionId:'preview-version-1',articleVersionHash:'preview-version',mode:'test',status:'processing',itemCount:2,successCount:0,failedCount:0,unknownCount:2,totalTenThousandths:'1000000',consumedTenThousandths:'0',releasedTenThousandths:'0',frozenTenThousandths:'1000000',createdAt:now(),items:sampleItems('processing')},
+    {id:'preview-batch-2',articleTitle:'本地预览：华南智造观察',articleVersion:2,articleVersionId:'preview-version-2',articleVersionHash:'preview-version',mode:'test',status:'partial_success',itemCount:2,successCount:1,failedCount:1,unknownCount:0,totalTenThousandths:'1000000',consumedTenThousandths:'500000',releasedTenThousandths:'0',frozenTenThousandths:'500000',createdAt:now(),items:[...sampleItems('success'),...sampleItems('failed')]},
+    {id:'preview-batch-3',articleTitle:'本地预览：绿色供应链简报',articleVersion:1,articleVersionId:'preview-version-3',articleVersionHash:'preview-version',mode:'test',status:'success',itemCount:1,successCount:1,failedCount:0,unknownCount:0,totalTenThousandths:'500000',consumedTenThousandths:'500000',releasedTenThousandths:'0',frozenTenThousandths:'0',createdAt:now(),items:sampleItems('success')}];
   const wallet={availableTenThousandths:'10000000',reservedTenThousandths:'0',frozenTenThousandths:'0'};
+  drafts.set('preview-draft',makeDraft());
   const catalog={activeRevision:'preview-catalog',mediaCount:media.length,newsCount:1,selfMediaCount:0,kindComplete:true,lastSyncedAt:now(),stale:false};
   const clone=<T,>(value:T):T=>structuredClone(value);
   const getArticle=(id:string)=>{const value=articles.get(id);if(!value)throw new PublisherGatewayError('预览稿件不存在','not_found');return value;};
@@ -14,7 +23,7 @@ export function createPreviewGateway():PublisherGateway {
   const unavailable=()=>{throw new PublisherGatewayError('本地预览不执行供应商调用，请在开发域名验收。','unavailable');};
   const facets:MediaFacets={kinds:{news:1,self_media:0},platforms:[],taxonomies:[],mediaTypes:[],areas:[],includeTypes:[],publishSpeeds:[],entryTypes:[],linkTypes:[],imageSupports:[],pcWeightThresholds:[],includeRateThresholds:[],successRateThresholds:[],recommendedOptions:[],authenticatedOptions:[],festivalPublishableOptions:[],catalog};
   return {
-    async getDashboard(){return {wallet,catalog,articleCount:articles.size,actionableItemCount:0,resumableDraftCount:drafts.size,resumableDrafts:[...drafts.values()].map(d=>({id:d.id,articleTitle:d.articleTitle,articleVersion:d.articleVersion,status:'draft',updatedAt:d.updatedAt})),processingBatchCount:0,processingBatches:[],recentBatches:[],resumableArticles:clone([...articles.values()])};},
+    async getDashboard(){return {wallet,catalog,articleCount:articles.size,actionableItemCount:1,resumableDraftCount:drafts.size,resumableDrafts:[...drafts.values()].map(d=>({id:d.id,articleTitle:d.articleTitle,articleVersion:d.articleVersion,status:'draft',updatedAt:d.updatedAt})),processingBatchCount:batches.filter(b=>b.status==='processing').length,processingBatches:clone(batches.filter(b=>b.status==='processing')),recentBatches:clone(batches),resumableArticles:clone([...articles.values()])};},
     async listArticles(){return clone([...articles.values()]);},
     async getArticle(id){return clone(getArticle(id));},
     async getArticleVersion(versionId){const version=[...articles.values()].flatMap(a=>a.versions).find(v=>v.id===versionId);if(!version)throw new PublisherGatewayError('预览稿件版本不存在','not_found');return clone(version);},
@@ -30,6 +39,6 @@ export function createPreviewGateway():PublisherGateway {
     async refreshDraftMedia(id){return clone(getDraft(id));},
     async saveDraftTitles(id,input){const d=getDraft(id);const typed=input as {titles?:Record<string,string>;sharedTitle?:string;mode?:'single'|'per_media'};const titles=typed.titles??input as Record<string,string>;d.items=d.items.map(item=>({...item,title:typed.sharedTitle??titles[item.media.id]??item.title}));d.titleMode=typed.mode??'per_media';d.revision++;return clone(d);},
     async preflightDraft(id){const d=getDraft(id),a=getArticle(d.articleId);const total=d.items.reduce((sum,item)=>sum+BigInt(item.media.priceTenThousandths),0n).toString();return {revision:String(d.revision),draftRevision:d.revision,quoteFingerprint:'preview-only',mode:'test',expiresAt:new Date(Date.now()+60000).toISOString(),article:{id:a.id,title:a.title,version:a.currentVersion,versionId:d.articleVersionId,hash:'preview-version',wordCount:a.wordCount,imageCount:0,bodyHtml:a.bodyHtml??'',images:[]},catalogRevision:'preview-catalog',items:d.items.map(item=>({...item,priceTenThousandths:item.media.priceTenThousandths,checks:[],blockers:[],warnings:['合成报价，仅用于界面预览']})),totalTenThousandths:total,wallet,availableAfterTenThousandths:(BigInt(wallet.availableTenThousandths)-BigInt(total)).toString(),blockers:['本地预览不发稿、不扣费'],warnings:[],gates:[{label:'真实运行环境',passed:false}]};},
-    async submitDraft(){return unavailable();},async listBatches(){return {items:[],total:0,page:1,pageSize:20};},async getBatch(){return unavailable();},batchCsvUrl(){return '#local-preview';}
+    async submitDraft(){return unavailable();},async listBatches(){return {items:clone(batches),total:batches.length,page:1,pageSize:20};},async getBatch(id){const value=batches.find(b=>b.id===id);if(!value)throw new PublisherGatewayError('预览发布批次不存在','not_found');return clone(value);},batchCsvUrl(){return '#local-preview';}
   };
 }
