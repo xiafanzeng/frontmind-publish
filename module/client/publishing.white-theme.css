@@ -392,6 +392,37 @@
   border-radius: 10px;
 }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .original-media-table thead { display: none; }
+/* Catalogue rendered as one continuous table (user request): the per-card
+ * look is replaced by a single frame — gray header band, hairline row
+ * separators and column rules aligned through header and rows alike.
+ * Below 901px the two-column fallback keeps the card behaviour. */
+@media (min-width: 901px) {
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head {
+    margin-bottom: 0;
+    border-bottom: 1px solid #d9dbe1;
+    border-radius: 10px 10px 0 0;
+  }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span { padding: 2px 0 2px 16px; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span + span { border-left: 1px solid #ececf0; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table { display: block; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row {
+    border-radius: 0;
+    border: 1px solid #d9dbe1;
+    border-top: none;
+    margin: 0;
+    padding-top: 16px;
+    padding-bottom: 16px;
+    min-height: 0;
+  }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row + .y-media-row { border-top: 1px solid #e3e4e8; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row:hover { box-shadow: none; background: #fafbfc; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row.selected { box-shadow: inset 3px 0 0 var(--brand); }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row:last-child {
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+  }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row > * + * { border-left: 1px solid #ececf0; padding-left: 16px; }
+}
 /* Price column: tabular figures and a stable amount box keep ¥9.50 and
  * ¥1280.00 visually even regardless of magnitude. */
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-value { display: flex; align-items: baseline; flex-wrap: wrap; }
