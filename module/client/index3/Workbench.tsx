@@ -25,10 +25,12 @@ export default function Index3Workbench() {
   const data = query.data;
   if (!data) return null;
 
-  const drafts = data.resumableDrafts;
-  const articles = data.resumableArticles;
+  const drafts = data.resumableDrafts ?? [];
+  const articles = data.resumableArticles ?? [];
+  const recentBatches = data.recentBatches ?? [];
+  const processingBatches = data.processingBatches ?? [];
   const resumeCount = drafts.length + articles.length;
-  const problems = data.recentBatches.filter((batch) => problemStatuses.includes(batch.status));
+  const problems = recentBatches.filter((batch) => problemStatuses.includes(batch.status));
   const firstProblem = problems[0];
 
   return (
@@ -42,7 +44,7 @@ export default function Index3Workbench() {
       <div className="work-status" aria-label="工作台任务摘要">
         <div className="status-item">待继续的稿件 <strong>{resumeCount}</strong></div>
         <div className="status-item">需处理的投放 <strong className={problems.length ? "warning-text" : undefined}>{problems.length}</strong></div>
-        <div className="status-item">正在发布 <strong>{data.processingBatches.length}</strong></div>
+        <div className="status-item">正在发布 <strong>{processingBatches.length}</strong></div>
       </div>
 
       <div className={`work-grid ${firstProblem ? "" : "is-single"}`}>
@@ -126,7 +128,7 @@ export default function Index3Workbench() {
           <h2>最近投放</h2>
           <Link className="link" href="/publishing/articles/records">全部发布记录</Link>
         </div>
-        {data.recentBatches.length ? (
+        {recentBatches.length ? (
           <div className="table-wrap">
             <table>
               <caption className="sr-only">最近投放列表</caption>
@@ -140,7 +142,7 @@ export default function Index3Workbench() {
                 </tr>
               </thead>
               <tbody>
-                {data.recentBatches.map((batch) => (
+                {recentBatches.map((batch) => (
                   <tr key={batch.id}>
                     <td>
                       <Link className="link neutral table-title" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>
