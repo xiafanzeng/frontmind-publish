@@ -346,6 +346,7 @@ export default function PublishingMediaLibraryPage({
   const [marketNotice,setMarketNotice]=useState('');
   const [scope, setScope] = useState<'all'|'cart'>('all');
   const [compact,setCompact]=useState(false);
+  const [priceOrder,setPriceOrder]=useState<'default'|'asc'|'desc'>('default');
   const [detailMedia,setDetailMedia]=useState<MediaResource>();
   const favorite=(_id:string)=>setMarketNotice('收藏接口尚未配置，未保存本次收藏。');
   const [dialogMessage,setDialogMessage]=useState('');
@@ -1170,7 +1171,17 @@ export default function PublishingMediaLibraryPage({
   const sourceRows=view==='cart'?selectedValues:mediaQuery.data?.items??[];
   const ruleData=useMarketRules([...new Set([...sourceRows.map(x=>x.id),...(detailMedia?[detailMedia.id]:[])])],mediaQuery.data?.catalog.activeRevision??'');
   // Media can be inspected before rules arrive; additions remain gated below.
-  const rows=sourceRows;
+  // Page-local price ordering (the catalogue gateway has no sort parameter yet);
+  // items without a usable price always stay at the bottom of the list.
+  const priceOrderValue=(media:MediaResource)=>{const raw=media.priceTenThousandths;return /^\d+$/.test(raw)?Number(raw):Number.NaN;};
+  const rows=priceOrder==='default'?sourceRows:[...sourceRows].sort((a,b)=>{
+    const pa=priceOrderValue(a),pb=priceOrderValue(b);
+    const aUnknown=!Number.isFinite(pa),bUnknown=!Number.isFinite(pb);
+    if(aUnknown&&bUnknown)return 0;
+    if(aUnknown)return 1;
+    if(bUnknown)return -1;
+    return priceOrder==='asc'?pa-pb:pb-pa;
+  });
   const additionReadIssue = !ruleData.ready ? ruleData.error || '正在读取媒体要求…'
     : (mediaQuery.error ? mediaReadError(mediaQuery.error, '媒体目录暂时无法读取，请重试。') : '') || (mediaQuery.loading ? '正在读取媒体目录…' : '');
   const selectionDisabledReason = (media: MediaResource) => {
@@ -1316,6 +1327,7 @@ export default function PublishingMediaLibraryPage({
        <button className={scope === "cart" ? "active" : ""} aria-pressed={scope === "cart"} onClick={() => { setScope("cart"); updateFilter("page", 1); }}>购物车<small>{selected.size}</small></button>
      </div>
      <span className="y-result-count" id="y-result-count" aria-live="polite">{previousResult ? "上次为您找到" : "为您找到"} <strong>{totalLabel}</strong> 条媒体资源{scope === "cart" ? "（购物车内）" : ""}</span>
+     <label className="y-price-sort">价格排序（本页）<select aria-label="按价格排序（本页）" value={priceOrder} onChange={event=>setPriceOrder(event.target.value as 'default'|'asc'|'desc')}><option value="default">默认</option><option value="asc">从低到高</option><option value="desc">从高到低</option></select></label>
    </div>
    <div className="y-typebar" role="group" aria-label="媒体分类">
      {([{ value: undefined, label: "全部媒体", count: inventory?.all }, { value: "news", label: "门户媒体", count: inventory?.news }, { value: "self_media", label: "第三方自媒体", count: inventory?.selfMedia }] as const).map(item => <button key={item.value ?? "all"} className={filters.kind === item.value ? "active" : ""} aria-pressed={filters.kind === item.value} onClick={() => navigateFilters({ ...filters, kind: item.value, page: 1 })}>{item.label}<small>（{inventoryLabel(item.count)}）</small></button>)}
