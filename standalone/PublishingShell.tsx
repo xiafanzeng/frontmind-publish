@@ -47,17 +47,22 @@ export default function PublishingShell({ gateway, preview, children }: {
     const href = businessLeafHref(view, path, search) ?? "/publishing";
     const active = currentLeaf === view || (view === "editor" && titlesFlow);
     return (
-      <button
-        type="button"
+      <a
         key={view}
+        href={projectWorkspaceUrl(href)}
         className={`nav-item ${sub ? "sub" : ""} ${active ? "active" : ""}`.trim()}
         aria-current={active ? "page" : undefined}
-        onClick={() => go(href)}
+        onClick={(event) => {
+          event.preventDefault();
+          go(href);
+        }}
       >
         {text}
-      </button>
+      </a>
     );
   };
+
+  const mediaHref = businessLeafHref("media-home", path, search) ?? "/publishing/media";
 
   return (
     <div className="fm3-root publish-standalone" data-accent="blue">
@@ -77,7 +82,16 @@ export default function PublishingShell({ gateway, preview, children }: {
           {navItem("articles-manage", "管理稿件")}
           {navItem("article-edit", "编辑稿件")}
           {navItem("records", "发布记录")}
-          <div className="nav-label"><Icon name="media" />媒体选择</div>
+          <a
+            className="nav-label"
+            href={projectWorkspaceUrl(mediaHref)}
+            onClick={(event) => {
+              event.preventDefault();
+              go(mediaHref);
+            }}
+          >
+            <Icon name="media" />媒体选择
+          </a>
           {navItem("source-matrix", "信源矩阵")}
           {navItem("third-media", "媒体库")}
         </nav>

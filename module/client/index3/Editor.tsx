@@ -387,11 +387,12 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
                   ) : null}
                   {uploadNote ? <p className="small muted">{uploadNote}</p> : null}
                   <div className="field">
-                    <label htmlFor="article-title">稿件标题 <span className="danger-text">*</span></label>
+                    <label htmlFor="article-title">稿件标题 <span className="danger-text" aria-hidden="true">*</span></label>
                     <input
                       id="article-title"
                       className="control"
                       value={unit.title}
+                      aria-label="稿件标题"
                       aria-invalid={errors.title ? "true" : undefined}
                       aria-describedby="article-title-error"
                       onChange={(event) => patchUnit({ title: event.target.value })}

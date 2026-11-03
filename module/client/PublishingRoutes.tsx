@@ -30,6 +30,7 @@ const LegacyPublicationListRedirect = lazy(() =>
     default: module.LegacyPublicationListRedirect,
   })),
 );
+const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
 const ImportPage = lazy(() => import("./pages/ImportPage"));
 const MediaLibraryPage = lazy(() => import("./pages/MediaLibraryPage"));
 const PublicationDetailPage = lazy(
@@ -39,6 +40,9 @@ const PublicationDetailPage = lazy(
 export type PublishingRoutesProps = {
   gateway: PublisherGateway;
 };
+
+const params2flow = (search: string) =>
+  new URLSearchParams(search.replace(/^\?/u, "")).get("flow") === "1";
 
 export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   const search=useSearch();
@@ -138,7 +142,8 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <LegacyPublicationListRedirect />
             </Route>
             <Route path="/publishing">
-              <Index3Workbench />
+              {/* flow=1 keeps the original guided entry; the plain landing is the index3 workbench. */}
+              {params2flow(search) ? <WorkbenchPage /> : <Index3Workbench />}
             </Route>
             <Route>
               <Redirect to="/publishing" />
