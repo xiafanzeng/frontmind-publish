@@ -1,0 +1,384 @@
+﻿/*  White-workspace pass for the remaining legacy pages (publication detail,
+ *  import, fallbacks). The index3 pages carry their own scoped sheet
+ *  (index3/index3.css); the source-matrix and media catalogue stay on their
+ *  original reference transcription untouched. Prefix chains the standalone
+ *  shell ancestors so it outranks static and lazily injected sheets alike. */
+
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page {
+  background: #fff;
+  color: #30343b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 20px 24px 44px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page h1 {
+  font-size: 20px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: #22252c;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #22252c;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel {
+  border: 1px solid #e8e9ed;
+  border-radius: 10px;
+  box-shadow: none;
+  overflow: hidden;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel-heading {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e8e9ed;
+  background: #fff;
+  min-height: 0;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-panel-heading h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #22252c;
+  letter-spacing: 0;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid #e8e9ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #30343b;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button:hover:not(:disabled) {
+  background: #f5f6f8;
+  border-color: #ccd1da;
+  transform: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-primary,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-accent {
+  background: #b33467;
+  border-color: #b33467;
+  color: #fff;
+  box-shadow: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-primary:hover:not(:disabled),
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-accent:hover:not(:disabled) {
+  background: #962654;
+  border-color: #962654;
+  transform: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-button-secondary {
+  background: #fff;
+  border-color: #e8e9ed;
+  color: #30343b;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: #f0f2f5;
+  color: #626d7d;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-success {
+  background: #edf6f1;
+  color: #18704a;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-warning {
+  background: #fff5e6;
+  color: #925b12;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-danger {
+  background: #fcf0f2;
+  color: #b12e46;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-info {
+  background: #eef3fa;
+  color: #325c91;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-status.is-neutral {
+  background: #f0f2f5;
+  color: #626d7d;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page th,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-table-head {
+  background: #f9fafb;
+  color: #626872;
+  font-size: 12px;
+  font-weight: 500;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-list-row {
+  min-height: 0;
+  padding: 12px 16px;
+  border-bottom-color: #eceef2;
+  color: #30343b;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-list-row:hover {
+  background: #fcfcfe;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-list-copy strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-state,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .publishing-page .publishing-empty {
+  border-radius: 10px;
+  border-color: #e8e9ed;
+}
+
+/* ---------- Media-selection surfaces (fm-media) on the confirmed white pass ----------
+ * Tokens are supplied inline via ReferenceScope (white canvas, blue accent).
+ * This layer aligns type scale, corner radii and leftover berry accents of the
+ * design transcription with the index3 pages: 20px page titles (prompt notes
+ * removed), 15/14px section titles, 36x8px rectangular buttons, 10px panels,
+ * 4px badges, neutral greys with a single blue accent. The hardened shell
+ * prefix outranks the transcription sheets regardless of injection order. */
+
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media {
+  background: #fff;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .content {
+  max-width: 1600px;
+  padding: 20px 24px 28px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .heading {
+  margin: 0 0 16px;
+  min-height: 36px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .heading h1 {
+  font-size: 20px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #22252c;
+}
+/* Later media sheets still re-declare a larger catalogue title at equal or
+ * higher specificity; pin the confirmed 20px scale for this one selector. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .content .heading h1 {
+  font-size: 20px !important;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .heading p,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation > header p {
+  display: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #22252c;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #22252c;
+}
+
+/* Buttons: rectangular, 36px, quiet shadows. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .button {
+  min-height: 36px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .primary {
+  box-shadow: none;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .secondary {
+  border-color: #e8e9ed;
+  color: #30343b;
+  background: #fff;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .secondary:hover:not(:disabled) {
+  background: #f5f6f8;
+  border-color: #ccd1da;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .link {
+  font-weight: 500;
+}
+
+/* Panels, cards and chips: one 10px scale. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .panel {
+  border-radius: 10px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-candidate,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-add,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-sim-banner,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .media-choice,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .x-duo-card {
+  border-radius: 8px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .step,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .notice {
+  border-radius: 8px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .notice {
+  border-color: #d5e0ed;
+  background: #f5f8fc;
+  color: #4d637e;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-layer-row,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-layer-row > header,
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-recommendation {
+  border-radius: 10px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .mc-chip {
+  border-radius: 6px;
+}
+
+/* Badges and statuses: small rectangles, neutral with semantic tones. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .badge {
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: #f0f2f5;
+  color: #626d7d;
+  font-size: 12px;
+  font-weight: 400;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .status {
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: #f0f2f5;
+  color: #626d7d;
+  font-size: 12px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .metric-icon {
+  border-radius: 8px;
+  background: #eff4ff;
+  color: #2563eb;
+}
+
+/* Inputs and focus: blue accent, 8px controls. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  border-radius: 8px;
+  border-color: #d5d9e1;
+  min-height: 36px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media dialog {
+  border-radius: 12px;
+}
+
+/* ---------- Source-matrix compact pass ----------
+ * Tightens the vertical rhythm of both matrix tabs to the index3 density:
+ * 12-14px section gaps, 12-16px panel paddings, 38px filter controls and
+ * smaller chart rings. Layout-only overrides; no functional changes. */
+
+/* --- recommendation tab --- */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .x-matrix-nav{margin-bottom:12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-demand{padding:14px 16px;margin-bottom:14px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-demand{padding:14px 16px;margin-bottom:14px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-demand .panel-title{margin-bottom:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-demand-fields{gap:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-demand-fields{gap:10px 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-demand-actions{margin-top:12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-demand-actions{padding-top:10px;margin-top:12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-input-status{margin-top:8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-layout{gap:14px;margin-top:12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-recommendation-layout{gap:14px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-matrix-heading{margin-bottom:8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-layer-list{gap:8px;margin-top:8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-layer-row>header{padding:10px 8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-layer-candidates{padding:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation{padding:14px 16px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-recommendation{padding:14px 16px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-plan-switch{margin:12px 0 10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-plan-switch{margin-top:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-plan dl{margin:10px 0}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-report{margin:14px 0}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-association-action{margin:10px 0}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-selection-status{margin:6px 0}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-recommendation-workspace .sm-demo-provenance{margin:0 0 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-plan-kind{margin-top:10px;padding-top:10px}
+
+/* --- industry analysis tab --- */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-filters{padding:12px 14px;gap:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-filters label{gap:8px;font-size:13px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry .sm-industry-filters select{min-height:38px;padding:6px 10px;border-radius:8px;font-size:13px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry .sm-date-trigger{min-height:38px;padding:6px 10px;border-radius:8px;font-size:13px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-notice{margin:8px 2px 10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-card-heading{padding:10px 14px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ranking{padding:10px 10px 10px 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ranking-heading{margin:0 4px 8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-content{padding:10px 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-content-heading{margin-bottom:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry th{padding:8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry td{padding:8px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-pagination{padding-top:10px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-distributions{gap:12px;padding:0 12px 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-distribution-section{margin-top:12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-chart{padding:12px 14px;min-height:180px;gap:16px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ring{width:124px;height:124px;flex:0 0 124px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ring>div{width:92px;height:92px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ring strong{font-size:20px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-panel-empty{min-height:150px;padding:14px 12px}
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-summary{gap:12px;margin-bottom:12px}
+
+/* ---------- Media-library typography pass ----------
+ * One type scale across the catalogue: 20/16/14/13/12 px with weights
+ * 400/500/600 only. Kills the 650/700 heavies, the 19px cart separator,
+ * 17px count bubbles, 11px table heads and 10px domain micro-text. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media strong, .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media b { font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-article-menu-trigger strong { font-weight: 500; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media th { font-size: 12px; font-weight: 500; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .link { font-size: 13px; font-weight: 500; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media small, .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .small { font-size: 12px; font-weight: 400; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .tag { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .mc-filter-label { font-size: 12px; font-weight: 500; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .mc-chip { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .mc-note { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-media-row p { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-props dt, .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-props dd { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-cart-bar-summary strong { font-size: 16px; font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-cart-bar-summary strong span { font-size: 16px; font-weight: 400; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-cart-toggle strong { font-size: 14px; font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-result-count strong { font-weight: 500; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .catalogue-price { font-size: 16px; font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .sm-industry-ring strong { font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .b-task .grow strong { font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-cart-drawer-head strong { font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-selected-count, .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-page-buttons { font-size: 12px; }
+
+/* Media-library typography pass, round 2: div-grid header row, result count
+ * and origin micro-text join the same 12px scale. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span { font-size: 12px; font-weight: 500; color: #626872; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-result-count strong { font-size: 12px; font-weight: 600; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-origin span { font-size: 12px; }
+
+/* Media-library typography pass, round 3: row micro-labels join the 12px floor. */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-platform-pill { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-label { font-size: 12px; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-detail span { font-size: 12px; }
+
+/* Media catalogue: drop the column header row in both render modes
+ * (div grid head and the data table's thead). */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head { display: none; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .original-media-table thead { display: none; }

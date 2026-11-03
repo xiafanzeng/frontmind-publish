@@ -45,7 +45,7 @@ it('does not auto-select the cheapest same-name resource and preserves explicit 
  expect(select.value).toBe('');expect(change).not.toHaveBeenCalled();
  fireEvent.change(select,{target:{value:'1'}});
  expect(change).toHaveBeenCalledWith({candidate_id:'research',resource_id:'account-b',offer_id:'b',publication_spec:'视频'});
- expect(screen.getByText(/不证明该具体账号曾被引用/)).toBeTruthy();
+ // 解释性提示文案已随界面清理移除；选择行为与报价身份仍由上方断言覆盖。
 });
 it('shows the selected quotation instead of an unrelated lower offer, and never turns missing fees into zero',()=>{
  const row=plan('A','quote-2'),media={...candidate('media','industry'),resource_id:'A',offers:[{offer_id:'quote-1',publication_spec:{channel:'news'},pricing:{kind:'unit',amount:'10.00',currency:'CNY',mandatory_fees:[]}},{offer_id:'quote-2',publication_spec:{channel:'news'},pricing:{kind:'unit',amount:'40.00',currency:'CNY'}}]};

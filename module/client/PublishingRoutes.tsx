@@ -4,9 +4,10 @@ import { Redirect, Route, Switch, useSearch } from "wouter";
 import { projectWorkspaceUrl } from "./host";
 import type { PublisherGateway } from "./gateway";
 import { PublishingGatewayProvider } from "./PublishingContext";
-import { PublishingLoading } from "./components/PublishingUi";
-import { ArticleContentLayout } from "./components/ArticleContentLayout";
 import { PreparationContentLayout } from "./components/PreparationContentLayout";
+/* The index3 reference sheet loads first: replaced pages are fully scoped under
+ * .fm3-root, while the kept source-matrix / catalogue sheets win any tie. */
+import "./index3/index3.css";
 import "./publishing.tokens.css";
 import "./publishing.core.css";
 import "./publishing.workflow.css";
@@ -16,22 +17,21 @@ import "./publishing.admin.css";
 import "./publishing.conversation.css";
 import "./publishing.market.css";
 import "./publishing.articles.css";
+import "./publishing.white-theme.css";
 
 const SourceMatrixPage = lazy(() => import("./source-matrix/SourceMatrixPage"));
-const WorkbenchPage = lazy(() => import("./pages/WorkbenchPage"));
+const Index3Workbench = lazy(() => import("./index3/Workbench"));
+const Index3Articles = lazy(() => import("./index3/Articles"));
+const Index3Editor = lazy(() => import("./index3/Editor"));
+const Index3Records = lazy(() => import("./index3/Records"));
+const Index3Titles = lazy(() => import("./index3/Titles"));
 const LegacyPublicationListRedirect = lazy(() =>
   import("./pages/WorkbenchPage").then((module) => ({
     default: module.LegacyPublicationListRedirect,
   })),
 );
-const ArticlesPage = lazy(() => import("./pages/ArticlesPage"));
-const PublicationsPage = lazy(() => import("./pages/PublicationsPage"));
 const ImportPage = lazy(() => import("./pages/ImportPage"));
-const ArticleEditorPage = lazy(() => import("./pages/ArticleEditorPage"));
 const MediaLibraryPage = lazy(() => import("./pages/MediaLibraryPage"));
-const DraftConversationPage = lazy(
-  () => import("./pages/DraftConversationPage"),
-);
 const PublicationDetailPage = lazy(
   () => import("./pages/PublicationDetailPage"),
 );
@@ -56,12 +56,11 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
   };
   return (
     <PublishingGatewayProvider gateway={gateway}>
-      <ArticleContentLayout>
       <PreparationContentLayout>
-      <Suspense
+        <Suspense
           fallback={
-            <div className="publishing-page publishing-page-loading">
-              <PublishingLoading label="正在准备媒体发布工作台…" />
+            <div className="empty" role="status">
+              <h3>正在准备媒体发布工作台…</h3>
             </div>
           }
         >
@@ -75,19 +74,19 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <ImportPage />
             </Route>
             <Route path="/publishing/articles/new">
-              <ArticleEditorPage articleId="new" />
+              <Index3Editor articleId="new" />
             </Route>
             <Route path="/publishing/articles/records">
-              <PublicationsPage />
+              <Index3Records />
             </Route>
             <Route path="/publishing/articles/edit">
               <Redirect to="/publishing/articles" />
             </Route>
             <Route path="/publishing/articles/:articleId/edit">
-              {(params) => <ArticleEditorPage articleId={params.articleId} />}
+              {(params) => <Index3Editor articleId={params.articleId} />}
             </Route>
             <Route path="/publishing/articles">
-              <ArticlesPage />
+              <Index3Articles />
             </Route>
             <Route path="/publishing/media/matrix"><SourceMatrixPage view="matrix" /></Route>
             <Route path="/publishing/media/sources"><SourceMatrixPage view="analysis" /></Route>
@@ -118,12 +117,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               {(params) => <MediaLibraryPage draftId={params.draftId} view="home" />}
             </Route>
             <Route path="/publishing/drafts/:draftId/titles">
-              {(params) => (
-                <DraftConversationPage
-                  draftId={params.draftId}
-                  initialStage="titles"
-                />
-              )}
+              {(params) => <Index3Titles draftId={params.draftId} />}
             </Route>
             <Route path="/publishing/drafts/:draftId/review">
               {(params) => <Redirect replace to={titlesDraftHref(params.draftId)} />}
@@ -132,7 +126,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               {(params) => <Redirect replace to={titlesDraftHref(params.draftId)} />}
             </Route>
             <Route path="/publishing/records">
-              <PublicationsPage />
+              <Index3Records />
             </Route>
             <Route path="/publishing/record/:batchId">
               {(params) => <PublicationDetailPage batchId={params.batchId} />}
@@ -144,7 +138,7 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
               <LegacyPublicationListRedirect />
             </Route>
             <Route path="/publishing">
-              <WorkbenchPage />
+              <Index3Workbench />
             </Route>
             <Route>
               <Redirect to="/publishing" />
@@ -153,7 +147,6 @@ export default function PublishingRoutes({ gateway }: PublishingRoutesProps) {
           </>
         </Suspense>
       </PreparationContentLayout>
-      </ArticleContentLayout>
     </PublishingGatewayProvider>
   );
 }

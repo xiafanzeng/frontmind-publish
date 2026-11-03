@@ -158,6 +158,9 @@ it("recovers one explicit batch article and offers retry after recovery failure"
   await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(retry);
   await waitFor(() => expect((screen.getByLabelText("文章 1 标题") as HTMLInputElement).value).toBe("原稿 a"));
-  expect((screen.getByRole("button", { name: "选择稿件" }) as HTMLButtonElement).disabled).toBe(false);
+  // 标题渲染与 busy 标志清零分属两次状态提交；轮询等待按钮启用，避免偶发竞态。
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "选择稿件" }) as HTMLButtonElement).disabled).toBe(false),
+  );
 });
 
