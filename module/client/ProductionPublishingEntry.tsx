@@ -1333,6 +1333,7 @@ function mapApiBatchSummary(batch: ApiBatchListItem): PublicationBatchSummary {
     releasedTenThousandths: batch.releasedTenThousandths,
     frozenTenThousandths: batch.frozenTenThousandths,
     createdAt: toIso(batch.createdAt),
+    updatedAt: toIso(batch.updatedAt),
   };
 }
 

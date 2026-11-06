@@ -16,13 +16,12 @@ export default function PublishingNavigation({ path, search, collapsed, onNaviga
 }) {
   const active = activeBusinessLeaf(path, search);
   const group = businessModuleOf(active).id;
-  // 选中板块后自动展开子菜单：展开组只由当前路由推导，两组互斥，无独立展开按钮；
-  // 点击一级导航按默认落地规则跳转后自然展开本组、收起另一组，重复点击当前板块保持展开，
-  // 进入无子菜单板块（发布工作台）时不展开任何组；深链、刷新与前进/后退同样按路由恢复。
+  // V5：稿件与媒体选择不再是独立导航（navHidden），侧栏只保留发布工作台；
+  // 页面仍经工作台列表/流程进入。展开组逻辑保留给未隐藏的多子项板块。
   const expandedGroup = BUSINESS_NAV.find(item => item.id === group && item.views.length > 1)?.id;
   const icons = { publishing: Send, content: FileText, intent: Database };
   return <nav className="publish-navigation" aria-label="媒体发布导航" data-compact={collapsed}>
-    {BUSINESS_NAV.map(item => {
+    {BUSINESS_NAV.filter(item => !item.navHidden).map(item => {
       const Icon = icons[item.id];
       const nested = item.views.length > 1;
       const open = expandedGroup === item.id;

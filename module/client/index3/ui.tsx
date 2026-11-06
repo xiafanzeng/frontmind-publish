@@ -189,22 +189,68 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
 /* ---------- Workflow position indicator ---------- */
 
-export function WorkflowPosition({ step, detail }: { step: number; detail?: string }) {
-  const labels = ["编辑稿件", "选择媒体", "配置标题"];
+export const WORKFLOW_STEP_LABELS = ["编辑稿件", "选择媒体", "配置标题"] as const;
+
+/**
+ * 三步流程条。V5：当前步骤之前的阶段可点击回退（与页面内的独立返回按钮等价），
+ * 当前与未来步骤不可点。onStepSelect 缺省时整条保持纯展示。
+ */
+export function WorkflowPosition({ step, detail, onStepSelect }: {
+  step: number;
+  detail?: string;
+  /** 点击已完成步骤时的回退回调（仅 index < step 会触发）。 */
+  onStepSelect?: (index: number) => void;
+}) {
+  const labels = WORKFLOW_STEP_LABELS;
   return (
     <nav className="workflow-position" aria-label="当前发布步骤">
       <span className="workflow-caption">当前步骤</span>
       <ol>
-        {labels.map((label, index) => (
-          <li key={label} className={index === step ? "current" : index < step ? "complete" : undefined}
-            {...(index === step ? { "aria-current": "step" as const } : {})}>
-            <span className="workflow-number" aria-hidden="true">{index < step ? "✓" : index + 1}</span>
-            <span>{label}</span>
-            {index < 2 ? <span className="workflow-arrow" aria-hidden="true">→</span> : null}
-          </li>
-        ))}
+        {labels.map((label, index) => {
+          const earlier = index < step && Boolean(onStepSelect);
+          return (
+            <li
+              key={label}
+              className={[
+                index === step ? "current" : index < step ? "complete" : "",
+                earlier ? "earlier" : "",
+              ].filter(Boolean).join(" ") || undefined}
+              {...(index === step ? { "aria-current": "step" as const } : {})}
+            >
+              {earlier ? (
+                <button type="button" className="workflow-back" onClick={() => onStepSelect?.(index)}>
+                  <span className="workflow-number" aria-hidden="true">✓</span>
+                  <span>{label}</span>
+                </button>
+              ) : (
+                <>
+                  <span className="workflow-number" aria-hidden="true">{index < step ? "✓" : index + 1}</span>
+                  <span>{label}</span>
+                </>
+              )}
+              {index < 2 ? <span className="workflow-arrow" aria-hidden="true">→</span> : null}
+            </li>
+          );
+        })}
       </ol>
       {detail ? <span className="workflow-detail">{detail}</span> : null}
     </nav>
+  );
+}
+
+/**
+ * 工作台“待继续的稿件”行内迷你步骤条：0=编辑稿件、1=选择媒体、2=配置标题。
+ * 只标识当前推进位置；进入流程由行内按钮完成，迷你条本身不交互。
+ */
+export function MiniFlowSteps({ step, failed }: { step: 0 | 1 | 2; failed?: boolean }) {
+  return (
+    <span className={`mini-steps${failed ? " is-failed" : ""}`} aria-label={failed ? `当前步骤：${WORKFLOW_STEP_LABELS[step]}，发布失败` : `当前步骤：${WORKFLOW_STEP_LABELS[step]}`}>
+      {WORKFLOW_STEP_LABELS.map((label, index) => (
+        <span key={label} className={`mini-step ${index === step ? "current" : index < step ? "done" : ""}`.trim() || undefined}>
+          <b aria-hidden="true">{index < step ? "✓" : index + 1}</b>
+          {label}
+        </span>
+      ))}
+    </span>
   );
 }
