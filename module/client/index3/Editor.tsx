@@ -12,11 +12,10 @@ import { buildHandwrittenDocxFile } from "../handwrittenArticle";
 import { titleModeForFlowMode } from "../components/PublishingFlowSteps";
 import {
   performApprovedWorkspaceNavigation,
-  requestWorkspaceNavigation,
   useWorkspaceDraftGuard,
 } from "../host";
 import { publishingDateTime, type ArticleDetail, type ArticleImage, type PublisherEditorContent } from "../types";
-import { Btn, Icon, PageHeading, SearchBox, WorkflowPosition, toast } from "./ui";
+import { Btn, Icon, PageHeading, WorkflowPosition, toast } from "./ui";
 
 const TipTapArticleEditor = lazy(() => import("../components/TipTapArticleEditor"));
 
@@ -65,7 +64,7 @@ const modeLabels: Array<[EditorMode, string]> = [
   ["batch", "批量投放"],
 ];
 
-/** index3 编辑稿件: document rail, batch units, segmented mode and the freeze-to-matrix handoff. */
+/** index3 编辑稿件: batch units, segmented mode and the freeze-to-media handoff. */
 export default function Index3Editor({ articleId }: { articleId: string }) {
   const gateway = usePublisherGateway();
   const [path, navigate] = useLocation();
@@ -81,10 +80,7 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
     [gateway, articleId, isNew],
   );
   const articleQuery = usePublisherQuery(loadArticle, `index3-editor-${articleId}`);
-  const articlesQuery = usePublisherQuery(
-    useCallback((signal: AbortSignal) => gateway.listArticles(signal), [gateway]),
-    "index3-editor-rail",
-  );
+  // V5：左侧文档栏已删除——进入编辑界面即已明确所编稿件，不再提供文档切换。
 
   const [mode, setMode] = useState<EditorMode>(initialMode);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -93,7 +89,6 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
   const [errors, setErrors] = useState<{ title?: string; content?: string }>({});
   const [saveState, setSaveState] = useState("尚未修改");
   const [busy, setBusy] = useState(false);
-  const [railQuery, setRailQuery] = useState("");
   const [uploadNote, setUploadNote] = useState("");
 
   useEffect(() => {
@@ -247,10 +242,6 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
     }
   };
 
-  const railArticles = (articlesQuery.data ?? []).filter((article) =>
-    !railQuery.trim() || article.title.toLocaleLowerCase().includes(railQuery.trim().toLocaleLowerCase()),
-  );
-
   if (!ready) {
     return (
       <>
@@ -272,37 +263,6 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
       <WorkflowPosition step={0} />
 
       <div className="editor-workspace">
-        <aside className="document-rail" aria-label="文档列表">
-          <div className="rail-heading">
-            <h2>文档</h2>
-            <Link className="btn subtle small" href="/publishing/articles/new" aria-label="新建文档"><Icon name="plus" /></Link>
-          </div>
-          <SearchBox value={railQuery} onChange={setRailQuery} placeholder="搜索文档" />
-          <div className="document-list">
-            {railArticles.length ? (
-              railArticles.map((article) => (
-                <Link
-                  key={article.id}
-                  href={`/publishing/articles/${encodeURIComponent(article.id)}/edit`}
-                  className={`document-item ${article.id === unit.articleId ? "active" : ""}`}
-                  onClick={(event) => {
-                    if (article.id === unit.articleId) return;
-                    event.preventDefault();
-                    requestWorkspaceNavigation(() =>
-                      navigate(`/publishing/articles/${encodeURIComponent(article.id)}/edit`));
-                  }}
-                >
-                  <strong>{article.title}</strong>
-                  <small>v{article.currentVersion} · {publishingDateTime(article.updatedAt)}</small>
-                </Link>
-              ))
-            ) : (
-              <div className="batch-empty">没有匹配文档，请调整关键词。</div>
-            )}
-          </div>
-          <div className="rail-foot">文档按最近修改排序。</div>
-        </aside>
-
         <div style={{ minWidth: 0 }}>
           <div className="space-between" style={{ marginBottom: 16 }}>
             <div className="segmented" role="group" aria-label="投放方式">
@@ -422,7 +382,7 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
                       ? "单标题投放：所有媒体沿用此处的稿件标题。"
                       : mode === "multi"
                         ? "多标题投放：选择媒体后，可分别调整各家媒体的发布标题。"
-                        : "批量投放：所有单元一起保存；冻结后进入信源矩阵。"}
+                        : "批量投放：所有单元一起保存；冻结后进入媒体选择。"}
                   </p>
                 </form>
               </div>
@@ -444,7 +404,7 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
             <div className="actions">
               <Btn onClick={() => void saveUnits()} disabled={busy}>{busy ? "保存中…" : "保存稿件"}</Btn>
               <Btn variant="primary" onClick={() => void goMatrix()} disabled={busy}>
-                {busy ? "处理中…" : "保存并进入信源矩阵"}<Icon name="arrow" />
+                {busy ? "处理中…" : "保存并进入媒体选择"}<Icon name="arrow" />
               </Btn>
             </div>
           </div>
