@@ -172,8 +172,11 @@ export function publishingBreadcrumbs(path: string, search = ""): PublishingCrum
   if (leaf === "source-matrix" || leaf === "third-media") {
     items.push({ label: "媒体选择", href: businessLeafHref("media-home", path, search) });
   }
-  items.push({ label, ...(detail ? { href: businessLeafHref(leaf, path, search) } : {}) });
-  if (detail) items.push({ label: detail });
+  // 工作台页本身只保留首段“发布工作台”，避免出现“发布工作台 / 发布工作台”。
+  if (leaf !== "workbench") {
+    items.push({ label, ...(detail ? { href: businessLeafHref(leaf, path, search) } : {}) });
+    if (detail) items.push({ label: detail });
+  }
   return items;
 }
 
