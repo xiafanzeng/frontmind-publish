@@ -16,7 +16,9 @@ export async function industryRequest<T>(endpoint: IndustryEndpoint, query: Indu
   const abort = () => controller.abort();
   if (signal.aborted) controller.abort(); else signal.addEventListener('abort', abort, { once: true });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 25_000);
+  // Must outlast the server's 60s upstream budget so the server's classified
+  // timeout failure (retryable, same requestId) arrives instead of a client abort.
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 70_000);
   try {
     const response = await fetch(`/api/modules/publish/source-ranking/${endpoint}${params.size ? '?' + params.toString() : ''}`, { credentials: 'same-origin', signal: controller.signal, headers: { Accept: 'application/json' }, cache: 'no-store' });
     let value: IndustryResponse<T>;

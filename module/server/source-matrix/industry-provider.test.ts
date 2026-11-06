@@ -115,7 +115,7 @@ describe('industry transport and request identity', () => {
     vi.useFakeTimers();
     const pending = vi.fn((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
     const result = new IndustrySourceProvider(pending as typeof fetch, () => now).query('filters', new URLSearchParams(), 'scope', 'server-token');
-    await vi.advanceTimersByTimeAsync(15001);
+    await vi.advanceTimersByTimeAsync(60001);
     expect(await result).toMatchObject({ status: 'timeout', retryable: true });
     expect(pending).toHaveBeenCalledOnce();
   });

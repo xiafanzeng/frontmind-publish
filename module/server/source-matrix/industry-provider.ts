@@ -5,7 +5,9 @@ import type { IndustryEndpoint } from './industry-query.js';
 
 const ORIGIN = 'https://business-api.molizhishu.com';
 const ROOT = '/api/business/source-ranking/';
-const TIMEOUT_MS = 15000;
+// The supplier's billed list aggregations exceed 15s on real accounts
+// (measured >15.5s twice on 2026-11-06); filters/distributions stay sub-second.
+const TIMEOUT_MS = 60000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ENTRIES = 256;
 const MAX_CACHED_BYTES = 8 * 1024 * 1024;

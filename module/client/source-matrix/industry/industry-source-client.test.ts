@@ -16,7 +16,7 @@ describe('industry client transport failures', () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn(async (_input: string, init: RequestInit) => ({ ok: true, status: 200, json: () => new Promise((_resolve, reject) => { init.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }); }) })));
     const pending = expect(industryRequest('contents', { requestId: '01234567-89ab-cdef-0123-456789abcdef' }, new AbortController().signal)).rejects.toMatchObject({ failure: { status: 'timeout', retryable: true } });
-    await vi.advanceTimersByTimeAsync(25_000); await pending;
+    await vi.advanceTimersByTimeAsync(70_000); await pending;
   });
   it('does not treat HTTP 200 business failure as success', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ status: 'unauthorized', httpStatus: 401, message: '连接凭据无效。', retryable: false }) })));
