@@ -130,7 +130,7 @@ export default function Index3Workbench() {
       <section className="panel" aria-label="待继续的稿件">
         <div className="panel-header">
           <h2>待继续的稿件</h2>
-          <Link className="link" href="/publishing/articles">查看全部</Link>
+          <Link className="btn small primary" href="/publishing/articles">查看全部</Link>
         </div>
         {visibleRows.length ? (
           <div className="task-list">
@@ -145,7 +145,7 @@ export default function Index3Workbench() {
                     <span>{publishingDateTime(row.updatedAt)}</span>
                   </div>
                 </div>
-                <Link className="btn small" href={row.href}>
+                <Link className="btn small primary" href={row.href}>
                   {row.actionLabel}
                 </Link>
               </article>
@@ -162,7 +162,7 @@ export default function Index3Workbench() {
       <section className="panel" aria-label="需处理的投放">
         <div className="panel-header">
           <h2>需处理的投放</h2>
-          <Link className="link" href="/publishing/articles/records">全部发布记录</Link>
+          <Link className="btn small primary" href="/publishing/articles/records">全部发布记录</Link>
         </div>
         {problemBatches.length ? (
           <div className="table-wrap">
@@ -190,7 +190,7 @@ export default function Index3Workbench() {
                     <td><Badge tone={batchBadge(batch.status).tone}>{batchBadge(batch.status).label}</Badge></td>
                     <td className="small muted numeric">{publishingDateTime(batch.updatedAt ?? batch.createdAt)}</td>
                     <td className="right">
-                      <Link className="link" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>查看详情</Link>
+                      <Link className="btn small primary" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>查看详情</Link>
                     </td>
                   </tr>
                 ))}

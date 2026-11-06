@@ -126,16 +126,17 @@
   margin-right: auto;
   margin-left: auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* V5-R5：媒体/成功/处理中/已拒稿/待对账 五项一行展示 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-bottom: 20px;
-  padding: 22px;
+  padding: 18px 14px;
 }
 
 .monitoring-module :where(.publishing-page) .publishing-result-metrics article {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 10px;
   border-right: 1px solid var(--publishing-line);
   color: var(--publishing-purple);
 }
@@ -270,6 +271,8 @@
 
 .monitoring-module :where(.publishing-page) .publishing-batch-money {
   padding: 20px 24px;
+  /* V5-R5：全宽展示，替代原右半栏布局 */
+  margin-top: 18px;
 }
 
 .monitoring-module :where(.publishing-page) .publishing-batch-money h2 {
