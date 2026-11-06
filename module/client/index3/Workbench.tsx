@@ -136,9 +136,17 @@ export default function Index3Workbench() {
       href: `/publishing/publications/${encodeURIComponent(batch.id)}`,
     })),
   ];
-  // 与“管理稿件”页统一的排序：最近修改时间倒序（最新在前）。
-  rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  const visibleRows = rows.slice(0, RESUME_DISPLAY_LIMIT);
+  // 展示顺序：失败批次置顶（需要优先处理，全部展示，避免被普通条数上限截掉），
+  // 其余按最近修改时间倒序取前几条——普通稿件之间的相对顺序与“管理稿件”页一致。
+  const byUpdatedAtDesc = (left: ResumeRow, right: ResumeRow) =>
+    right.updatedAt.localeCompare(left.updatedAt);
+  const visibleRows = [
+    ...rows.filter((row) => row.kind === "problem").sort(byUpdatedAtDesc),
+    ...rows
+      .filter((row) => row.kind !== "problem")
+      .sort(byUpdatedAtDesc)
+      .slice(0, RESUME_DISPLAY_LIMIT),
+  ];
 
   const recentBatches = dashboard.recentBatches ?? [];
 
