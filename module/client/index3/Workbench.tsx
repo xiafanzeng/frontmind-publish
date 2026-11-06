@@ -3,14 +3,72 @@ import { Link } from "wouter";
 
 import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import { PublishingError } from "../components/PublishingUi";
+import { DEFAULT_PUBLICATION_FILTERS } from "../queryState";
 import { publishingDateTime } from "../types";
-import { batchBadge, problemStatuses } from "./adapters";
-import { Badge, Icon, PageHeading, money } from "./ui";
+import { batchBadge } from "./adapters";
+import { Badge, Icon, MiniFlowSteps, PageHeading, money } from "./ui";
 
-/** index3 发布工作台: compact heading, status strip, task cards and recent batches. */
+/** 工作台“待继续的稿件”最多展示的行数；完整列表经“查看全部”进入管理稿件。 */
+const RESUME_DISPLAY_LIMIT = 6;
+/** 需处理（失败/部分失败/需处理）批次的状态口径，与统计卡和发布记录“需处理”页签一致。 */
+const PROBLEM_BATCH_STATUSES = ["failed", "partial_success", "action_required"] as const;
+
+type ResumeRow =
+  | {
+      kind: "article";
+      key: string;
+      title: string;
+      /** 0=编辑稿件；冻结稿已可进入选择媒体。 */
+      step: 0 | 1;
+      version: number;
+      updatedAt: string;
+      wordCount?: number;
+      href: string;
+      actionLabel: string;
+    }
+  | {
+      kind: "draft";
+      key: string;
+      title: string;
+      /** 1=选择媒体（draft）；2=配置标题（ready）。 */
+      step: 1 | 2;
+      version: number;
+      updatedAt: string;
+      href: string;
+    }
+  | {
+      kind: "problem";
+      key: string;
+      title: string;
+      /** 已提交过发布、停在配置标题阶段且失败。 */
+      step: 2;
+      version: number;
+      updatedAt: string;
+      itemCount: number;
+      successCount: number;
+      href: string;
+    };
+
+/** index3 发布工作台: compact heading, status strip, merged resume list and recent batches. */
 export default function Index3Workbench() {
   const gateway = usePublisherGateway();
-  const load = useCallback((signal: AbortSignal) => gateway.getDashboard(signal), [gateway]);
+  const load = useCallback(async (signal: AbortSignal) => {
+    // 失败批次需要精确总数（recentBatches 只有最近 5 条，不足以统计需处理数量），
+    // 按状态各取一页；稿件取全量以获得准确的待继续总数与统一排序。
+    const [dashboard, articles, ...problemLists] = await Promise.all([
+      gateway.getDashboard(signal),
+      gateway.listArticles(signal),
+      ...PROBLEM_BATCH_STATUSES.map((status) =>
+        gateway.listBatches({ ...DEFAULT_PUBLICATION_FILTERS, status, page: 1, pageSize: 5 }, signal),
+      ),
+    ]);
+    return {
+      dashboard,
+      articles,
+      problemBatches: problemLists.flatMap((list) => list.items),
+      problemTotal: problemLists.reduce((total, list) => total + list.total, 0),
+    };
+  }, [gateway]);
   const query = usePublisherQuery(load, "index3-workbench");
 
   if (query.loading) return <div className="empty"><h3>正在读取工作台…</h3></div>;
@@ -25,13 +83,64 @@ export default function Index3Workbench() {
   const data = query.data;
   if (!data) return null;
 
-  const drafts = data.resumableDrafts ?? [];
-  const articles = data.resumableArticles ?? [];
-  const recentBatches = data.recentBatches ?? [];
-  const processingBatches = data.processingBatches ?? [];
-  const resumeCount = drafts.length + articles.length;
-  const problems = recentBatches.filter((batch) => problemStatuses.includes(batch.status));
-  const firstProblem = problems[0];
+  const { dashboard, problemTotal } = data;
+  const drafts = dashboard.resumableDrafts ?? [];
+  const processingCount = dashboard.processingBatchCount ?? dashboard.processingBatches.length;
+
+  // 与“管理稿件”一致的可继续口径：编辑中与已冻结（待投放）都算待继续。
+  const resumableArticles = data.articles.filter(
+    (article) => article.status === "draft" || article.status === "frozen",
+  );
+  // 统计卡使用精确总数：草稿列表受服务端条数限制，改用 resumableDraftCount；
+  // 失败批次用按状态筛选的 total 汇总，展示列表只是同一数据的顶部切片。
+  const resumeTotal =
+    (dashboard.resumableDraftCount ?? drafts.length) + resumableArticles.length + problemTotal;
+
+  const rows: ResumeRow[] = [
+    ...resumableArticles.map<ResumeRow>((article) => ({
+      kind: "article",
+      key: `article-${article.id}`,
+      title: article.title,
+      step: article.status === "frozen" ? 1 : 0,
+      version: article.currentVersion,
+      updatedAt: article.updatedAt,
+      ...(article.status === "frozen" && article.currentVersionId
+        ? {
+            href: `/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId)}`,
+            actionLabel: "继续投放",
+          }
+        : {
+            href: `/publishing/articles/${encodeURIComponent(article.id)}/edit`,
+            actionLabel: "继续编辑",
+          }),
+      ...(article.wordCount ? { wordCount: article.wordCount } : {}),
+    })),
+    ...drafts.map<ResumeRow>((draft) => ({
+      kind: "draft",
+      key: `draft-${draft.id}`,
+      title: draft.articleTitle,
+      step: draft.status === "ready" ? 2 : 1,
+      version: draft.articleVersion,
+      updatedAt: draft.updatedAt,
+      href: `/publishing/drafts/${encodeURIComponent(draft.id)}/${draft.status === "ready" ? "titles" : "media"}`,
+    })),
+    ...data.problemBatches.map<ResumeRow>((batch) => ({
+      kind: "problem",
+      key: `problem-${batch.id}`,
+      title: batch.articleTitle,
+      step: 2,
+      version: batch.articleVersion,
+      updatedAt: batch.updatedAt ?? batch.createdAt,
+      itemCount: batch.itemCount,
+      successCount: batch.successCount,
+      href: `/publishing/publications/${encodeURIComponent(batch.id)}`,
+    })),
+  ];
+  // 与“管理稿件”页统一的排序：最近修改时间倒序（最新在前）。
+  rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const visibleRows = rows.slice(0, RESUME_DISPLAY_LIMIT);
+
+  const recentBatches = dashboard.recentBatches ?? [];
 
   return (
     <>
@@ -42,96 +151,39 @@ export default function Index3Workbench() {
       </PageHeading>
 
       <div className="work-status" aria-label="工作台任务摘要">
-        <div className="status-item">待继续的稿件 <strong>{resumeCount}</strong></div>
-        <div className="status-item">需处理的投放 <strong className={problems.length ? "warning-text" : undefined}>{problems.length}</strong></div>
-        <div className="status-item">正在发布 <strong>{processingBatches.length}</strong></div>
+        <div className="status-item">待继续的稿件 <strong>{resumeTotal}</strong></div>
+        <div className="status-item">需处理的投放 <strong className={problemTotal ? "warning-text" : undefined}>{problemTotal}</strong></div>
+        <div className="status-item">正在发布 <strong>{processingCount}</strong></div>
       </div>
 
-      <div className={`work-grid ${firstProblem ? "" : "is-single"}`}>
-        <section className="panel" aria-label="待继续的稿件">
-          <div className="panel-header">
-            <h2>待继续的稿件</h2>
-            <Link className="link" href="/publishing/articles">查看全部</Link>
-          </div>
-          {resumeCount ? (
-            <div className="task-list">
-              {drafts.map((draft) => (
-                <article className="task-row" key={draft.id}>
-                  <div>
-                    <h3>{draft.articleTitle}</h3>
-                    <div className="task-meta">
-                      <Badge tone={draft.status === "ready" ? "warning" : ""}>{draft.status === "ready" ? "待预检" : "待继续"}</Badge>
-                      <span>v{draft.articleVersion}</span>
-                      <span>{publishingDateTime(draft.updatedAt)}</span>
-                    </div>
-                  </div>
-                  <Link
-                    className="btn small"
-                    href={`/publishing/drafts/${encodeURIComponent(draft.id)}/${draft.status === "ready" ? "review" : "media"}`}
-                  >
-                    继续配置
-                  </Link>
-                </article>
-              ))}
-              {articles.map((article) => (
-                <article className="task-row" key={article.id}>
-                  <div>
-                    <h3>{article.title}</h3>
-                    <div className="task-meta">
-                      <Badge tone={article.status === "frozen" ? "warning" : ""}>{article.status === "frozen" ? "待投放" : "编辑中"}</Badge>
-                      <span>v{article.currentVersion}</span>
-                      <span>{article.wordCount.toLocaleString("zh-CN")} 字</span>
-                      <span>{publishingDateTime(article.updatedAt)}</span>
-                    </div>
-                  </div>
-                  <Link className="btn small" href={`/publishing/articles/${encodeURIComponent(article.id)}/edit`}>
-                    继续编辑
-                  </Link>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="empty">
-              <h3>暂无待继续的稿件</h3>
-              <p>导入或新建稿件后，可在这里继续编辑与投放。</p>
-            </div>
-          )}
-        </section>
-
-        {firstProblem ? (
-          <section className="panel" aria-label="需要处理">
-            <div className="panel-header">
-              <h2>需要处理</h2>
-              <span className="tag">{problems.length} 项</span>
-            </div>
-            <div className="exception">
-              <Badge tone={batchBadge(firstProblem.status).tone}>{batchBadge(firstProblem.status).label}</Badge>
-              <h3>{firstProblem.articleTitle}</h3>
-              <p className="small muted">{firstProblem.itemCount} 家媒体 · 已成功 {firstProblem.successCount} 家</p>
-              <div className="exception-reason">
-                有 {firstProblem.failedCount + firstProblem.unknownCount} 家媒体未发布成功。
-                请查看发布详情中的失败原因，处理后重新提交失败项。
-              </div>
-              <Link className="btn small" href={`/publishing/publications/${encodeURIComponent(firstProblem.id)}`}>
-                查看原因与处理方式
-              </Link>
-            </div>
-            <div className="exception-foot">
-              <Icon name="info" />已成功的发布不会重复提交。
-            </div>
-          </section>
-        ) : null}
-      </div>
-
-      <section className="panel" aria-label="最近投放">
+      <section className="panel" aria-label="待继续的稿件">
         <div className="panel-header">
-          <h2>最近投放</h2>
+          <h2>待继续的稿件</h2>
+          <Link className="link" href="/publishing/articles">查看全部</Link>
+        </div>
+        {visibleRows.length ? (
+          <div className="task-list">
+            {visibleRows.map((row) => (
+              <ResumeTaskRow key={row.key} row={row} />
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <h3>暂无待继续的稿件</h3>
+            <p>导入或新建稿件后，可在这里继续编辑与投放。</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel" aria-label="需处理的投放">
+        <div className="panel-header">
+          <h2>需处理的投放</h2>
           <Link className="link" href="/publishing/articles/records">全部发布记录</Link>
         </div>
         {recentBatches.length ? (
           <div className="table-wrap">
             <table>
-              <caption className="sr-only">最近投放列表</caption>
+              <caption className="sr-only">需处理的投放列表</caption>
               <thead>
                 <tr>
                   <th>稿件 / 批次</th>
@@ -170,5 +222,33 @@ export default function Index3Workbench() {
         )}
       </section>
     </>
+  );
+}
+
+/** 单条待继续稿件：迷你步骤条标识当前阶段；发布失败的稿件加大红色标识。 */
+function ResumeTaskRow({ row }: { row: ResumeRow }) {
+  return (
+    <article className="task-row">
+      <div>
+        <h3>{row.title}</h3>
+        <div className="task-meta">
+          <MiniFlowSteps step={row.step} failed={row.kind === "problem"} />
+          {row.kind === "problem" ? <span className="publish-fail-badge">发布失败</span> : null}
+          <span>v{row.version}</span>
+          {row.kind === "article" && row.wordCount ? (
+            <span>{row.wordCount.toLocaleString("zh-CN")} 字</span>
+          ) : null}
+          <span>{publishingDateTime(row.updatedAt)}</span>
+        </div>
+        {row.kind === "problem" ? (
+          <div className="task-submeta">
+            {row.itemCount} 家媒体 · 已成功 {row.successCount} 家，查看失败原因后可重新提交失败项。
+          </div>
+        ) : null}
+      </div>
+      <Link className="btn small" href={row.href}>
+        {row.kind === "article" ? row.actionLabel : row.kind === "draft" ? "继续配置" : "查看失败原因"}
+      </Link>
+    </article>
   );
 }

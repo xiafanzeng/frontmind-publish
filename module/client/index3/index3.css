@@ -40,3 +40,20 @@ body:has(.fm3-root){background:#fff;margin:0}
 .fm3-root .publishing-editor-prosemirror li p{margin:.25em 0}
 .fm3-root .publishing-editor-prosemirror img{display:block;max-width:100%;height:auto;margin:24px auto;border-radius:10px}
 .fm3-root .publishing-spin{animation:publishing-spin 900ms linear infinite}
+
+/* ---------- V5 工作台合并列表与三步流程回退 ---------- */
+.fm3-root .workflow-position li.earlier {padding:0}
+.fm3-root .workflow-position .workflow-back {display:inline-flex;align-items:center;gap:4px;padding:2px 6px;margin:-2px -6px;border:0;background:none;color:var(--brand);font:inherit;cursor:pointer;border-radius:6px}
+.fm3-root .workflow-position .workflow-back:hover {text-decoration:underline}
+.fm3-root .workflow-position li.earlier .workflow-number {background:var(--brand-soft);border-color:var(--brand-soft);color:var(--brand)}
+.fm3-root .task-meta .mini-steps {display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1.6}
+.fm3-root .mini-steps .mini-step {display:inline-flex;align-items:center;gap:3px;color:var(--quiet);white-space:nowrap}
+.fm3-root .mini-steps .mini-step b {display:grid;place-items:center;min-width:16px;height:16px;border:1px solid var(--line);border-radius:50%;font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;background:var(--surface)}
+.fm3-root .mini-steps .mini-step + .mini-step::before {content:"→";color:var(--quiet);margin:0 3px 0 0;font-weight:400}
+.fm3-root .mini-steps .mini-step.done {color:var(--text)}
+.fm3-root .mini-steps .mini-step.done b {background:var(--brand-soft);border-color:var(--brand-soft);color:var(--brand)}
+.fm3-root .mini-steps .mini-step.current {color:var(--brand);font-weight:550}
+.fm3-root .mini-steps .mini-step.current b {background:var(--brand);border-color:var(--brand);color:#fff}
+.fm3-root .publish-fail-badge {display:inline-flex;align-items:center;gap:5px;border-radius:4px;padding:2px 8px;font-size:12px;line-height:1.6;white-space:nowrap;background:#d92d42;color:#fff;font-weight:600}
+.fm3-root .publish-fail-badge::before {content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.fm3-root .task-submeta {margin-top:5px;font-size:12px;color:var(--muted)}

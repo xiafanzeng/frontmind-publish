@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSINESS_NAV, activeBusinessLeaf, businessLeafHref, businessModuleOf, publishingBreadcrumbs } from "./businessNav";
+import { BUSINESS_NAV, activeBusinessLeaf, businessLeafHref, businessLeafPath, businessModuleOf, publishingBreadcrumbs } from "./businessNav";
 
 const url = (href: string | undefined) => new URL(href!, "https://workspace.invalid");
 
@@ -104,8 +104,10 @@ describe("publishing navigation context", () => {
 
   it("uses Chinese breadcrumbs and a non-linked current page", () => {
     const crumbs = publishingBreadcrumbs("/publishing/drafts/d1/titles", "matrixTask=t1&mode=multi");
-    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体选择", "媒体库", "配置标题"]);
+    expect(crumbs.map(item => item.label)).toEqual(["发布工作台", "媒体选择", "媒体库", "配置标题"]);
     expect(crumbs.at(-1)?.href).toBeUndefined();
+    // V5：首段面包屑即工作台且可点击返回。
+    expect(url(crumbs[0]?.href).pathname).toBe("/publishing");
     expect(url(crumbs[1]?.href).pathname).toBe("/publishing/drafts/d1/media");
     const parent = url(crumbs[2]?.href);
     expect(parent.pathname).toBe("/publishing/drafts/d1/media/third");
@@ -115,8 +117,16 @@ describe("publishing navigation context", () => {
 
   it("shows a non-duplicated overview breadcrumb", () => {
     const crumbs = publishingBreadcrumbs("/publishing/media", "articleVersion=v1&mode=multi");
-    expect(crumbs.map(item => item.label)).toEqual(["媒体发布", "媒体选择"]);
+    expect(crumbs.map(item => item.label)).toEqual(["发布工作台", "媒体选择"]);
     expect(crumbs.at(-1)?.href).toBeUndefined();
+  });
+
+  it("keeps only the workbench visible in the sidebar while retaining the full model", () => {
+    // V5：稿件与媒体选择不再是独立导航，但页面模型仍支撑面包屑与路由推导。
+    expect(BUSINESS_NAV.filter(item => !item.navHidden).map(item => item.label)).toEqual(["发布工作台"]);
+    expect(BUSINESS_NAV.filter(item => item.navHidden).map(item => item.label)).toEqual(["稿件", "媒体选择"]);
+    expect(businessLeafPath("articles-manage")).toBe("/publishing/articles");
+    expect(businessLeafPath("third-media")).toBe("/publishing/media/third");
   });
 
   it.each([

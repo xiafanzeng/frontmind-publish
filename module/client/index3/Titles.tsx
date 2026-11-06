@@ -159,7 +159,17 @@ export default function Index3Titles({ draftId }: { draftId: string }) {
           <Icon name="left" />返回选择媒体
         </Link>
       </PageHeading>
-      <WorkflowPosition step={2} />
+      <WorkflowPosition
+        step={2}
+        onStepSelect={(index) => {
+          // 与“返回选择媒体”按钮等价的面包屑式回退：0=编辑稿件、1=选择媒体。
+          if (index === 0) {
+            navigate(`/publishing/articles/${encodeURIComponent(draft.articleId)}/edit`);
+          } else if (index === 1) {
+            navigate(`/publishing/drafts/${encodeURIComponent(draftId)}/media`);
+          }
+        }}
+      />
 
       <div className="page-context">
         <span className="dot" />

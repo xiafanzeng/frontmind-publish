@@ -394,6 +394,8 @@ export type PublicationBatchSummary = {
   releasedTenThousandths: string;
   frozenTenThousandths: string;
   createdAt: string;
+  /** V5：工作台合并列表需要与稿件/草稿按最近更新统一排序。 */
+  updatedAt?: string;
 };
 
 export type PublicationBatch = PublicationBatchSummary & {

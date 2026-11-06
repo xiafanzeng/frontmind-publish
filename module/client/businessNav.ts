@@ -16,6 +16,12 @@ export type BusinessNavModule = {
   /** A parent overview is separate from its child menu destinations. */
   home?: BusinessNavLeaf;
   views: BusinessNavLeaf[];
+  /**
+   * V5：业务统一从发布工作台进入（先编辑稿件、再在流程内选择媒体），
+   * 稿件与媒体选择不再作为左侧一级导航出现；模型保留用于面包屑、
+   * 顶栏搜索与真实路由推导，页面本身仍可经工作台入口到达。
+   */
+  navHidden?: boolean;
 };
 
 export const BUSINESS_NAV: BusinessNavModule[] = [
@@ -27,6 +33,7 @@ export const BUSINESS_NAV: BusinessNavModule[] = [
   {
     id: "content",
     label: "稿件",
+    navHidden: true,
     views: [
       // 父级沿用第一项作为入口；已有编辑深链由 businessLeafHref 保留。
       { id: "article-edit", label: "编辑稿件", path: "/publishing/articles/new" },
@@ -37,6 +44,7 @@ export const BUSINESS_NAV: BusinessNavModule[] = [
   {
     id: "intent",
     label: "媒体选择",
+    navHidden: true,
     home: { id: "media-home", label: "媒体选择", path: "/publishing/media" },
     views: [
       { id: "source-matrix", label: "信源矩阵", path: "/publishing/source-matrix" },
@@ -150,7 +158,8 @@ export function publishingBreadcrumbs(path: string, search = ""): PublishingCrum
     ? (tab==='matrix'||(tab!=='analysis'&&/\/media\/(matrix|report)$|\/source-report$/.test(path))?'信源矩阵推荐':'行业信源分布')
     : undefined;
   const items: PublishingCrumb[] = [
-    { label: "媒体发布", href: businessLeafHref("workbench", path, search) },
+    // V5：业务统一从发布工作台进入，首段面包屑即工作台本身，可点击返回。
+    { label: "发布工作台", href: businessLeafHref("workbench", path, search) },
   ];
   const detail = /\/titles$/.test(path) ? "配置标题"
     : /\/review(?:\/[^/]+)?$/.test(path) ? "配置标题"

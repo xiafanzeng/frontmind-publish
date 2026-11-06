@@ -10,6 +10,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { createPortal } from "react-dom";
 import { MarketRow, RowHead, MediaDialog, MediaShell, MediaCartFooter, MediaDetails, useMarketRules, exportRows } from "../source-matrix/MediaMarket";
 import { titleModeForFlowMode, type FlowStageMode } from "../components/PublishingFlowSteps";
+import { WorkflowPosition } from "../index3/ui";
 import "../publishing.market.css";
 import MediaCatalogueFilters from "../components/MediaCatalogueFilters";
 import { publicationSelectionAmounts } from "../publicationAmounts";
@@ -1289,7 +1290,21 @@ export default function PublishingMediaLibraryPage({
         : frozenVersion
           ? [{ id: articleVersionId ?? "version", title: currentArticleTitle ?? "已确认稿件", version: frozenVersion.version }]
           : [];
-  return <MediaShell title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined}>
+  // V5：媒体选择属于三步流程的第二步；有明确稿件上下文（非批量）时展示流程条，
+  // 已完成的“编辑稿件”可点击回退，与页内“返回编辑稿件”按钮等价。
+  const flowArticleId = !isBatch
+    ? task?.articleId ?? selectedArticle?.id
+    : undefined;
+  const flowBackHref = flowArticleId
+    ? projectWorkspaceUrl(`/publishing/articles/${encodeURIComponent(flowArticleId)}/edit`)
+    : undefined;
+  const flowSteps = flowBackHref
+    ? <WorkflowPosition step={1} onStepSelect={index => { if (index === 0) navigate(flowBackHref); }} />
+    : undefined;
+  return <MediaShell title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined} steps={flowSteps}>
+  {view==='home'&&flowBackHref?<div className="actions" style={{marginBottom:14}}>
+    <Link className="button secondary" href={flowBackHref}>‹ 返回编辑稿件</Link>
+  </div>:null}
   <CurrentArticlesMenu rows={articleMenuRows}/>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}
