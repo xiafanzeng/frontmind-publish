@@ -1099,3 +1099,6 @@
 }
 @media(prefers-reduced-motion:reduce){.fm-media .y-cart-toggle i{transition:none}}
 @media print{.fm-media .y-cart-slot{display:none!important}}
+
+/* V5-R4：媒体选择页顶行（当前稿件+返回编辑稿件）内取消下拉自带下边距，保证同行居中对齐 */
+.x-media-toprow .y-article-menu { margin-bottom: 0 }
