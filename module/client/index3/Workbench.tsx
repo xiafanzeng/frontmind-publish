@@ -13,48 +13,25 @@ const RESUME_DISPLAY_LIMIT = 6;
 /** 需处理（失败/部分失败/需处理）批次的状态口径，与统计卡和发布记录“需处理”页签一致。 */
 const PROBLEM_BATCH_STATUSES = ["failed", "partial_success", "action_required"] as const;
 
-type ResumeRow =
-  | {
-      kind: "article";
-      key: string;
-      title: string;
-      /** 0=编辑稿件；冻结稿已可进入选择媒体。 */
-      step: 0 | 1;
-      version: number;
-      updatedAt: string;
-      wordCount?: number;
-      href: string;
-      actionLabel: string;
-    }
-  | {
-      kind: "draft";
-      key: string;
-      title: string;
-      /** 1=选择媒体（draft）；2=配置标题（ready）。 */
-      step: 1 | 2;
-      version: number;
-      updatedAt: string;
-      href: string;
-    }
-  | {
-      kind: "problem";
-      key: string;
-      title: string;
-      /** 已提交过发布、停在配置标题阶段且失败。 */
-      step: 2;
-      version: number;
-      updatedAt: string;
-      itemCount: number;
-      successCount: number;
-      href: string;
-    };
+type ResumeRow = {
+  key: string;
+  title: string;
+  /** 0=编辑稿件；1=选择媒体（已冻结待投放）；2=配置标题（该稿有已就绪的投放草稿）。 */
+  step: 0 | 1 | 2;
+  version: number;
+  updatedAt: string;
+  wordCount?: number;
+  href: string;
+  actionLabel: string;
+};
 
-/** index3 发布工作台: compact heading, status strip, merged resume list and recent batches. */
+/** index3 发布工作台: compact heading, status strip, per-article resume list and problem batches. */
 export default function Index3Workbench() {
   const gateway = usePublisherGateway();
   const load = useCallback(async (signal: AbortSignal) => {
-    // 失败批次需要精确总数（recentBatches 只有最近 5 条，不足以统计需处理数量），
-    // 按状态各取一页；稿件取全量以获得准确的待继续总数与统一排序。
+    // 待继续的稿件按“真实存在的稿件”计数与展示（与管理稿件一致）；
+    // 投放草稿不再单独成行计数，只用于把对应稿件的步骤条推进到配置标题。
+    // 失败批次需要精确总数（recentBatches 只有最近 5 条），按状态各取一页。
     const [dashboard, articles, ...problemLists] = await Promise.all([
       gateway.getDashboard(signal),
       gateway.listArticles(signal),
@@ -65,7 +42,9 @@ export default function Index3Workbench() {
     return {
       dashboard,
       articles,
-      problemBatches: problemLists.flatMap((list) => list.items),
+      problemBatches: problemLists
+        .flatMap((list) => list.items)
+        .sort((left, right) => (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)),
       problemTotal: problemLists.reduce((total, list) => total + list.total, 0),
     };
   }, [gateway]);
@@ -83,72 +62,56 @@ export default function Index3Workbench() {
   const data = query.data;
   if (!data) return null;
 
-  const { dashboard, problemTotal } = data;
-  const drafts = dashboard.resumableDrafts ?? [];
+  const { dashboard, problemTotal, problemBatches } = data;
   const processingCount = dashboard.processingBatchCount ?? dashboard.processingBatches.length;
 
   // 与“管理稿件”一致的可继续口径：编辑中与已冻结（待投放）都算待继续。
   const resumableArticles = data.articles.filter(
     (article) => article.status === "draft" || article.status === "frozen",
   );
-  // 统计卡使用精确总数：草稿列表受服务端条数限制，改用 resumableDraftCount；
-  // 失败批次用按状态筛选的 total 汇总，展示列表只是同一数据的顶部切片。
-  const resumeTotal =
-    (dashboard.resumableDraftCount ?? drafts.length) + resumableArticles.length + problemTotal;
 
-  const rows: ResumeRow[] = [
-    ...resumableArticles.map<ResumeRow>((article) => ({
-      kind: "article",
+  // 投放草稿（服务端仅返回最近数条）按 标题+版本 折叠进对应稿件：
+  // 仅当该组合在稿件中唯一对应时才推进步骤显示，避免同名稿件误关联。
+  const readyDrafts = (dashboard.resumableDrafts ?? []).filter((draft) => draft.status === "ready");
+  const draftFor = (article: { title: string; currentVersion: number }) => {
+    const matched = readyDrafts.filter(
+      (draft) => draft.articleTitle === article.title && draft.articleVersion === article.currentVersion,
+    );
+    if (matched.length !== 1) return undefined;
+    const sameTitle = resumableArticles.filter(
+      (item) => item.title === article.title && item.currentVersion === article.currentVersion,
+    );
+    return sameTitle.length === 1 ? matched[0] : undefined;
+  };
+
+  const rows: ResumeRow[] = resumableArticles.map((article) => {
+    const readyDraft = article.status === "frozen" ? draftFor(article) : undefined;
+    return {
       key: `article-${article.id}`,
       title: article.title,
-      step: article.status === "frozen" ? 1 : 0,
+      step: article.status === "frozen" ? (readyDraft ? 2 : 1) : 0,
       version: article.currentVersion,
       updatedAt: article.updatedAt,
-      ...(article.status === "frozen" && article.currentVersionId
-        ? {
-            href: `/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId)}`,
-            actionLabel: "继续投放",
-          }
-        : {
-            href: `/publishing/articles/${encodeURIComponent(article.id)}/edit`,
-            actionLabel: "继续编辑",
-          }),
       ...(article.wordCount ? { wordCount: article.wordCount } : {}),
-    })),
-    ...drafts.map<ResumeRow>((draft) => ({
-      kind: "draft",
-      key: `draft-${draft.id}`,
-      title: draft.articleTitle,
-      step: draft.status === "ready" ? 2 : 1,
-      version: draft.articleVersion,
-      updatedAt: draft.updatedAt,
-      href: `/publishing/drafts/${encodeURIComponent(draft.id)}/${draft.status === "ready" ? "titles" : "media"}`,
-    })),
-    ...data.problemBatches.map<ResumeRow>((batch) => ({
-      kind: "problem",
-      key: `problem-${batch.id}`,
-      title: batch.articleTitle,
-      step: 2,
-      version: batch.articleVersion,
-      updatedAt: batch.updatedAt ?? batch.createdAt,
-      itemCount: batch.itemCount,
-      successCount: batch.successCount,
-      href: `/publishing/publications/${encodeURIComponent(batch.id)}`,
-    })),
-  ];
-  // 展示顺序：失败批次置顶（需要优先处理，全部展示，避免被普通条数上限截掉），
-  // 其余按最近修改时间倒序取前几条——普通稿件之间的相对顺序与“管理稿件”页一致。
-  const byUpdatedAtDesc = (left: ResumeRow, right: ResumeRow) =>
-    right.updatedAt.localeCompare(left.updatedAt);
-  const visibleRows = [
-    ...rows.filter((row) => row.kind === "problem").sort(byUpdatedAtDesc),
-    ...rows
-      .filter((row) => row.kind !== "problem")
-      .sort(byUpdatedAtDesc)
-      .slice(0, RESUME_DISPLAY_LIMIT),
-  ];
-
-  const recentBatches = dashboard.recentBatches ?? [];
+      ...(readyDraft
+        ? {
+            href: `/publishing/drafts/${encodeURIComponent(readyDraft.id)}/titles`,
+            actionLabel: "继续配置",
+          }
+        : article.status === "frozen" && article.currentVersionId
+          ? {
+              href: `/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId)}`,
+              actionLabel: "继续投放",
+            }
+          : {
+              href: `/publishing/articles/${encodeURIComponent(article.id)}/edit`,
+              actionLabel: "继续编辑",
+            }),
+    };
+  });
+  // 与“管理稿件”页统一的排序：最近修改时间倒序（最新在前）。
+  rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const visibleRows = rows.slice(0, RESUME_DISPLAY_LIMIT);
 
   return (
     <>
@@ -159,7 +122,7 @@ export default function Index3Workbench() {
       </PageHeading>
 
       <div className="work-status" aria-label="工作台任务摘要">
-        <div className="status-item">待继续的稿件 <strong>{resumeTotal}</strong></div>
+        <div className="status-item">待继续的稿件 <strong>{rows.length}</strong></div>
         <div className="status-item">需处理的投放 <strong className={problemTotal ? "warning-text" : undefined}>{problemTotal}</strong></div>
         <div className="status-item">正在发布 <strong>{processingCount}</strong></div>
       </div>
@@ -172,7 +135,20 @@ export default function Index3Workbench() {
         {visibleRows.length ? (
           <div className="task-list">
             {visibleRows.map((row) => (
-              <ResumeTaskRow key={row.key} row={row} />
+              <article className="task-row" key={row.key}>
+                <div>
+                  <h3>{row.title}</h3>
+                  <div className="task-meta">
+                    <MiniFlowSteps step={row.step} />
+                    <span>v{row.version}</span>
+                    {row.wordCount ? <span>{row.wordCount.toLocaleString("zh-CN")} 字</span> : null}
+                    <span>{publishingDateTime(row.updatedAt)}</span>
+                  </div>
+                </div>
+                <Link className="btn small" href={row.href}>
+                  {row.actionLabel}
+                </Link>
+              </article>
             ))}
           </div>
         ) : (
@@ -188,7 +164,7 @@ export default function Index3Workbench() {
           <h2>需处理的投放</h2>
           <Link className="link" href="/publishing/articles/records">全部发布记录</Link>
         </div>
-        {recentBatches.length ? (
+        {problemBatches.length ? (
           <div className="table-wrap">
             <table>
               <caption className="sr-only">需处理的投放列表</caption>
@@ -202,7 +178,7 @@ export default function Index3Workbench() {
                 </tr>
               </thead>
               <tbody>
-                {recentBatches.map((batch) => (
+                {problemBatches.map((batch) => (
                   <tr key={batch.id}>
                     <td>
                       <Link className="link neutral table-title" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>
@@ -212,7 +188,7 @@ export default function Index3Workbench() {
                     </td>
                     <td className="right numeric">{money(batch.totalTenThousandths)}</td>
                     <td><Badge tone={batchBadge(batch.status).tone}>{batchBadge(batch.status).label}</Badge></td>
-                    <td className="small muted numeric">{publishingDateTime(batch.createdAt)}</td>
+                    <td className="small muted numeric">{publishingDateTime(batch.updatedAt ?? batch.createdAt)}</td>
                     <td className="right">
                       <Link className="link" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>查看详情</Link>
                     </td>
@@ -223,40 +199,12 @@ export default function Index3Workbench() {
           </div>
         ) : (
           <div className="empty">
-            <h3>暂无发布订单</h3>
-            <p>完成投放并生成发布批次后，订单会显示在这里。</p>
+            <h3>暂无需要处理的投放</h3>
+            <p>发布批次出现失败或需处理项目时会显示在这里。</p>
             <Link className="btn" href="/publishing/articles/records">查看发布记录</Link>
           </div>
         )}
       </section>
     </>
-  );
-}
-
-/** 单条待继续稿件：迷你步骤条标识当前阶段；发布失败的稿件加大红色标识。 */
-function ResumeTaskRow({ row }: { row: ResumeRow }) {
-  return (
-    <article className="task-row">
-      <div>
-        <h3>{row.title}</h3>
-        <div className="task-meta">
-          <MiniFlowSteps step={row.step} failed={row.kind === "problem"} />
-          {row.kind === "problem" ? <span className="publish-fail-badge">发布失败</span> : null}
-          <span>v{row.version}</span>
-          {row.kind === "article" && row.wordCount ? (
-            <span>{row.wordCount.toLocaleString("zh-CN")} 字</span>
-          ) : null}
-          <span>{publishingDateTime(row.updatedAt)}</span>
-        </div>
-        {row.kind === "problem" ? (
-          <div className="task-submeta">
-            {row.itemCount} 家媒体 · 已成功 {row.successCount} 家，查看失败原因后可重新提交失败项。
-          </div>
-        ) : null}
-      </div>
-      <Link className="btn small" href={row.href}>
-        {row.kind === "article" ? row.actionLabel : row.kind === "draft" ? "继续配置" : "查看失败原因"}
-      </Link>
-    </article>
   );
 }

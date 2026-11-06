@@ -1302,10 +1302,10 @@ export default function PublishingMediaLibraryPage({
     ? <WorkflowPosition step={1} onStepSelect={index => { if (index === 0) navigate(flowBackHref); }} />
     : undefined;
   return <MediaShell title={view==='cart'?'第三方购物车':view==='home'?undefined:'媒体库'} actions={view==='third'||view==='owned'?<button className="button secondary" onClick={()=>void exportCatalogue()}><ReferenceIcon name="download"/>导出媒体清单</button>:undefined} steps={flowSteps}>
-  {view==='home'&&flowBackHref?<div className="actions" style={{marginBottom:14}}>
-    <Link className="button secondary" href={flowBackHref}>‹ 返回编辑稿件</Link>
-  </div>:null}
-  <CurrentArticlesMenu rows={articleMenuRows}/>
+  <div className="x-media-toprow" style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
+    <CurrentArticlesMenu rows={articleMenuRows}/>
+    {flowBackHref?<Link className="button secondary" style={{marginLeft:'auto'}} href={flowBackHref}>‹ 返回编辑稿件</Link>:null}
+  </div>
   {contextReadIssue&&<div className="notice warn" style={{marginBottom:14}} role="status">
     {contextReadIssue}
     {isBatch ? <button className="link" disabled={batchQuery.loading||batchQuery.refreshing} onClick={()=>batchQuery.reload()}>重试读取批量稿件</button>

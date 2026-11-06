@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -8,8 +8,8 @@ import { PublishingGatewayProvider } from "../PublishingContext";
 import type { PublisherGateway } from "../gateway";
 import type { ArticleSummary, PublicationBatchSummary, PublishingDashboard } from "../types";
 
-// V5 工作台回归：失败批次并入“待继续的稿件”（大红色“发布失败”）、
-// 统计卡使用精确总数、“最近投放”更名为“需处理的投放”、列表按最近修改倒序。
+// V5-R4 工作台回归：待继续的稿件 = 每篇真实稿件一行（计数与管理稿件一致），
+// 失败批次只出现在独立的“需处理的投放”板块；投放草稿仅折叠推进步骤条。
 
 afterEach(() => {
   cleanup();
@@ -21,9 +21,12 @@ const dashboard = (overrides: Partial<PublishingDashboard> = {}): PublishingDash
   catalog: { activeRevision: "rev", lastSyncedAt: "2026-11-01T00:00:00Z", stale: false },
   articleCount: 0,
   actionableItemCount: 0,
-  resumableDraftCount: 1,
+  resumableDraftCount: 9,
   resumableDrafts: [
-    { id: "draft/ready-1", articleTitle: "配置标题中的草稿", articleVersion: 2, status: "ready", updatedAt: "2026-11-06T08:00:00Z" },
+    // 与“待投放的稿件”v2 唯一匹配 → 步骤条推进到配置标题。
+    { id: "draft/ready-1", articleTitle: "待投放的稿件", articleVersion: 2, status: "ready", updatedAt: "2026-11-06T08:00:00Z" },
+    // 与两篇“同名冻结稿”v1 均匹配（歧义）→ 不推进，保持选择媒体。
+    { id: "draft/ready-2", articleTitle: "同名冻结稿", articleVersion: 1, status: "ready", updatedAt: "2026-11-05T07:00:00Z" },
   ],
   processingBatchCount: 2,
   processingBatches: [],
@@ -37,6 +40,10 @@ const articles: ArticleSummary[] = [
     wordCount: 10, imageCount: 0, updatedAt: "2026-11-05T09:00:00Z" },
   { id: "article-frozen", title: "待投放的稿件", status: "frozen", currentVersion: 2,
     currentVersionId: "version-2", wordCount: 20, imageCount: 0, updatedAt: "2026-11-06T12:00:00Z" },
+  { id: "article-twin-a", title: "同名冻结稿", status: "frozen", currentVersion: 1,
+    currentVersionId: "version-twin-a", wordCount: 5, imageCount: 0, updatedAt: "2026-11-06T10:00:00Z" },
+  { id: "article-twin-b", title: "同名冻结稿", status: "frozen", currentVersion: 1,
+    currentVersionId: "version-twin-b", wordCount: 5, imageCount: 0, updatedAt: "2026-11-05T20:00:00Z" },
 ];
 
 const failedBatch = (overrides: Partial<PublicationBatchSummary> = {}): PublicationBatchSummary => ({
@@ -84,10 +91,10 @@ function renderWorkbench(data: {
   return { gateway, location };
 }
 
-it("merges failed batches into the resume list with a red failure badge and exact counters", async () => {
+it("keeps failed batches out of the resume list and shows exact per-article counters", async () => {
   renderWorkbench({});
   await waitFor(() => expect(screen.getByRole("heading", { name: "待继续的稿件" })).toBeTruthy());
-  // 待继续 = 2 篇稿件 + 1 条草稿(resumableDraftCount) + 1 个失败批次；需处理 = 1（精确总数）；正在发布 = 2。
+  // 待继续 = 真实稿件数（4，与“管理稿件”全部稿件一致）；需处理 = 1；正在发布 = 2。
   const statusItems = Array.from(document.querySelectorAll(".work-status .status-item")).map(node => node.textContent);
   expect(statusItems[0]).toContain("待继续的稿件");
   expect(statusItems[0]).toContain("4");
@@ -95,42 +102,31 @@ it("merges failed batches into the resume list with a red failure badge and exac
   expect(statusItems[1]).toContain("1");
   expect(statusItems[2]).toContain("正在发布");
   expect(statusItems[2]).toContain("2");
-  // “需要处理”独立板块不再存在；“最近投放”更名为“需处理的投放”。
+  // 失败信息只在“需处理的投放”板块，列表内不再出现红色“发布失败”行。
+  expect(screen.queryByText("发布失败")).toBeNull();
+  expect(screen.queryByText("查看失败原因")).toBeNull();
   expect(screen.queryByText("需要处理")).toBeNull();
-  expect(screen.getByRole("heading", { name: "需处理的投放" })).toBeTruthy();
-  expect(screen.queryByRole("heading", { name: "最近投放" })).toBeNull();
-  // 失败批次行：大红色“发布失败” + 停在配置标题 + 查看失败原因入口。
-  expect(screen.getByText("发布失败")).toBeTruthy();
-  const row = screen.getByText("发布失败的稿件").closest("article")!;
-  expect(within(row).getByText("查看失败原因")).toBeTruthy();
-  expect(within(row).getByLabelText(/当前步骤：配置标题，发布失败/)).toBeTruthy();
+  const panel = screen.getByRole("region", { name: "需处理的投放" });
+  expect(panel.textContent).toContain("发布失败的稿件");
+  expect(panel.textContent).toContain("全部失败");
 });
 
-it("pins problem batches on top and keeps normal rows by most recent update", async () => {
-  renderWorkbench({});
-  await waitFor(() => expect(screen.getByText("发布失败的稿件")).toBeTruthy());
-  const titles = Array.from(document.querySelectorAll(".task-list h3")).map(node => node.textContent);
-  // 失败批次虽是最旧（11-04），但必须置顶展示，避免被普通条数上限截掉；
-  // 普通行之间保持与“管理稿件”一致的最近修改倒序。
-  expect(titles).toEqual([
-    "发布失败的稿件",    // 失败批次 → 配置标题 + 发布失败（置顶）
-    "待投放的稿件",      // 11-06 12:00 冻结稿 → 选择媒体
-    "配置标题中的草稿",  // 11-06 08:00 草稿 ready → 配置标题
-    "编辑中的稿件",      // 11-05 09:00 编辑中 → 编辑稿件
-  ]);
-});
-
-it("keeps per-stage entries instead of status labels and routes each row to its step", async () => {
+it("lists one row per article ordered by recent update with folded step indicators", async () => {
   renderWorkbench({});
   await waitFor(() => expect(screen.getByText("编辑中的稿件")).toBeTruthy());
-  expect(screen.queryByText("待预检")).toBeNull();
-  expect(screen.queryByText("待继续")).toBeNull();
-  expect(screen.queryByText("待投放")).toBeNull();
-  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".task-list a.btn")).map(node => node.getAttribute("href"));
-  expect(links).toEqual([
-    "/publishing/publications/batch-failed-1",      // 失败批次（置顶）→ 发布详情
-    "/publishing/media?articleVersion=version-2",   // 冻结稿 → 选择媒体
-    "/publishing/drafts/draft%2Fready-1/titles",    // ready 草稿 → 配置标题
-    "/publishing/articles/article-draft/edit",      // 编辑中 → 编辑稿件
+  const rows = Array.from(document.querySelectorAll(".task-list article"));
+  const summary = rows.map(row => ({
+    title: row.querySelector("h3")?.textContent,
+    step: row.querySelector(".mini-steps")?.getAttribute("aria-label"),
+    action: row.querySelector("a.btn")?.textContent,
+    href: row.querySelector("a.btn")?.getAttribute("href"),
+  }));
+  expect(summary).toEqual([
+    // 唯一匹配的已就绪草稿把步骤推进到配置标题，并直达配置标题页。
+    { title: "待投放的稿件", step: "当前步骤：配置标题", action: "继续配置", href: "/publishing/drafts/draft%2Fready-1/titles" },
+    // 同名歧义：不折叠，保持选择媒体，入口按冻结版本定位。
+    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", href: "/publishing/media?articleVersion=version-twin-a" },
+    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", href: "/publishing/media?articleVersion=version-twin-b" },
+    { title: "编辑中的稿件", step: "当前步骤：编辑稿件", action: "继续编辑", href: "/publishing/articles/article-draft/edit" },
   ]);
 });
