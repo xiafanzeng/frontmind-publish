@@ -1103,3 +1103,7 @@
 
 /* V5-R4：媒体选择页顶行（当前稿件+返回编辑稿件）内取消下拉自带下边距，保证同行居中对齐 */
 .x-media-toprow .y-article-menu { margin-bottom: 0 }
+
+/* V5-R5b：standalone 外壳存在 .publish-standalone…monitoring-module .fm-media h2{15px} 的高特异性覆盖，
+   以同等链路+局部类名提升优先级，保证入口卡片标题字号生效 */
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .x-duo-head h2{font-size:24px}
