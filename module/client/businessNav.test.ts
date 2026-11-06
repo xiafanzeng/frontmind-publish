@@ -129,6 +129,14 @@ describe("publishing navigation context", () => {
     expect(businessLeafPath("third-media")).toBe("/publishing/media/third");
   });
 
+  it("shows a single workbench crumb on the workbench page itself", () => {
+    const crumbs = publishingBreadcrumbs("/publishing");
+    expect(crumbs).toEqual([{ label: "发布工作台", href: "/publishing" }]);
+    const records = publishingBreadcrumbs("/publishing/articles/records");
+    expect(records.map(item => item.label)).toEqual(["发布工作台", "发布记录"]);
+    expect(url(records[0]?.href).pathname).toBe("/publishing");
+  });
+
   it.each([
     ['/publishing/source-matrix', '', '行业信源分布'],
     ['/publishing/source-matrix', 'tab=matrix', '信源矩阵推荐'],

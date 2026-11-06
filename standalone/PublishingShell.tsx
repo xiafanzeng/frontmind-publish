@@ -62,7 +62,9 @@ export default function PublishingShell({ gateway, preview, children }: {
     );
   };
 
-  const mediaHref = businessLeafHref("media-home", path, search) ?? "/publishing/media";
+  // V5：业务统一从发布工作台进入（先编辑稿件、再在流程内选择媒体），
+  // 稿件与媒体选择不再是独立侧栏导航；对应页面经工作台列表与流程入口到达。
+  const workbenchHref = businessLeafHref("workbench", path, search) ?? "/publishing";
 
   return (
     <div className="fm3-root publish-standalone" data-accent="blue">
@@ -78,22 +80,6 @@ export default function PublishingShell({ gateway, preview, children }: {
         </div>
         <nav className="side-nav">
           {navItem("workbench", "发布工作台", false)}
-          <div className="nav-label"><Icon name="file" />稿件</div>
-          {navItem("articles-manage", "管理稿件")}
-          {navItem("article-edit", "编辑稿件")}
-          {navItem("records", "发布记录")}
-          <a
-            className="nav-label"
-            href={projectWorkspaceUrl(mediaHref)}
-            onClick={(event) => {
-              event.preventDefault();
-              go(mediaHref);
-            }}
-          >
-            <Icon name="media" />媒体选择
-          </a>
-          {navItem("source-matrix", "信源矩阵")}
-          {navItem("third-media", "媒体库")}
         </nav>
         <div className="side-bottom">
           <div className="side-project">
@@ -116,8 +102,21 @@ export default function PublishingShell({ gateway, preview, children }: {
               <Icon name="menu" />
             </Btn>
             <div className="crumb">
-              <span>媒体发布</span>
-              <span className="slash">/</span>
+              {/* V5：首段面包屑即发布工作台，可点击返回；工作台页本身不重复显示。 */}
+              {label === "发布工作台" ? null : (
+                <>
+                  <a
+                    href={projectWorkspaceUrl(workbenchHref)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      go(workbenchHref);
+                    }}
+                  >
+                    发布工作台
+                  </a>
+                  <span className="slash">/</span>
+                </>
+              )}
               <strong>{label}</strong>
             </div>
           </div>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -13,7 +13,9 @@ it("keeps unsaved article edits when standalone navigation is cancelled", async 
   render(<Router hook={location.hook} searchHook={location.searchHook}><App preview/></Router>);
   const title = await screen.findByRole("textbox",{name:"稿件标题"});
   fireEvent.change(title,{target:{value:"尚未保存的投放标题"}});
-  fireEvent.click(screen.getByRole("link",{name:"媒体选择"}));
+  // V5：侧栏仅保留发布工作台；离开守卫经由它的导航链接触发。
+  const sidebar = screen.getByRole("complementary",{name:"主导航"});
+  fireEvent.click(within(sidebar).getByRole("link",{name:"发布工作台"}));
   expect(confirm).toHaveBeenCalledOnce();
   expect(location.history.at(-1)).toBe("/publishing/articles/preview-article/edit");
   expect((title as HTMLInputElement).value).toBe("尚未保存的投放标题");
