@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { SourceDistributionBatch, SourceDistributionResponse } from '../../../contracts/source-distribution';
-import { matrixApi } from '../api';
+import type { SourceDistributionBatch } from '../../../contracts/source-distribution';
+import { RemoteIndustryDistribution } from './RemoteIndustryDistribution';
 import { UNKNOWN, contentGroups, defaultFilter, filterRecords, mediaKey, mediaRanking, percentageText, periodEnd, periodsFor, periodRange, publicationDistribution, safeSourceUrl, typeDistribution, uniqueBatches, type ContentGroup, type DistributionFilter, type DistributionSlice, type PeriodGranularity, type PeriodOption } from './distribution';
 import './industry-distribution.css';
 
@@ -135,20 +135,5 @@ export function IndustryDistribution({ batches, loading = false, error, unavaila
 }
 
 export function LiveIndustryDistribution() {
-  const [reload, setReload] = useState(0), [state, setState] = useState<{ batches: SourceDistributionBatch[]; loading: boolean; error: string | null; unavailableMessage?: string | null }>({ batches: [], loading: true, error: null });
-  useEffect(() => {
-    const controller = new AbortController(); let current = true, timedOut = false;
-    const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
-    setState({ batches: [], loading: true, error: null });
-    void matrixApi<SourceDistributionResponse>('/source-distribution', controller.signal).then(response => {
-      if (!current) return;
-      if (response.status === 'configuration_required') { setState({ batches: [], loading: false, error: null, unavailableMessage: response.message || '当前项目尚未接入可查看的行业引用明细。' }); return; }
-      if (response.status !== 'ready' || !Array.isArray(response.batches)) { setState({ batches: [], loading: false, error: response.message || '当前授权范围暂无可查看的行业信源数据，请稍后重新读取。' }); return; }
-      setState({ batches: response.batches, loading: false, error: null });
-    }).catch(() => {
-      if (current) setState({ batches: [], loading: false, error: timedOut ? '读取超时，请重新读取。' : '行业信源数据读取失败，请稍后重新读取。' });
-    }).finally(() => window.clearTimeout(timer));
-    return () => { current = false; window.clearTimeout(timer); controller.abort(); };
-  }, [reload]);
-  return <IndustryDistribution {...state} onRetry={() => setReload(value => value + 1)}/>;
+  return <RemoteIndustryDistribution/>;
 }

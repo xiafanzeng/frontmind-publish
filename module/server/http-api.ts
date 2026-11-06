@@ -2,6 +2,7 @@ import { createMediaRequirementsApi } from "./media-requirements-api.js";
 import { Router, type Request } from "express";
 import { createSourceMatrixRouter } from "./source-matrix/http.js";
 import { createAiConnectionRouter } from "./source-matrix/ai-connection-http.js";
+import { createIndustrySourceRouter } from "./source-matrix/industry-http.js";
 import type { SourceMatrixDecisionAdapter } from "./source-matrix/adapter.js";
 import type { MySql2Database } from "drizzle-orm/mysql2";
 
@@ -32,6 +33,7 @@ export function createModuleHttpApi(core:ModuleHttpCore):Router {
  });
  router.use((req,res,next)=>req.path==='/matrix/connection'||req.path.startsWith('/matrix/connection/')?connections(req,res,next):next());
  router.use("/media-requirements", createMediaRequirementsApi(core));
+ router.use("/source-ranking", createIndustrySourceRouter(core));
  router.get("/capabilities",(req,res)=>{
   const context=core.context(req);
   res.setHeader("Cache-Control","no-store");
