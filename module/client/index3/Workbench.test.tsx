@@ -106,15 +106,17 @@ it("merges failed batches into the resume list with a red failure badge and exac
   expect(within(row).getByLabelText(/当前步骤：配置标题，发布失败/)).toBeTruthy();
 });
 
-it("orders the merged resume list by most recent update like the manage page", async () => {
+it("pins problem batches on top and keeps normal rows by most recent update", async () => {
   renderWorkbench({});
   await waitFor(() => expect(screen.getByText("发布失败的稿件")).toBeTruthy());
   const titles = Array.from(document.querySelectorAll(".task-list h3")).map(node => node.textContent);
+  // 失败批次虽是最旧（11-04），但必须置顶展示，避免被普通条数上限截掉；
+  // 普通行之间保持与“管理稿件”一致的最近修改倒序。
   expect(titles).toEqual([
+    "发布失败的稿件",    // 失败批次 → 配置标题 + 发布失败（置顶）
     "待投放的稿件",      // 11-06 12:00 冻结稿 → 选择媒体
     "配置标题中的草稿",  // 11-06 08:00 草稿 ready → 配置标题
     "编辑中的稿件",      // 11-05 09:00 编辑中 → 编辑稿件
-    "发布失败的稿件",    // 11-04 10:30 失败批次 → 配置标题 + 发布失败
   ]);
 });
 
@@ -126,9 +128,9 @@ it("keeps per-stage entries instead of status labels and routes each row to its 
   expect(screen.queryByText("待投放")).toBeNull();
   const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".task-list a.btn")).map(node => node.getAttribute("href"));
   expect(links).toEqual([
-    "/publishing/media?articleVersion=version-2",  // 冻结稿 → 选择媒体
+    "/publishing/publications/batch-failed-1",      // 失败批次（置顶）→ 发布详情
+    "/publishing/media?articleVersion=version-2",   // 冻结稿 → 选择媒体
     "/publishing/drafts/draft%2Fready-1/titles",    // ready 草稿 → 配置标题
     "/publishing/articles/article-draft/edit",      // 编辑中 → 编辑稿件
-    "/publishing/publications/batch-failed-1",      // 失败批次 → 发布详情
   ]);
 });
