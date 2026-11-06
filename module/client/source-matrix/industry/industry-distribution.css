@@ -1,4 +1,14 @@
 /* Owns only the analysis panel. Existing MediaShell owns brand, fonts and page scrolling. */
+.fm-media .sm-industry-remote .sm-industry-table-wrap{max-height:620px}
+.fm-media .sm-industry-remote .sm-industry-ring strong{font-size:18px;max-width:106px;overflow-wrap:anywhere;text-align:center}
+.fm-media .sm-industry-remote .sm-industry-rank-count{flex-basis:88px;overflow-wrap:anywhere}
+.fm-media .sm-industry-remote .sm-industry-ranking .sm-industry-pagination{justify-content:start}
+.fm-media .sm-industry-remote .sm-industry-pagination label{display:flex;gap:6px;align-items:center}
+.fm-media .sm-industry-remote .sm-industry-pagination select{min-height:32px;padding:3px 5px}
+.fm-media .sm-remote-content-filters{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.fm-media .sm-remote-content-filters label{display:flex;flex-direction:column;gap:4px;color:var(--muted,#737991);font-size:12px}
+.fm-media .sm-remote-error{margin:10px 0}
+.fm-media .sm-industry-remote .sm-industry-legend strong{overflow-wrap:anywhere}
 .fm-media .sm-industry{color:var(--ink,#202134);min-width:0;font-size:14px;line-height:1.6}
 .fm-media .sm-industry *{box-sizing:border-box}
 .fm-media .sm-industry button,.fm-media .sm-industry summary,.fm-media .sm-industry select{cursor:pointer}
@@ -123,3 +133,10 @@
 .fm-media .sm-industry .sm-date-note{margin:8px 2px 0;color:var(--muted,#737991);font-size:12px;line-height:1.6}
 @media(max-width:950px){.fm-media .sm-industry-filters{grid-template-columns:1fr;gap:12px}.fm-media .sm-industry-filters label,.fm-media .sm-industry-filters .sm-date-select{display:grid;grid-template-columns:32px minmax(0,1fr)}.fm-media .sm-industry .sm-date-trigger{width:100%}}
 @media(max-width:650px){.fm-media .sm-industry-filters{padding:14px}.fm-media .sm-industry-notice{align-items:flex-start;flex-wrap:wrap}.fm-media .sm-industry-panel-empty{min-height:220px}.fm-media .sm-industry-distributions{padding:0 12px 12px}.fm-media .sm-industry-legend-area{width:100%}}
+
+/* Remote filters have longer labels; keep them above controls at compact widths. */
+@media(max-width:950px){
+  .fm-media .sm-industry-remote .sm-industry-filters label{display:flex;flex-direction:column;align-items:stretch;white-space:normal;gap:6px;min-width:0}
+  .fm-media .sm-industry-remote .sm-industry-filters label>input,.fm-media .sm-industry-remote .sm-industry-filters label>select{width:100%;min-width:0}
+  .fm-media .sm-industry-remote .sm-industry-notice{align-items:flex-start;flex-wrap:wrap}
+}

@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // Regression source only. Not executed in this source-only delivery.
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IndustryDistribution, LiveIndustryDistribution } from './IndustryDistribution';
+import { IndustryDistribution } from './IndustryDistribution';
 import { YIHANG_SOURCE_BATCH } from './yihang';
-import { matrixApi } from '../api';
 
-vi.mock('../api', () => ({ matrixApi: vi.fn() }));
-beforeEach(() => { window.history.replaceState({}, '', '/publishing/source-matrix?draftId=draft-7&task=task-9#analysis'); vi.mocked(matrixApi).mockReset(); });
+
+
+beforeEach(() => { window.history.replaceState({}, '', '/publishing/source-matrix?draftId=draft-7&task=task-9#analysis'); });
 afterEach(cleanup);
 
 function expectCompleteLayout() {
@@ -137,42 +137,4 @@ describe('source distribution interactions', () => {
   });
 });
 
-describe('live data boundary', () => {
-  it('never substitutes the workbook after a service failure', async () => {
-    vi.mocked(matrixApi).mockRejectedValue(new Error('unavailable'));
-    render(<div className="fm-media"><LiveIndustryDistribution/></div>);
-    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
-    expectCompleteLayout();
-    expect(screen.queryByText('502')).toBeNull();
-    expect(screen.queryByText('一航软件样本')).toBeNull();
-    expect(matrixApi).toHaveBeenCalledWith('/source-distribution', expect.any(AbortSignal));
-  });
-  it('shows a non-ready status as unavailable rather than a successful zero', async () => {
-    vi.mocked(matrixApi).mockResolvedValue({ status: 'data_limit_exceeded', batches: [], message: '当前范围过大，请缩小数据范围后重试。' });
-    render(<div className="fm-media"><LiveIndustryDistribution/></div>);
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('当前范围过大'));
-    expect(screen.queryByText('原始导出引用记录')).toBeNull();
-  });
-  it('distinguishes configuration-required from failure and restores live data through retry', async () => {
-    vi.mocked(matrixApi).mockResolvedValueOnce({ status: 'configuration_required', batches: [], message: '当前项目尚未接入可查看的行业引用明细。' });
-    // Fixture is supplied only through this mocked API; the production component imports no workbook fallback.
-    vi.mocked(matrixApi).mockResolvedValueOnce({ status: 'ready', batches: [YIHANG_SOURCE_BATCH] });
-    render(<div className="fm-media"><LiveIndustryDistribution/></div>);
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('当前项目尚未接入'));
-    expectCompleteLayout();
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.queryByText('0')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
-    await waitFor(() => expect(screen.getAllByText('502').length).toBeGreaterThan(0));
-    expectCompleteLayout();
-    expect(matrixApi).toHaveBeenCalledTimes(2);
-  });
-  it('keeps a successful empty response as pending data, not zero industry activity', async () => {
-    vi.mocked(matrixApi).mockResolvedValue({ status: 'ready', batches: [] });
-    render(<div className="fm-media"><LiveIndustryDistribution/></div>);
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('行业数据待接入'));
-    expectCompleteLayout();
-    expect(screen.queryByText('0')).toBeNull();
-    expect(screen.queryByText('0.00%')).toBeNull();
-  });
-});
+// The real API boundary is covered by RemoteIndustryDistribution.test.tsx.
