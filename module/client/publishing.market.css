@@ -1013,12 +1013,13 @@
 /* Media library home (2026-10 redesign): notice, dual entry cards, shared cart summary. */
 .fm-media .x-task-pill{font-size:12px;color:var(--brand);background:#f8f8f8;border:1px solid #e0e0e0;padding:7px 12px;border-radius:12px;white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis}
 .fm-media .x-home-notice{margin-bottom:18px}
-.fm-media .x-duo-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.fm-media .x-duo-card{padding:24px;display:flex;flex-direction:column;gap:16px}
-.fm-media .x-duo-head{display:flex;gap:14px;align-items:flex-start}
-.fm-media .x-duo-head .metric-icon{width:44px;height:44px;border-radius:13px}
-.fm-media .x-duo-head h2{font-size:19px;color:var(--plum)}
-.fm-media .x-duo-head p{margin-top:6px;color:var(--muted);line-height:1.8}
+.fm-media .x-duo-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin:8px 0 4px}
+.fm-media .x-duo-card{padding:44px 40px;display:flex;flex-direction:column;gap:22px;min-height:240px}
+.fm-media .x-duo-head{display:flex;gap:18px;align-items:flex-start}
+.fm-media .x-duo-head .metric-icon{width:64px;height:64px;border-radius:18px}
+.fm-media .x-duo-head .metric-icon svg{width:30px;height:30px}
+.fm-media .x-duo-head h2{font-size:24px;color:var(--plum)}
+.fm-media .x-duo-head p{margin-top:8px;color:var(--muted);line-height:1.8}
 .fm-media .x-duo-steps{display:grid;gap:10px}
 .fm-media .x-step-chip{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:11px;align-items:center;border:1px solid var(--line);background:#fff;border-radius:11px;padding:13px 15px}
 .fm-media .x-step-chip b{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--selected);color:var(--brand);font-weight:700}

@@ -112,7 +112,7 @@ export default function PublishingPublicationDetailPage({
         query.data ? (
           <>
             <a
-              className="publishing-button publishing-button-secondary"
+              className="publishing-button publishing-button-primary"
               download={`${batchId}.csv`}
               href={gateway.batchCsvUrl(batchId)}
             >
@@ -120,7 +120,7 @@ export default function PublishingPublicationDetailPage({
               导出 CSV
             </a>
             <button
-              className="publishing-button publishing-button-secondary"
+              className="publishing-button publishing-button-primary"
               type="button"
               onClick={query.reload}
               disabled={query.refreshing}
@@ -131,6 +131,14 @@ export default function PublishingPublicationDetailPage({
               />
               刷新
             </button>
+            {/* V5-R5：返回入口上移至操作行最右，与导出/刷新同行并蓝色高亮。 */}
+            <Link
+              className="publishing-button publishing-button-primary"
+              href="/publishing/articles/records"
+            >
+              <ArrowLeft size={16} />
+              返回发布记录
+            </Link>
           </>
         ) : undefined
       }
@@ -313,51 +321,43 @@ export default function PublishingPublicationDetailPage({
             ))}
           </section>
 
-          <div className="publishing-detail-bottom">
-            <Link
-              className="publishing-button publishing-button-secondary"
-              href="/publishing/articles/records"
-            >
-              <ArrowLeft size={16} />
-              返回发布记录
-            </Link>
-            <section className="publishing-panel publishing-batch-money">
-              <h2>本批费用</h2>
-              <dl>
-                <div>
-                  <dt>冻结总额</dt>
-                  <dd>
-                    {formatPublishingMoney(query.data.totalTenThousandths)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>已扣</dt>
-                  <dd className="is-success">
-                    {formatPublishingMoney(query.data.consumedTenThousandths)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>已退回</dt>
-                  <dd className="is-success">
-                    {formatPublishingMoney(query.data.releasedTenThousandths)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>仍冻结</dt>
-                  <dd className="is-warning">
-                    {formatPublishingMoney(query.data.frozenTenThousandths)}
-                  </dd>
-                </div>
-              </dl>
-              <p>
-                <RotateCcw size={15} />
-                客户实际支出{" "}
-                <strong>
+          {/* V5-R5：本批费用整行全宽展示，与上方明细表对齐；返回入口已移至页头操作行。 */}
+          <section className="publishing-panel publishing-batch-money">
+            <h2>本批费用</h2>
+            <dl>
+              <div>
+                <dt>冻结总额</dt>
+                <dd>
+                  {formatPublishingMoney(query.data.totalTenThousandths)}
+                </dd>
+              </div>
+              <div>
+                <dt>已扣</dt>
+                <dd className="is-success">
                   {formatPublishingMoney(query.data.consumedTenThousandths)}
-                </strong>
-              </p>
-            </section>
-          </div>
+                </dd>
+              </div>
+              <div>
+                <dt>已退回</dt>
+                <dd className="is-success">
+                  {formatPublishingMoney(query.data.releasedTenThousandths)}
+                </dd>
+              </div>
+              <div>
+                <dt>仍冻结</dt>
+                <dd className="is-warning">
+                  {formatPublishingMoney(query.data.frozenTenThousandths)}
+                </dd>
+              </div>
+            </dl>
+            <p>
+              <RotateCcw size={15} />
+              客户实际支出{" "}
+              <strong>
+                {formatPublishingMoney(query.data.consumedTenThousandths)}
+              </strong>
+            </p>
+          </section>
         </>
       ) : null}
     </PublishingPage>

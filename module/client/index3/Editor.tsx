@@ -91,12 +91,33 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
   const [busy, setBusy] = useState(false);
   const [uploadNote, setUploadNote] = useState("");
 
+  // 记录当前编辑单元构建自哪个 revision，用于识别“返回编辑器时命中的缓存已过期”。
+  const builtRevisionRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (!ready && articleQuery.data !== undefined) {
-      setUnits([articleQuery.data ? unitFromArticle(articleQuery.data) : newUnit()]);
+    const data = articleQuery.data;
+    if (data === undefined) return;
+    if (!ready) {
+      setUnits([data ? unitFromArticle(data) : newUnit()]);
+      builtRevisionRef.current = data ? data.revision : null;
       setReady(true);
+      return;
     }
-  }, [articleQuery.data, ready]);
+    // V5-R5①：从媒体选择“返回编辑稿件”可能命中保存前的过期缓存；后台刷新发现
+    // revision 已变化且本地无未保存修改时，静默用最新数据重建编辑单元，
+    // 避免再次保存时触发 409（Article revision has changed）。批量多稿不重建。
+    if (
+      data &&
+      builtRevisionRef.current !== null &&
+      data.revision !== builtRevisionRef.current &&
+      !units.some((item) => !item.saved) &&
+      units.length === 1 &&
+      units[0]?.articleId === data.id
+    ) {
+      setUnits([unitFromArticle(data)]);
+      builtRevisionRef.current = data.revision;
+    }
+  }, [articleQuery.data, ready, units]);
 
   const unit = units[index];
   const dirty = useMemo(
@@ -186,6 +207,9 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
       setUnits(saved);
       setErrors({});
       setSaveState(`已保存 ${publishingDateTime(new Date().toISOString())}`);
+      // V5-R5②：保存成功后回写查询缓存，保证“媒体选择→返回编辑稿件”必得最新 revision。
+      builtRevisionRef.current = saved[0]?.articleId ? saved[0]!.revision : builtRevisionRef.current;
+      void articleQuery.reload();
       if (announce) toast(`已保存 ${saved.length} 篇稿件。`);
       return saved;
     } catch (reason) {
@@ -203,6 +227,8 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
       const target = saved[index] ?? saved[0]!;
       if (!target.articleId) return;
       const frozen = await gateway.freezeArticle(target.articleId, target.revision);
+      // V5-R5②：冻结后同步刷新缓存（currentVersionId/status 变化）。
+      void articleQuery.reload();
       const matrixParams = new URLSearchParams();
       matrixParams.set("articleVersion", frozen.currentVersionId ?? "");
       matrixParams.set("mode", mode);
