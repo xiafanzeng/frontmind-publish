@@ -31,15 +31,15 @@ function gatewayFor(articles: ArticleDetail[]) {
     saveArticle: vi.fn(), freezeArticle: vi.fn(), importDocx: vi.fn(), createDraft: vi.fn(),
   };
 }
-function Harness({ gateway, onSelect, multiple = false, excludedIds = [] }: {
+function Harness({ gateway, onSelect, multiple = false, excludedIds = [], purpose = "edit", allowCancelWhileApplying = false }: {
   gateway: ReturnType<typeof gatewayFor>; onSelect: (articles: ArticleDetail[]) => void | Promise<void>;
-  multiple?: boolean; excludedIds?: string[];
+  multiple?: boolean; excludedIds?: string[]; purpose?: "edit" | "confirmed-version"; allowCancelWhileApplying?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <PublishingGatewayProvider gateway={gateway as unknown as PublisherGateway}>
     <button ref={trigger} onClick={() => setOpen(true)}>选择已有稿件</button>
-    <PublishingArticlePicker open={open} trigger={trigger.current ?? undefined} onClose={() => setOpen(false)} onSelect={onSelect} multiple={multiple} excludedIds={excludedIds} />
+    <PublishingArticlePicker open={open} trigger={trigger.current ?? undefined} onClose={() => setOpen(false)} onSelect={onSelect} multiple={multiple} excludedIds={excludedIds} purpose={purpose} allowCancelWhileApplying={allowCancelWhileApplying} />
   </PublishingGatewayProvider>;
 }
 const open = async () => {
@@ -49,6 +49,31 @@ const open = async () => {
 afterEach(() => { cleanup(); configurePublishingHost({}); vi.restoreAllMocks(); });
 
 describe("shared article picker", () => {
+  it("offers a new saved draft to the media workflow without requiring a confirmed version", async () => {
+    const draft = article("new");
+    const gateway = gatewayFor([draft]); const onSelect = vi.fn();
+    render(<Harness gateway={gateway} onSelect={onSelect} purpose="confirmed-version" />);
+    await open();
+    fireEvent.click(await screen.findByRole("radio", { name: /ID：new/ }));
+    fireEvent.click(screen.getByRole("button", { name: "使用此稿件" }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith([draft]));
+    expect(screen.queryByRole("button", { name: "选择确认版本" })).toBeNull();
+    expect(gateway.freezeArticle).not.toHaveBeenCalled(); // The consuming header owns preparation.
+  });
+
+  it("allows a cancellable media parent to keep close available during preparation", async () => {
+    const gateway = gatewayFor([article("a")]); const pending = deferred<void>();
+    const onSelect = vi.fn(() => pending.promise);
+    render(<Harness gateway={gateway} onSelect={onSelect} purpose="confirmed-version" allowCancelWhileApplying />);
+    await open();
+    fireEvent.click(await screen.findByRole("radio"));
+    fireEvent.click(screen.getByRole("button", { name: "使用此稿件" }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    pending.resolve();
+  });
+
   it("reads the complete gateway list, filters by ID/status and clears search without mutations", async () => {
     const gateway = gatewayFor([article("later-page"), article("frozen", "frozen")]);
     render(<Harness gateway={gateway} onSelect={vi.fn()} />);

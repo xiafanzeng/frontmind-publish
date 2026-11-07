@@ -1,6 +1,6 @@
 import { useEffect,useLayoutEffect,useMemo,useRef,useState,type FormEvent } from 'react';
 import { Link,useLocation,useSearch } from 'wouter';
-import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard,requestWorkspaceNavigation } from '../host';
+import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard,requestWorkspaceNavigation,performApprovedWorkspaceNavigation } from '../host';
 import { matrixApi,downloadUrl } from './api';
 import type { ApplyPlanDiff,BudgetPlan,MatrixResult,ServerBinding,TaskResponse,ResourceSelection } from './types';
 import { label,display,Report,BudgetConfirmDialog,downloadMatrixData } from './SourceMatrixPresentation';
@@ -17,7 +17,7 @@ import {withPublishingBatch} from '../batchPublishing';
 import {titleModeForFlowMode,type FlowStageMode} from '../components/PublishingFlowSteps';
 import {mediaShortlistKey,mediaSelectionBlocker} from '../mediaShortlist';
 import {publicationSelectionAmounts} from '../publicationAmounts';
-import {formatPublishingMoney,type ArticleVersion,type MediaResource,type PublicationDraft} from '../types';
+import {formatPublishingMoney,type ArticleDetail,type ArticleVersion,type MediaResource,type PublicationDraft} from '../types';
 import {ContentPlanRecommendations,type QuantityChange} from './ContentPlanRecommendations';
 import {pricingReason} from './PlanningDetails';
 import {ResearchImportDialog} from './ResearchImportDialog';
@@ -25,6 +25,8 @@ import type {ResearchDatasetSummary} from './research-import-types';
 import type {IndustryCommonQuery} from '../../contracts/industry-source';
 import {ConfirmedArticleHeader,type ConfirmedArticleSelection} from '../components/ConfirmedArticleHeader';
 import {confirmedArticleSelectionHref,isIndependentArticleSelection} from '../confirmedArticleRoute';
+import {readVerifiedArticleSelection} from '../latestArticleSelection';
+import {consumePreparedArticleSelection,prepareArticleSelection} from '../articleSelectionHandoff';
 import {articleEditorHref} from '../articleEditorRoute';
 import {useArticleIdentification} from './useArticleIdentification';
 import {ArticleIdentificationStatus,ArticleIdentificationFieldInfo} from './ArticleIdentificationFeedback';
@@ -83,9 +85,9 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   recordCount:typeof batch.recordCount==='number'&&Number.isSafeInteger(batch.recordCount)&&batch.recordCount>=0?batch.recordCount:undefined,
   models:Array.isArray(batch.models)?batch.models.filter((value):value is string=>typeof value==='string'):[]})),[industryCatalog.brandBatches]);
  const industryUnavailable=Boolean(industryCatalog.error)||!industries.length;
- const routeDraftId=params.get('draftId')??'',routeVersionId=params.get('articleVersion')??'',routeTaskId=params.get('workbenchTask')??'';
- const contextDraftId=routeDraftId||(!routeVersionId?flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id:'')||'';
- const articleVersionId=routeVersionId||flow?.resources?.find(resource=>resource.kind==='article_version')?.id||'';
+ const routeArticleId=params.get('articleId')??'',routeDraftId=params.get('draftId')??'',routeVersionId=params.get('articleVersion')??'',routeTaskId=params.get('workbenchTask')??'';
+ const contextDraftId=routeDraftId||(!routeArticleId&&!routeVersionId?flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id:'')||'';
+ const articleVersionId=routeVersionId||(!routeArticleId&&!routeDraftId?flow?.resources?.find(resource=>resource.kind==='article_version')?.id:'')||'';
  const mode=params.get('mode')??'',workbenchTask=routeTaskId||flow?.taskId||'';
  const batchBindingKey=JSON.stringify([params.getAll('batchArticleVersion'),params.getAll('batchDraft')]);
  const selectionResources=(draft:PublicationDraft)=>{
@@ -96,27 +98,27 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const drafts=uniqueBatchIds([...params.getAll('batchDraft'),...(flow?.resources?.filter(item=>item.kind==='publication_draft').map(item=>item.id)??[]),draft.id]);
   return [...versions.map(id=>({kind:'article_version' as const,id})),...drafts.map(id=>({kind:'publication_draft' as const,id}))];
  };
- const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
-  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flow?.scopeKey,flow?.agentId]);
+ const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeArticleId,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
+  [gateway,workspace,shortlist,routeArticleId,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flow?.scopeKey,flow?.agentId]);
  const selectionTask=useMediaSelectionTask(flow,taskContext);
- const cartKey=JSON.stringify([shortlist,flow?.scopeKey,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
+ const cartKey=JSON.stringify([shortlist,flow?.scopeKey,routeArticleId,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
  const cartScope=useMemo(()=>({gateway,key:cartKey}),[gateway,cartKey]);
- const [binding,setBinding]=useState<{scope:typeof cartScope;loading:boolean;error:string;draft?:PublicationDraft;version?:ArticleVersion}>();
+ const [binding,setBinding]=useState<{scope:typeof cartScope;loading:boolean;error:string;draft?:PublicationDraft;version?:ArticleVersion;article?:ArticleDetail}>();
  const currentBinding=binding?.scope===cartScope?binding:undefined,serverDraft=currentBinding?.draft;
  const [bindingAttempt,setBindingAttempt]=useState(0),[cartBusy,setCartBusy]=useState(false),cartEpoch=useRef(0),cartMutation=useRef(false);
- const hasArticleContext=Boolean(contextDraftId||articleVersionId);
+ const hasArticleContext=Boolean(routeArticleId||contextDraftId||articleVersionId);
  const [connectionEpoch,setConnectionEpoch]=useState(0),[taskHydratedKey,setTaskHydratedKey]=useState('');
  const [emptyTaskOwner,setEmptyTaskOwner]=useState('');
  const hydratedTask=useRef('');
  const identificationVersion=serverDraft?.articleVersionId??currentBinding?.version?.id??articleVersionId;
  const taskHydrationKey=JSON.stringify([workspace,taskId,contextDraftId,identificationVersion]);
- const identificationLoading=hasArticleContext&&!identificationVersion;
+ const identificationLoading=hasArticleContext&&(!identificationVersion||!currentBinding||currentBinding.loading);
  const identification=useArticleIdentification({gateway,workspace:String(workspace),formScope:taskId||'new',articleVersionId:identificationVersion,draftId:contextDraftId||undefined,connectionEpoch,
-  enabled:Boolean(hasArticleContext&&identificationVersion),
+  enabled:Boolean(hasArticleContext&&identificationVersion&&currentBinding&&!currentBinding.loading&&!currentBinding.error),
   autoIdentify:Boolean(currentBinding&&!currentBinding.loading&&!currentBinding.error)&&(!taskId||taskHydratedKey===taskHydrationKey||emptyTaskOwner===`${workspace}:${taskId}`)});
  const initialDemoForm=demoInitialForm(matrixDemo),initialForm=taskId||hasArticleContext?null:initialDemoForm;
  const verifiedFormScope=identification.context?JSON.stringify([identification.context.scopeKey,identification.context.articleId,identification.context.articleVersionId,identification.context.contentDigest]):undefined;
- const pendingFormIdentity=JSON.stringify([workspace,shortlist,contextDraftId,articleVersionId,hasArticleContext?'pending':'research']);
+ const pendingFormIdentity=JSON.stringify([workspace,shortlist,routeArticleId,contextDraftId,articleVersionId,hasArticleContext?'pending':'research']);
  const pendingFormScope=JSON.stringify([pendingFormIdentity,taskId||'new']);
  const formScope=verifiedFormScope?JSON.stringify([verifiedFormScope,taskId||'new']):pendingFormScope;
  const formDraft=useMatrixFormDraft(gateway,formScope,{product:initialForm?.product??'',industry:'',audience:initialForm?.audience??'',questions:initialForm?.questions??'',
@@ -259,6 +261,8 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
 
  async function submit(stage:'matrix'|'budget',e?:FormEvent){e?.preventDefault();if(busy||submissionLock.current||e&&(e.nativeEvent as Event&{isComposing?:boolean}).isComposing)return;setFieldError('');setErrorStage(stage);
   const qs=questions.split('\n').map(q=>q.trim()).filter(Boolean);
+  if(hasArticleContext&&bindingIssue){setFieldError(bindingIssue);return;}
+  if(hasArticleContext&&!identification.context){setFieldError(identification.status==='failed'?identification.message:'正在读取稿件信息，请稍候。');return;}
   if(stage==='matrix'&&connectionState===null&&!connectionError){setFieldError('正在读取推荐服务状态，请稍候。');return;}
   if(stage==='matrix'&&(connectionError||!connectionState?.available)){setFieldError(connectionError||connectionState?.message||'推荐服务暂不可用，请稍后重试或联系运营。');return;}
   if(stage==='matrix'&&industrySelection.error){setFieldError(industrySelection.error);return;}
@@ -318,23 +322,28 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  useLayoutEffect(()=>{cartEpoch.current++;cartMutation.current=false;setCartBusy(false);setConfirmBudget(null);setConfirmLayer(null);appliedBudget.current='';},[cartScope]);
  const setServerDraft=(draft:PublicationDraft)=>setBinding({scope:cartScope,loading:false,error:'',draft});
  useEffect(()=>{
-  const abort=new AbortController();setBinding({scope:cartScope,loading:true,error:''});
-  const timer=setTimeout(()=>{abort.abort();setBinding({scope:cartScope,loading:false,error:'稿件上下文读取超时，请重试。'});},20_000);
+  const abort=new AbortController();
+  const prepared=routeArticleId&&articleVersionId&&!contextDraftId?consumePreparedArticleSelection(gateway,workspace,routeArticleId,articleVersionId):undefined;
+  setBinding(previous=>({...(previous?.scope===cartScope?previous:{}),...prepared,scope:cartScope,loading:true,error:''}));
+  const failed=(error:string)=>setBinding(previous=>({...(previous?.scope===cartScope?previous:{}),scope:cartScope,loading:false,error}));
+  const timer=setTimeout(()=>{abort.abort();failed('稿件上下文读取超时，请重试。');},20_000);
   void (async()=>{
    if(contextDraftId){
     const draft=await gateway.getDraft(contextDraftId,abort.signal);
-    if(draft.id!==contextDraftId||articleVersionId&&draft.articleVersionId!==articleVersionId)throw new Error('投放草稿与指定稿件版本不一致，请返回稿件页面核对。');
+    if(draft.id!==contextDraftId||articleVersionId&&draft.articleVersionId!==articleVersionId||routeArticleId&&draft.articleId!==routeArticleId)throw new Error('投放草稿与指定稿件版本不一致，请返回稿件页面核对。');
     return {draft};
    }
    if(articleVersionId){
+    if(routeArticleId)return readVerifiedArticleSelection(gateway,{articleId:routeArticleId,versionId:articleVersionId},abort.signal);
     const version=await gateway.getArticleVersion(articleVersionId,abort.signal);
     if(version.id!==articleVersionId||!version.frozen)throw new Error('指定稿件版本尚未确认，请返回稿件页面核对。');
     return {version};
    }
+   if(routeArticleId)throw new Error('当前稿件缺少关联版本，请重新选择稿件。');
    return {};
-  })().then(value=>{if(!abort.signal.aborted)setBinding({scope:cartScope,loading:false,error:'',...value});}).catch(reason=>{if(!abort.signal.aborted)setBinding({scope:cartScope,loading:false,error:reason instanceof Error?reason.message:'稿件上下文读取失败，请重试。'});}).finally(()=>clearTimeout(timer));
+  })().then(value=>{if(!abort.signal.aborted)setBinding({scope:cartScope,loading:false,error:'',...value});}).catch(reason=>{if(!abort.signal.aborted)failed(reason instanceof Error?reason.message:'稿件上下文读取失败，请重试。');}).finally(()=>clearTimeout(timer));
   return()=>{abort.abort();clearTimeout(timer);};
- },[cartScope,bindingAttempt,contextDraftId,articleVersionId,gateway]);
+ },[cartScope,bindingAttempt,routeArticleId,contextDraftId,articleVersionId,gateway,workspace]);
  const bindingIssue=!currentBinding||currentBinding.loading?'正在读取稿件上下文…':currentBinding.error
   ||(!serverDraft&&!currentBinding.version?'请先在稿件页面确认一份稿件，再选择媒体。':'');
  const draftRegistered=Boolean(serverDraft&&flow?.records?.some(record=>record.id===`media-draft:${serverDraft.id}`&&record.status==='completed')
@@ -348,7 +357,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const mediaHref=(view:'home'|'third'|'cart')=>{
   const query=new URLSearchParams(search);query.delete('task');query.delete('draftId');query.delete('simulation');
   if(taskId)query.set('matrixTask',taskId);if(serverDraft?.articleVersionId||articleVersionId)query.set('articleVersion',serverDraft?.articleVersionId||articleVersionId);if(workbenchTask)query.set('workbenchTask',workbenchTask);
-  const verifiedArticleId=serverDraft?.articleId??identification.context?.articleId;if(verifiedArticleId)query.set('articleId',verifiedArticleId);
+  const verifiedArticleId=serverDraft?.articleId??currentBinding?.article?.id??identification.context?.articleId;if(verifiedArticleId)query.set('articleId',verifiedArticleId);
   const boundId=serverDraft?.id||contextDraftId,base=boundId?`/publishing/drafts/${encodeURIComponent(boundId)}/media`:'/publishing/media';
   return projectWorkspaceUrl(base+(view==='home'?'':'/'+view)+(query.size?'?'+query.toString():''))+(typeof window!=='undefined'?window.location.hash:'');
  };
@@ -617,15 +626,21 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const generate=(e:FormEvent)=>{void submit('matrix',e);};
  const budgetFields=<><div className="sm-budget-fields"><label>总预算（{currency}）<input className="field" id="z-budget-total" inputMode="decimal" value={total} placeholder="输入总预算" onChange={e=>setTotal(e.target.value)}/></label><label>篇数含义<select value={quantityMode} disabled={busy} onChange={event=>setQuantityMode(event.target.value as 'new_articles'|'repeat_article')}><option value="new_articles">每篇为不同内容</option><option value="repeat_article">使用当前稿件重复发布</option></select></label><label className="sm-exploration-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>启用探索投放</label>{enabled&&<label>探索子预算上限<input className="field" inputMode="decimal" value={exploration} placeholder="包含在总预算内" onChange={e=>setExploration(e.target.value)}/></label>}<details><summary>单篇价格条件</summary><label>最低单篇价格<input className="field" inputMode="decimal" value={min} placeholder="不限" onChange={e=>setMin(e.target.value)}/></label><label>最高单篇价格<input className="field" inputMode="decimal" value={max} placeholder="不限" onChange={e=>setMax(e.target.value)}/></label></details><button className="button primary" disabled={demoActive?busy||loading:busy||!result||matrixStale||result.matrix.status!=='complete'} onClick={e=>demoActive?generate(e):void submit('budget',e)}>{demoActive?'按当前要求在线生成':budgetPending?'正在生成组合…':result?.budget_plans.length||result?.content_plans?.length?'更新组合':'生成组合'}</button></div>{errorStage==='budget'&&fieldError&&<p className="block-error" role="alert">{fieldError}</p>}</>;
  const recommendationSwitch=!!result?.content_plans?.length&&!!result.budget_plans.length?<div className="sm-plan-kind" aria-label="组合类型"><button type="button" aria-pressed={contentPlansActive} onClick={()=>{setPreferFormal(false);setPlanIndex(0);}}>内容规划草案</button><button type="button" aria-pressed={!contentPlansActive} onClick={()=>{setPreferFormal(true);setPlanIndex(0);}}>正式发布方案</button></div>:null;
- const selectedArticleId=serverDraft?.articleId??identification.context?.articleId;
- const selectedArticleTitle=serverDraft?.articleTitle??identification.context?.title;
+ const selectedArticleId=serverDraft?.articleId??currentBinding?.article?.id??identification.context?.articleId;
+ const selectedArticleTitle=serverDraft?.articleTitle??currentBinding?.article?.title??identification.context?.title;
  const selectedArticleVersion=serverDraft?.articleVersion??currentBinding?.version?.version;
  const headerRows=selectedArticleTitle&&identificationVersion?[{id:identificationVersion,title:selectedArticleTitle,articleId:selectedArticleId,versionId:identificationVersion,version:selectedArticleVersion}]:[];
  const editHref=selectedArticleId?projectWorkspaceUrl(articleEditorHref(selectedArticleId,search,{retainArticleContext:true})):undefined;
  const selectArticle=(selection:ConfirmedArticleSelection)=>{
-  if(selection.article.id===selectedArticleId&&selection.version.id===identificationVersion)return;
+  prepareArticleSelection(gateway,workspace,selection);
+  if(selection.article.id===selectedArticleId&&selection.version.id===identificationVersion){
+   setBinding(previous=>({...(previous?.scope===cartScope?previous:{}),...selection,scope:cartScope,loading:false,error:''}));
+   setBindingAttempt(value=>value+1);
+   return true;
+  }
   const next=confirmedArticleSelectionHref('/publishing/source-matrix',search,{articleId:selection.article.id,versionId:selection.version.id},{articleId:selectedArticleId,versionId:identificationVersion});
-  requestWorkspaceNavigation(()=>navigate(projectWorkspaceUrl(next)));
+  performApprovedWorkspaceNavigation(()=>navigate(projectWorkspaceUrl(next)));
+  return true;
  };
  const navigateFromHeader=(next:string)=>requestWorkspaceNavigation(()=>navigate(next));
  const recognizedIndustry=identification.recognizedIndustry;
@@ -636,7 +651,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const identificationStatus=identificationLoading?<p role="status">{currentBinding?.error||'正在读取稿件上下文…'}</p>:<ArticleIdentificationStatus identification={identification}/>;
  const taskbar=<div className="sm-article-context"><ConfirmedArticleHeader rows={headerRows} selectedVersionId={identificationVersion||undefined} batch={mode==='batch'}
   loading={hasArticleContext&&(!currentBinding||currentBinding.loading)} error={currentBinding?.error||undefined} onRetry={()=>setBindingAttempt(value=>value+1)}
-  disabled={cartBusy||busy||registrationPending} onSelect={selectArticle} editHref={editHref} onNavigate={navigateFromHeader}/>
+  disabled={cartBusy||busy||registrationPending} onRequestSelect={requestWorkspaceNavigation} onSelect={selectArticle} editHref={editHref} onNavigate={navigateFromHeader}/>
   <div className="sm-article-context-tools">
    {registrationPending&&<button className="link small" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button>}
   </div></div>;

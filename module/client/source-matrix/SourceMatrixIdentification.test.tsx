@@ -7,6 +7,10 @@ import SourceMatrixPage from './SourceMatrixPage';
 import type { IdentificationContext, IdentificationContextResponse, IdentificationFields, IdentifyArticleResponse } from '../../shared/article-identification';
 import type { MatrixResult, TaskResponse } from './types';
 import { flattenIndustryCatalog, type IndustryCatalogResponse } from '../../shared/industry-catalog';
+import { PublishingFlowProvider, type PublishingFlow } from '../PublishingFlowContext';
+import type { ArticleDetail } from '../types';
+import { prepareArticleSelection } from '../articleSelectionHandoff';
+import type { PublisherGateway } from '../gateway';
 
 const host = vi.hoisted(() => ({ gateway: {} as object }));
 vi.mock('../PublishingContext', () => ({ usePublisherGateway: () => host.gateway }));
@@ -87,6 +91,85 @@ function open(query: string) {
   return render(<div className="monitoring-module"><SourceMatrixPage view="matrix"/></div>);
 }
 const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+
+function selectedArticle(id: string, title: string, versionId: string): ArticleDetail {
+  const version = { id: versionId, version: 5, hash: 'hash-' + versionId, containsImages: false, frozen: true, createdAt: '2026-11-08T00:00:00Z', createdBy: 'Synthetic account' };
+  return { id, title, status: 'frozen', currentVersion: 5, currentVersionId: versionId, currentVersionHash: version.hash,
+    wordCount: 10, imageCount: 0, updatedAt: version.createdAt, revision: 3, bodyText: 'Latest saved article body', images: [], versions: [version],
+    importChecks: { docxSafe: true, externalLinkCount: 0, structureValid: true } };
+}
+
+it('shows the verified route article and carries it downstream when identification metadata is unavailable', async () => {
+  const api = host.gateway as ReturnType<typeof gateway>;
+  api.getArticle.mockResolvedValue(selectedArticle('article-b', '刚编辑的稿件 B', 'version-b'));
+  const fetcher = installApi({ readContext: async () => { throw new Error('Synthetic metadata outage'); } });
+  open('tab=matrix&articleId=article-b&articleVersion=version-b');
+  await screen.findByRole('button', { name: /当前稿件 刚编辑的稿件 B · v5/ });
+  await screen.findByText('稿件信息读取失败，请重试；已保留手动填写内容。');
+  const target = new URL((screen.getByRole('link', { name: '进入媒体库自选' }) as HTMLAnchorElement).href);
+  expect(target.searchParams.get('articleId')).toBe('article-b');
+  expect(target.searchParams.get('articleVersion')).toBe('version-b');
+  expect(api.getArticle).toHaveBeenCalledWith('article-b', expect.any(AbortSignal));
+  expect(api.createDraft).not.toHaveBeenCalled();
+  fireEvent.change(field('目标行业 *'), { target: { value: '102' } });
+  fireEvent.change(field('目标问题 / 内容需求 *'), { target: { value: 'Manual question after metadata failure' } });
+  fireEvent.click(screen.getByRole('button', { name: '生成推荐矩阵' }));
+  expect(screen.getAllByText('稿件信息读取失败，请重试；已保留手动填写内容。')).toHaveLength(2);
+  expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/matrix/generate'))).toBe(false);
+});
+
+it('rejects an explicit article and version mismatch before reading identification metadata', async () => {
+  const api = host.gateway as ReturnType<typeof gateway>;
+  api.getArticle.mockResolvedValue(selectedArticle('article-a', '其他稿件', 'version-a'));
+  const fetcher = installApi({ readContext: version => contextResponse(context(version, 'account-a', false)) });
+  open('tab=matrix&articleId=article-b&articleVersion=version-b');
+  await screen.findByRole('button', { name: '重试读取稿件上下文' });
+  expect(screen.queryByRole('button', { name: /当前稿件 其他稿件/ })).toBeNull();
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes('/matrix/identify/context'))).toBe(false);
+  expect(api.createDraft).not.toHaveBeenCalled();
+});
+
+it('retains the complete verified handoff with an error when its destination reread fails', async () => {
+  const api = host.gateway as ReturnType<typeof gateway>, article = selectedArticle('article-b', '已选择的稿件 B', 'version-b');
+  prepareArticleSelection(api as unknown as PublisherGateway, 1, { article, version: article.versions[0]! });
+  api.getArticle.mockRejectedValue(new Error('Synthetic destination read failure'));
+  installApi({ readContext: version => contextResponse(context(version, 'account-a', false)) });
+  open('tab=matrix&articleId=article-b&articleVersion=version-b');
+  await screen.findByRole('button', { name: '重试读取稿件上下文' });
+  expect(screen.getByRole('button', { name: /当前稿件 已选择的稿件 B · v5/ })).toBeTruthy();
+  expect(api.createDraft).not.toHaveBeenCalled();
+  const target = new URL((screen.getByRole('link', { name: '进入媒体库自选' }) as HTMLAnchorElement).href);
+  expect(target.searchParams.get('articleId')).toBe('article-b');
+  expect(target.searchParams.get('articleVersion')).toBe('version-b');
+});
+
+it('does not recover the previous flow draft or version for an incomplete explicit article identity', async () => {
+  const api = host.gateway as ReturnType<typeof gateway>;
+  const owner: PublishingFlow = { taskId: 'old-task', agentId: 'media', scopeKey: 'same-project',
+    resources: [{ kind: 'article_version', id: 'version-a' }, { kind: 'publication_draft', id: 'draft-a' }],
+    ensureTask: vi.fn(), record: vi.fn(), saveSelections: vi.fn(), setSummary: vi.fn(), handoff: vi.fn() };
+  const fetcher = installApi({ readContext: version => contextResponse(context(version, 'account-a', false)) });
+  window.history.replaceState({}, '', '/publishing/source-matrix?tab=matrix&articleId=article-b&workbenchTask=old-task');
+  render(<PublishingFlowProvider value={owner}><SourceMatrixPage view="matrix"/></PublishingFlowProvider>);
+  await screen.findByRole('button', { name: '重试读取稿件上下文' });
+  expect(api.getDraft).not.toHaveBeenCalled(); expect(api.getArticleVersion).not.toHaveBeenCalled();
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes('/matrix/identify/context'))).toBe(false);
+});
+
+it('does not let a late article A detail replace article B after navigation', async () => {
+  const api = host.gateway as ReturnType<typeof gateway>, first = deferred<ArticleDetail>();
+  api.getArticle.mockImplementation(async id => id === 'article-a' ? first.promise : selectedArticle('article-b', '当前稿件 B', 'version-b'));
+  installApi({ readContext: version => contextResponse(context(version, 'account-a', false)) });
+  open('tab=matrix&articleId=article-a&articleVersion=version-a');
+  await waitFor(() => expect(api.getArticle).toHaveBeenCalledWith('article-a', expect.any(AbortSignal)));
+  await act(async () => { window.history.pushState({}, '', '/publishing/source-matrix?tab=matrix&articleId=article-b&articleVersion=version-b'); window.dispatchEvent(new PopStateEvent('popstate')); });
+  await screen.findByRole('button', { name: /当前稿件 当前稿件 B · v5/ });
+  await act(async () => first.resolve(selectedArticle('article-a', '旧稿件 A', 'version-a')));
+  expect(screen.queryByRole('button', { name: /当前稿件 旧稿件 A/ })).toBeNull();
+  const target = new URL((screen.getByRole('link', { name: '进入媒体库自选' }) as HTMLAnchorElement).href);
+  expect(target.searchParams.get('articleId')).toBe('article-b');
+  expect(target.searchParams.get('articleVersion')).toBe('version-b');
+});
 
 it('fills the four real article fields and preserves manual typing and clearing during re-identification', async () => {
   const ctx = context(), second = deferred<IdentifyArticleResponse>(); let requests = 0;
