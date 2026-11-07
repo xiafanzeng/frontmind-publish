@@ -14,14 +14,34 @@ import {
 import { publishingTaskResumePath } from "./PublishingFlowContext";
 
 describe("publishing route state", () => {
-  it("round trips normalized and exact legacy constraints without widening aliases", () => {
+  it("round trips specific normalized and exact legacy constraints without widening aliases", () => {
     const filters = {
       ...DEFAULT_MEDIA_FILTERS, province: "广东", city: "深圳市", aiPlatform: "Kimi",
-      recommendationGroup: "周末可发（需预约）", area: "深圳", region: "综合全国",
+      recommendationGroup: "周末可发（需预约）", area: "深圳", region: "华南",
       recommendationTag: "kimi", channel: "科技", price: "under_100" as const,
     };
     const url = writeMediaRouteState("/publishing/media", filters, "frozen-v2");
     expect(readMediaRouteState(url.split("?")[1] ?? "")).toEqual({ filters, articleVersionId: "frozen-v2" });
+  });
+
+  it.each(["不限地区", "全国", "全国覆盖", "综合全国", "综合全国（待确认）", "综合全国(待确认)"])("restores %s as unrestricted coverage without stale city constraints", value => {
+    for (const key of ["province", "area", "region"] as const) {
+      const params = new URLSearchParams({ [key]: value, city: "深圳市", query: "科技", sort: "price_desc", articleVersion: "frozen-v2" });
+      const restored = readMediaRouteState(params.toString());
+      expect(restored).toMatchObject({ articleVersionId: "frozen-v2", filters: { province: "", city: "", area: "", region: "", query: "科技", sort: "price_desc" } });
+      const route = writeMediaRouteState("/publishing/media", { ...DEFAULT_MEDIA_FILTERS, [key]: value, city: "深圳市" }, "frozen-v2");
+      const written = new URLSearchParams(route.split("?")[1]);
+      for (const field of ["province", "city", "area", "region"]) expect(written.has(field)).toBe(false);
+      expect(written.get("articleVersion")).toBe("frozen-v2");
+    }
+  });
+
+  it("normalizes saved task coverage while retaining its other filters and frozen version", () => {
+    const path = publishingTaskResumePath("media", {
+      resources: [{ kind: "article_version", id: "frozen-task-v2" }], step: "select",
+      values: { mediaFilters: { province: "综合全国（待确认）", city: "深圳市", area: "全国", query: "科技", sort: "price_asc" } },
+    });
+    expect(readMediaRouteState(path.split("?")[1] ?? "")).toMatchObject({ articleVersionId: "frozen-task-v2", filters: { province: "", city: "", area: "", region: "", query: "科技", sort: "price_asc" } });
   });
 
   it("restores both filter generations from task values and retains the frozen version", () => {

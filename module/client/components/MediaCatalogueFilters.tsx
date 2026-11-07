@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MediaDialog } from "../source-matrix/MediaMarket";
 import { cataloguePriceLabel, cataloguePriceRanges, validateCatalogueNames, validateCataloguePrice } from "../mediaCatalogue";
 import type { MediaFacetOption, MediaFacets, MediaFilters } from "../types";
 import CatalogueChipRow from "./CatalogueChipRow";
 import { mediaReadError } from "../mediaReadError";
+import { isUnrestrictedMediaCoverage, normalizeMediaCoverageFilters } from "../mediaCoverage";
 import "../publishing.catalogue.css";
 
 const channels = "新闻资讯 财经商业 IT科技 健康医疗 汽车网站 亲子母婴 生活消费 教育培训 食品餐饮 工业贸易 房产家居 女性时尚 游戏动漫 酒店旅游 娱乐休闲 能源环保 文化艺术 体育运动 公益三农 低价专区 一口价 优惠套餐 报纸 海外媒体".split(" ");
@@ -41,20 +41,18 @@ type Props = {
 };
 
 export default function MediaCatalogueFilters(props: Props) {
-  const { filters, facets, facetsLoading, facetsRefreshing, facetsVersionMismatch, facetsError, onRetry, onChange, onReset } = props;
+  const { facets, facetsLoading, facetsRefreshing, facetsVersionMismatch, facetsError, onRetry, onChange, onReset } = props;
+  const filters = normalizeMediaCoverageFilters(props.filters);
   const [query, setQuery] = useState(filters.query);
   const [queryError, setQueryError] = useState("");
   const [composing, setComposing] = useState(false);
-  const [batchOpen, setBatchOpen] = useState(false);
-  const [batch, setBatch] = useState(filters.batchQuery ?? "");
-  const [batchError, setBatchError] = useState("");
   const [minimum, setMinimum] = useState(filters.priceMin ?? "");
   const [maximum, setMaximum] = useState(filters.priceMax ?? "");
   const [priceError, setPriceError] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const latest = useRef(props);
-  latest.current = props;
+  latest.current = { ...props, filters };
   const pendingSearch = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelSearch = () => { if (pendingSearch.current !== undefined) clearTimeout(pendingSearch.current); };
 
@@ -82,19 +80,14 @@ export default function MediaCatalogueFilters(props: Props) {
   };
   const clearQuery = () => { cancelSearch(); setQuery(""); setQueryError(""); change({ query: "" }); input.current?.focus(); };
   const clearAll = () => {
-    cancelSearch(); setQuery(""); setBatch(""); setMinimum(""); setMaximum("");
-    setPriceError(""); setQueryError(""); setBatchError(""); onReset();
+    cancelSearch(); setQuery(""); setMinimum(""); setMaximum("");
+    setPriceError(""); setQueryError(""); onReset();
   };
   const applyPrice = () => {
     const validated = validateCataloguePrice(minimum, maximum);
     if (validated.error) { setPriceError(validated.error); return; }
     setPriceError("");
     change({ priceMin: validated.min, priceMax: validated.max, priceMinExclusive: false, price: "" });
-  };
-  const applyBatch = () => {
-    const parsed = validateCatalogueNames(batch);
-    if (parsed.error) { setBatchError(parsed.error); return; }
-    change({ batchQuery: parsed.names.join("\n") }); setBatchOpen(false); setBatchError("");
   };
 
   const advancedFields: Array<{ key: keyof MediaFilters; label: string; options: MediaFacetOption[] }> = [
@@ -134,10 +127,10 @@ export default function MediaCatalogueFilters(props: Props) {
   const priceLabel = cataloguePriceLabel(filters);
   if (priceLabel) selected.push({ key: "priceRange", label: `价格：${priceLabel}`, remove: () => change({ priceMin: "", priceMax: "", priceMinExclusive: false, price: "" }) });
   if (filters.query) selected.push({ key: "query", label: `名称：${filters.query}`, remove: clearQuery });
-  if (filters.batchQuery) selected.push({ key: "batchQuery", label: `多个名称：${validateCatalogueNames(filters.batchQuery).names.length} 个`, remove: () => { setBatch(""); change({ batchQuery: "" }); } });
+  if (filters.batchQuery) selected.push({ key: "batchQuery", label: `多个名称：${validateCatalogueNames(filters.batchQuery).names.length} 个`, remove: () => change({ batchQuery: "" }) });
 
   const normalized = facets?.filterSchemaVersion === 2;
-  const provinces = normalized ? facets?.coverageProvinces ?? [] : [];
+  const provinces = normalized ? (facets?.coverageProvinces ?? []).filter(option => Boolean(option.value) && !isUnrestrictedMediaCoverage(option.value) && !isUnrestrictedMediaCoverage(option.label)) : [];
   const cities = normalized ? (facets?.coverageCities ?? []).filter(option => option.province === filters.province) : [];
   const recommendationOptions = normalized ? orderedOptions(facets?.recommendationGroups, recommendations) : [];
   const aiOptions = normalized ? orderedOptions(facets?.aiPlatforms, aiPlatforms) : [];
@@ -181,7 +174,6 @@ export default function MediaCatalogueFilters(props: Props) {
         {filters.city && !cities.some(option => option.value === filters.city) && <option value={filters.city}>{filters.city}（当前条件）</option>}
       </select></label>
     </FilterRow>
-    <p className="mc-filter-help">AI 按供应商平台标签筛选，不代表已验证的收录或引用。不限地区包含所有覆盖范围；全国覆盖与综合全国尚未确认同义，暂分开保留。</p>
     {!facetsLoading && facets && !normalized && <p className="mc-status" role="status">当前媒体服务暂未提供整理后的地区和 AI 选项；已有条件仍会保留，请更新服务后重试。</p>}
     <FilterRow label="价格区间">
       {cataloguePriceRanges.map(range => {
@@ -199,8 +191,6 @@ export default function MediaCatalogueFilters(props: Props) {
         <label htmlFor="mc-query">媒体搜索</label><input ref={input} id="mc-query" type="search" placeholder="输入媒体名称" value={query} aria-invalid={!!queryError} aria-describedby={queryError ? "mc-query-error" : undefined} onChange={event => setQuery(event.target.value)} onCompositionStart={() => { cancelSearch(); setComposing(true); }} onCompositionEnd={event => { setComposing(false); setQuery(event.currentTarget.value); }} onKeyDown={event => { if (event.key === "Enter" && (event.nativeEvent.isComposing || composing)) event.preventDefault(); }} />
         {query && <button type="button" aria-label="清空媒体搜索" onClick={clearQuery}>×</button>}<button type="submit" className="mc-apply">搜索</button>
       </form>
-      <button type="button" className="mc-outline" onClick={() => { setBatch(filters.batchQuery ?? ""); setBatchError(""); setBatchOpen(true); }}>查找多个媒体</button>
-      <label className="mc-sort">排序<select aria-label="媒体排序" value={filters.sort ?? "recommended"} onChange={event => change({ sort: event.target.value as MediaFilters["sort"] })}><option value="recommended">推荐顺序</option><option value="price_asc">价格从低到高</option><option value="price_desc">价格从高到低</option><option value="success_desc">发布成功率从高到低</option><option value="include_desc">收录率从高到低</option><option value="weight_desc">百度 PC 权重从高到低</option><option value="updated_desc">目录更新从新到旧</option></select></label>
       {queryError && <p id="mc-query-error" className="mc-error mc-full" role="alert">{queryError}</p>}
     </div>
     <div className="mc-advanced">
@@ -219,10 +209,5 @@ export default function MediaCatalogueFilters(props: Props) {
       {!selected.length && <span className="mc-note">未设置筛选条件</span>}
       <button type="button" className="mc-outline" onClick={clearAll}>全部清空</button>
     </FilterRow>
-    <MediaDialog open={batchOpen} title="同时查找多个媒体" description="每行输入一个媒体名称，可同时查找多个媒体。结果匹配其中任一名称，并同时满足其他筛选条件。" confirmLabel="查找媒体" onCancel={() => setBatchOpen(false)} onConfirm={applyBatch}>
-      <label htmlFor="mc-batch">媒体名称（最多 50 个，换行或中英文逗号分隔）</label>
-      <textarea id="mc-batch" placeholder={"例如：\n新华网\n人民网"} rows={8} value={batch} style={{ resize: "none", width: "100%", overflowY: "auto" }} aria-invalid={!!batchError} aria-describedby={batchError ? "mc-batch-error" : undefined} onChange={event => { setBatch(event.target.value); setBatchError(""); }} />
-      {batchError && <p id="mc-batch-error" role="alert" className="mc-error">{batchError}</p>}
-    </MediaDialog>
   </section>;
 }

@@ -162,6 +162,44 @@ afterEach(() => {
 });
 
 describe("media selection context and persistence", () => {
+  it("keeps catalogue-wide sorting, pagination and selected identities on the relocated control", async () => {
+    const a = media("a", { priceTenThousandths: "3000000" });
+    const b = media("b", { priceTenThousandths: "1000000" });
+    const fixture = gatewayFixture([a, b]);
+    const catalog = { activeRevision: "catalog-1", mediaCount: 60, newsCount: 60, selfMediaCount: 0, kindComplete: true, lastSyncedAt: timestamp, stale: false };
+    fixture.gateway.listMedia = vi.fn<PublisherGateway["listMedia"]>(async filters => ({
+      items: filters.sort === "price_asc" ? [b, a] : [a, b],
+      total: 60, page: filters.page, pageSize: filters.pageSize, catalog,
+    }));
+    const currentFlow = flow();
+    const view = harness(fixture.gateway, "/publishing/media/third?sort=updated_desc&page=2", currentFlow);
+    await waitFor(() => expect(choice("a")).not.toBeNull());
+    const sort = screen.getByRole("combobox", { name: "媒体排序" }) as HTMLSelectElement;
+    expect(sort.value).toBe("updated_desc");
+    expect(sort.closest("#y-results")).not.toBeNull();
+    expect(Array.from(sort.options, option => option.value)).toEqual([
+      "recommended", "price_asc", "price_desc", "success_desc", "include_desc", "weight_desc", "updated_desc",
+    ]);
+    fireEvent.click(choice("a"));
+    await waitFor(() => expect(count()).toBe("1"));
+    fireEvent.change(sort, { target: { value: "price_asc" } });
+    await waitFor(() => expect(fixture.gateway.listMedia).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: "price_asc", page: 1 }), expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(screen.getAllByRole("checkbox", { name: /^选择 媒体/ }).map(input => input.getAttribute("aria-label"))).toEqual(["选择 媒体 b", "选择 媒体 a"]));
+    expect(choice("a").checked).toBe(true);
+    expect(choice("b").checked).toBe(false);
+    expect(screen.queryByRole("combobox", { name: "按价格排序（本页）" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(fixture.gateway.listMedia).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: "price_asc", page: 2 }), expect.any(AbortSignal),
+    ));
+    expect(choice("a").checked).toBe(true);
+    expect(currentFlow.saveSelections).toHaveBeenCalledWith({ mediaFilters: expect.objectContaining({ sort: "price_asc", page: 2 }) });
+    await act(async () => { view.location.navigate("/publishing/media/third?sort=updated_desc&page=2"); });
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "媒体排序" }) as HTMLSelectElement).value).toBe("updated_desc"));
+  });
+
   it("keeps catalogue requests stable across context-only URL changes", async () => {
     const fixture = gatewayFixture();
     const view = harness(fixture.gateway, "/publishing/media/third");
@@ -806,7 +844,7 @@ describe("media catalogue inventory, filters and cart integration", () => {
     fixture.gateway.listMedia = vi.fn<PublisherGateway["listMedia"]>(() => pending.promise);
     harness(fixture.gateway, "/publishing/media/third");
     expect(choice("news-0")).not.toBeNull();
-    expect(screen.getByText("上次匹配 30 条媒体资源")).not.toBeNull();
+    expect(screen.queryByText("上次匹配 30 条媒体资源")).toBeNull();
     expect(document.getElementById("y-result-count")?.textContent).toContain("上次为您找到 30 条媒体资源");
     expect(screen.getByText(/正在更新结果；库存保留最近一次确认的数量/)).not.toBeNull();
   });

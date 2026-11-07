@@ -376,7 +376,6 @@
 /* Media-library typography pass, round 3: row micro-labels join the 12px floor. */
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-platform-pill { font-size: 12px; }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-label { font-size: 12px; }
-.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-detail span { font-size: 12px; }
 
 /* Media catalogue: the column header row is restored on request — a slightly
  * darker gray band that shares the row grid template (--row-cols) and the
@@ -395,14 +394,15 @@
 /* Catalogue rendered as one continuous table (user request): the per-card
  * look is replaced by a single frame — gray header band, hairline row
  * separators and column rules aligned through header and rows alike.
- * Below 901px the two-column fallback keeps the card behaviour. */
-@media (min-width: 901px) {
+ * Narrow containers retain all six columns through local horizontal scrolling. */
+@media screen {
   .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head {
     margin-bottom: 0;
     border-bottom: 1px solid #d9dbe1;
     border-radius: 10px 10px 0 0;
   }
   .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span { padding: 2px 0 2px 16px; }
+  .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span:first-child { padding-left: 0; text-align: center; }
   .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-row-head span + span { border-left: 1px solid #ececf0; }
   .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table { display: block; }
   .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media #b-third-table .y-media-row {
@@ -427,6 +427,5 @@
  * ¥1280.00 visually even regardless of magnitude. */
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-value { display: flex; align-items: baseline; flex-wrap: wrap; }
 .publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-amount { font-variant-numeric: tabular-nums; display: inline-block; }
-.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-detail { grid-template-columns: 1fr; }
-.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-sort { margin-left: auto; font-size: 12px; color: #626872; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-price-sort select { font: inherit; color: inherit; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-catalogue-sort { margin-left: auto; font-size: 12px; color: #626872; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media .y-catalogue-sort select { font: inherit; color: inherit; }

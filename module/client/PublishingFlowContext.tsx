@@ -104,8 +104,8 @@ export function publishingTaskResumePath(
     const params = new URLSearchParams();
     const saved = state?.values.mediaFilters;
     if (saved && typeof saved === "object" && !Array.isArray(saved)) {
-      // DEFAULT_MEDIA_FILTERS includes normalized coverage/platform dimensions
-      // and legacy exact constraints. Restore both without inferring aliases.
+      // Restore normalized dimensions and specific legacy constraints; the
+      // route reader merges old nationwide/unrestricted coverage choices.
       // mediaIds belongs to the current account's request scope, never to saved task filters.
       for (const key of [...Object.keys(DEFAULT_MEDIA_FILTERS), "searchScope"]) {
         const value = (saved as Record<string, unknown>)[key];
