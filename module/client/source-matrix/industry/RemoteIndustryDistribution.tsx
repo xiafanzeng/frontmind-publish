@@ -2,9 +2,9 @@ import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react
 import type { IndustryCommonQuery, IndustryFailure, IndustryFilters, IndustryPeriod, IndustryScopeNode } from '../../../contracts/industry-source';
 import { usePublisherGateway } from '../../PublishingContext';
 import { usePublishingWorkspaceKey } from '../../host';
-import { safeSourceUrl } from './distribution';
+import { IndustryCitationSources } from './IndustryCitationSources';
 import { integerText, ratioText, totalOf } from './industry-source-client';
-import { defaultSelection, industryStoreFor, type ContentSelection, type IndustrySourceStore, type ListKind } from './industry-source-store';
+import { defaultSelection, industryStoreFor, type ContentSelection, type IndustrySourceStore } from './industry-source-store';
 import './industry-distribution.css';
 
 type ScopeOption = { value: string; label: string };
@@ -73,7 +73,7 @@ export function RemoteIndustryDistribution() {
 export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
   const id = useId(), state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [draft, setDraft] = useState<IndustryCommonQuery>({ periodType: 'MONTH', scopeType: 'ALL', modelCode: 'all' });
-  const [formError, setFormError] = useState(''), [typeDraft, setTypeDraft] = useState(''), [sortDraft, setSortDraft] = useState('citationCount:desc');
+  const [formError, setFormError] = useState('');
   const filters = state.filters.data, options = useMemo(() => scopes(filters?.industryTree ?? []), [filters]);
   useEffect(() => { store.start(readIndustryView); }, [store]);
   useEffect(() => { if (!state.common && filters?.maxDate) setDraft({ periodType: 'MONTH', date: filters.maxDate.slice(0, 7) + '-01', scopeType: 'ALL', modelCode: 'all' }); }, [store, filters, state.common]);
@@ -82,7 +82,6 @@ export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
       setDraft(state.common); saveIndustryView(state.common, state.selection);
     }
   }, [store, state.common, state.selection]);
-  useEffect(() => { setTypeDraft(state.selection.sourceType); setSortDraft(`${state.selection.sortBy}:${state.selection.sortOrder}`); }, [store, state.selection]);
   useEffect(() => {
     const restore = () => { const currentFilters = store.getSnapshot().filters.data; if (currentFilters?.maxDate) { const restored = readIndustryView(currentFilters); store.apply(restored.common, restored.selection); } };
     window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore);
@@ -97,9 +96,7 @@ export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
     const common: IndustryCommonQuery = { periodType: draft.periodType, ...(draft.periodType !== 'ALL' ? { date: normalizeDate(draft.periodType, draft.date!) } : {}), scopeType: draft.scopeId ? 'CATEGORY' : 'ALL', ...(draft.scopeId ? { scopeId: draft.scopeId } : {}), modelCode: draft.modelCode };
     store.apply(common, defaultSelection);
   };
-  const select = (media: string) => store.selectContent({ ...state.selection, media });
   const panelMessage = !ready ? state.filters.loading ? '正在读取筛选项…' : filters ? '暂无可选执行日期' : '行业信源尚未就绪' : '暂无匹配数据';
-  const media = state.media.data, contents = state.contents.data;
   const distribution = !state.distributions.error && !state.distributions.loading ? state.distributions.data : null;
   const typeSlices = distribution?.sourceTypeDistribution.map(item => ({ code: item.code, name: item.name, count: item.citationCount })) ?? null;
   const timeSlices = distribution ? [
@@ -107,14 +104,6 @@ export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
     ...distribution.publishTimeDistribution.filter(item => !TIME_BUCKETS.some(([code]) => code === item.code)).map(item => ({ code: item.code, name: item.name, count: item.contentCount })),
   ] : null;
   const chartMessage = state.distributions.loading ? '正在读取分布…' : state.distributions.error ? '分布读取失败' : panelMessage;
-  const pageControls = (kind: ListKind) => {
-    const lane = state[kind];
-    return <nav className="sm-industry-pagination" aria-label={kind === 'media' ? '媒体排行分页' : '引用内容分页'}>
-      <span>{lane.data ? `已加载 ${lane.data.items.length} / ${integerText(lane.data.total)} 项` : '数量尚未取得'}</span>
-      <label>每页<select aria-label={kind === 'media' ? '媒体每页数量' : '内容每页数量'} disabled={!ready || blocked || lane.loading} value={kind === 'media' ? state.mediaSize : state.contentSize} onChange={event => store.setPageSize(kind, Number(event.target.value))}>{[10, 20, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
-      <button type="button" className="button secondary" disabled={!lane.data || lane.data.nextCursor === null || lane.loading || Boolean(lane.error) || blocked} onClick={() => store.more(kind)}>{lane.loading ? '正在读取…' : lane.data?.nextCursor === null ? '已到末尾' : '加载更多'}</button>
-    </nav>;
-  };
 
   return <div className="sm-industry sm-industry-remote" aria-busy={state.filters.loading}>
     <form className="sm-industry-filters" noValidate onSubmit={event => { event.preventDefault(); apply(); }}>
@@ -128,21 +117,7 @@ export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
     </form>
     <p className="sm-industry-caption">公共行业信源 · {commonLabel}。按周为周一至周日，按月为自然月。每次新的媒体或内容查询（含翻页、空结果）使用一次共享查询额度。</p>
     {(state.filters.loading || !ready || blocked) && <div className="sm-industry-notice" role={state.filters.error && state.filters.error.status !== 'configuration_required' || blocked && state.blocked?.status !== 'configuration_required' ? 'alert' : 'status'}><div><strong>{state.filters.loading ? '正在读取行业筛选项…' : state.blocked?.message ?? state.filters.error?.message ?? '当前尚无可选执行日期，暂不查询行业数据。'}</strong>{blocked && <p>请先处理连接、权限或额度问题，再重新检查连接；检查本身不会查询媒体和内容列表。</p>}{state.filters.error && state.filters.error.status !== state.blocked?.status && <p>连接检查：{state.filters.error.message}</p>}</div>{!state.filters.loading && <button type="button" className="button secondary" onClick={() => void store.checkAccess()}>重新检查连接</button>}{state.blocked?.status === 'quota_exhausted' && filters?.maxDate && <button type="button" className="button secondary" disabled={busy} onClick={() => store.resumeAfterResolution()}>额度恢复后重新查询</button>}</div>}
-    <section className="sm-industry-card" aria-labelledby={`${id}-sources`}><header className="sm-industry-card-heading"><h2 id={`${id}-sources`}>引用信源</h2><p>行业引用来源不代表可购买媒体；可发布资源与报价仍由现有媒体库确认。</p></header>
-      <div className="sm-industry-sources"><aside className="sm-industry-ranking" aria-label="媒体引用排行" aria-busy={state.media.loading}><div className="sm-industry-ranking-heading"><h3>媒体排行</h3><button type="button" className="link small" disabled={!state.selection.media || blocked || state.contents.loading} onClick={() => select('')}>全部媒体</button></div>
-        <FailureNotice error={state.media.error} retry={() => store.retry('media')} restart={() => store.restart('media')}/>
-        {media && <p className="sm-industry-caption">共 {integerText(media.totalCitations)} 次引用 · 获取于 {when(state.media.fetchedAt)}{state.media.error ? '（保留上次结果，本次读取失败）' : ''}</p>}
-        {media?.items.length ? <ol>{media.items.map((item, index) => <li key={item.code}><button type="button" disabled={blocked || state.contents.loading} aria-pressed={state.selection.media === item.code} onClick={() => select(state.selection.media === item.code ? '' : item.code)}><span className="sm-industry-rank">{index + 1}</span><span className="sm-industry-media"><strong>{item.name}</strong></span><span className="sm-industry-rank-count"><strong>{integerText(item.citationCount)}</strong><small>次引用</small></span></button></li>)}</ol> : <div className="sm-industry-panel-empty"><strong>{state.media.loading ? '正在读取媒体排行…' : state.media.error ? '媒体排行暂不可用' : panelMessage}</strong></div>}{pageControls('media')}
-      </aside><div className="sm-industry-content" aria-busy={state.contents.loading}><header className="sm-industry-content-heading"><div><h3>内容明细 - {state.selection.media || '全部媒体'}</h3></div>{state.selection.media && <button type="button" className="link small" disabled={blocked || state.contents.loading} onClick={() => select('')}>返回全部媒体</button>}</header>
-        <form className="sm-remote-content-filters" noValidate onSubmit={event => { event.preventDefault(); const [sortBy, sortOrder] = sortDraft.split(':') as [ContentSelection['sortBy'], ContentSelection['sortOrder']]; store.selectContent({ ...state.selection, sourceType: typeDraft, sortBy, sortOrder }); }}>
-          <label htmlFor={`${id}-type`}>信源类型<select id={`${id}-type`} disabled={!ready || blocked} value={typeDraft} onChange={event => setTypeDraft(event.target.value)}><option value="">全部类型</option>{filters?.sourceTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-          <label htmlFor={`${id}-sort`}>排序<select id={`${id}-sort`} disabled={!ready || blocked} value={sortDraft} onChange={event => setSortDraft(event.target.value)}><option value="citationCount:desc">引用次数从多到少</option><option value="citationCount:asc">引用次数从少到多</option><option value="publishTime:desc">发布时间从新到旧</option><option value="publishTime:asc">发布时间从旧到新</option></select></label><button type="submit" className="button secondary" disabled={!ready || blocked || state.contents.loading}>应用内容筛选</button>
-        </form>
-        <FailureNotice error={state.contents.error} retry={() => store.retry('contents')} restart={() => store.restart('contents')}/>
-        {contents && <p className="sm-industry-caption">当前内容范围共 {integerText(contents.totalCitations)} 次引用 · 获取于 {when(state.contents.fetchedAt)}{state.contents.error ? '（保留上次结果，本次读取失败）' : ''}</p>}
-        <div className="sm-industry-table-wrap"><table><caption className="sr">公共行业引用内容；占比使用当前内容筛选的总引用次数。打开链接将前往原内容。</caption><thead><tr><th scope="col">序号</th><th scope="col">内容标题 / 原文</th><th scope="col">媒体名称</th><th scope="col">媒体类型</th><th scope="col" aria-sort={state.selection.sortBy === 'citationCount' ? state.selection.sortOrder === 'asc' ? 'ascending' : 'descending' : 'none'}>引用次数</th><th scope="col">引用占比</th></tr></thead><tbody>{contents?.items.length ? contents.items.map(item => <tr key={item.linkId}><td>{integerText(item.sequence)}</td><td>{safeSourceUrl(item.url) ? <a className="sm-industry-title" href={safeSourceUrl(item.url)} target="_blank" rel="noopener noreferrer">{item.title || item.linkId}<span aria-label="在新窗口打开原文"> ↗</span></a> : <strong className="sm-industry-title">{item.title || item.linkId}</strong>}<span className="sm-industry-content-status">发布时间：{item.publishTime ?? '未知'}</span>{!item.url && <span className="sm-industry-content-status">原文链接未提供</span>}</td><td>{item.media}</td><td>{item.sourceType}</td><td>{integerText(item.citationCount)}</td><td>{item.citationRatio}%</td></tr>) : <tr><td colSpan={6}><div className="sm-industry-panel-empty" role="status"><strong>{state.contents.loading ? '正在读取内容明细…' : state.contents.error ? '内容明细暂不可用' : contents ? '当前筛选暂无内容' : panelMessage}</strong></div></td></tr>}</tbody></table></div>{pageControls('contents')}
-      </div></div>
-    </section>
+    <IndustryCitationSources id={id} store={store} state={state} ready={ready} commonLabel={commonLabel} panelMessage={panelMessage}/>
     <section className="sm-industry-card sm-industry-distribution-section" aria-labelledby={`${id}-distribution`}><header className="sm-industry-card-heading"><h2 id={`${id}-distribution`}>信源分布</h2><p>范围：{commonLabel}。不随内容的媒体、类型或排序变化；各图使用各自统计分母。</p></header><FailureNotice error={state.distributions.error} retry={() => void store.retryDistributions()}/><div className="sm-industry-distributions"><section className="sm-industry-card"><header className="sm-industry-card-heading"><h3>类型分布</h3></header><SourceDonut title="媒体类型分布" slices={typeSlices} unit="次引用" pending={chartMessage}/></section><section className="sm-industry-card"><header className="sm-industry-card-heading"><h3>时间分布</h3></header><SourceDonut title="内容发布时间分布" slices={timeSlices} unit="项内容" pending={chartMessage}/></section></div><p className="sm-industry-chart-note">发布时间区间相对于数据源当前时间计算，未知包含缺失或未来日期。获取于 {when(state.distributions.fetchedAt)}；源端统计存在缓存，不保证实时更新。</p></section>
   </div>;
 }

@@ -140,3 +140,75 @@
   .fm-media .sm-industry-remote .sm-industry-filters label>input,.fm-media .sm-industry-remote .sm-industry-filters label>select{width:100%;min-width:0}
   .fm-media .sm-industry-remote .sm-industry-notice{align-items:flex-start;flex-wrap:wrap}
 }
+
+/* Reference-matched citation cards only. No changes to the imported-data view or charts. */
+.fm-media .sm-industry-remote .sm-citation{
+  --citation-accent:#4338ff;
+  --citation-spinner:#6259ee;
+  --citation-track:#d3cffb;
+  --citation-ink:#202536;
+  --citation-muted:#7d889e;
+  --citation-line:#e3e7ef;
+  --citation-heading:#fafbfe;
+  --citation-error:#944955;
+  --citation-error-line:#eac8ce;
+  --citation-body-height:clamp(360px,34vw,520px);
+  container:industry-citations / inline-size;
+  background:#fff;border-color:var(--citation-line);border-radius:16px;padding:0 18px 18px;overflow:visible;
+}
+.fm-media .sm-citation-heading{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:72px;padding:16px 2px 18px}
+.fm-media .sm-citation-heading h2{display:flex;align-items:center;gap:12px;font-size:18px;font-weight:700;line-height:1.5;color:var(--citation-ink)}
+.fm-media .sm-citation-heading h2 svg{flex:none;color:var(--citation-accent)}
+.fm-media .sm-citation-actions{display:flex;align-items:center;gap:12px;flex:none}
+.fm-media .sm-citation .button.sm-citation-export{width:64px;min-height:38px;padding:6px 12px;border:1px solid #dce1eb;border-radius:11px;background:#fff;color:#3d455a;font-size:14px;font-weight:650;box-shadow:none;white-space:nowrap}
+.fm-media .sm-citation .sm-citation-export:disabled{opacity:1;color:#8590a3;cursor:not-allowed}
+.fm-media .sm-citation .sm-citation-export:hover:not(:disabled){background:var(--citation-heading);border-color:#bcc4d3}
+.fm-media .sm-citation-export-error{position:absolute;z-index:5;top:calc(100% - 10px);right:0;max-width:min(440px,100%);display:flex;align-items:start;gap:12px;padding:12px 16px;background:#fff;border:1px solid var(--citation-error-line);border-radius:10px;box-shadow:0 4px 16px #20253614;color:var(--citation-error);font-size:13px;overflow-wrap:anywhere}
+.fm-media .sm-citation-export-error button{flex:none}
+.fm-media .sm-citation-panels{display:grid;grid-template-columns:minmax(0,29fr) minmax(0,71fr);gap:18px;align-items:stretch}
+.fm-media .sm-citation-panel{min-width:0;display:flex;flex-direction:column;border:1px solid var(--citation-line);border-radius:15px;overflow:hidden;background:#fff}
+.fm-media .sm-citation-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:14px 16px;border-bottom:1px solid var(--citation-line);background:var(--citation-heading)}
+.fm-media .sm-citation-panel-heading h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--citation-ink);font-size:16px;font-weight:700;line-height:1.5}
+.fm-media .sm-citation-panel-heading p{flex:none;margin:0;color:var(--citation-muted);font-size:13px;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fm-media .sm-citation-body{height:var(--citation-body-height);min-height:0;display:flex;flex-direction:column;flex:1 0 var(--citation-body-height)}
+.fm-media .sm-citation-state{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px 16px;text-align:center;color:var(--citation-muted);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.fm-media .sm-citation-state p{margin:0;font-weight:400}
+.fm-media .sm-citation-state.is-error{color:var(--citation-error)}
+.fm-media .sm-citation .button.sm-citation-retry{min-height:36px;padding:6px 12px;background:#fff;border:1px solid var(--citation-error-line);border-radius:8px;color:#b63d51;font-size:14px;font-weight:400;box-shadow:none}
+.fm-media .sm-citation .sm-citation-retry:hover:not(:disabled){background:#fff7f8;border-color:#d59ca7}
+.fm-media .sm-citation-spinner{display:block;flex:none;width:27px;height:27px;border:4px solid var(--citation-track);border-top-color:var(--citation-spinner);border-radius:50%;animation:sm-citation-rotate .8s linear infinite}
+@keyframes sm-citation-rotate{to{transform:rotate(360deg)}}
+.fm-media .sm-citation-toolbar{flex:none;padding:12px 14px 0;margin:0;gap:8px}
+.fm-media .sm-citation .sm-remote-content-filters label{font-size:12px;gap:4px}
+.fm-media .sm-citation .sm-remote-content-filters select{min-height:32px;padding:5px 8px}
+.fm-media .sm-citation .sm-remote-content-filters .button{min-height:32px;padding:5px 10px;white-space:nowrap}
+.fm-media .sm-citation-ranking{flex:1;min-height:0;list-style:none;margin:0;padding:10px;overflow:auto;scrollbar-gutter:stable}
+.fm-media .sm-citation-ranking li{margin:0;padding:0}
+.fm-media .sm-citation-ranking li>button{display:flex;align-items:start;gap:8px;width:100%;padding:10px 8px;text-align:left;background:transparent;border:1px solid transparent;border-radius:8px;color:inherit;font:inherit}
+.fm-media .sm-citation-ranking li>button:hover:not(:disabled){background:var(--selected,#eff4ff)}
+.fm-media .sm-citation-ranking li>button[aria-pressed=true]{background:var(--selected,#eff4ff);border-color:var(--citation-accent)}
+.fm-media .sm-citation-rank-count{flex:0 1 auto;max-width:40%;text-align:right;overflow-wrap:anywhere;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.fm-media .sm-citation .sm-citation-table{flex:1;min-height:0;max-height:none;margin-top:12px}
+.fm-media .sm-citation .sm-industry-pagination{flex:none;margin:0;padding:12px 14px;gap:8px;border-top:1px solid var(--citation-line)}
+.fm-media .sm-citation .sm-industry-pagination label{white-space:nowrap}
+.fm-media .sm-citation .sm-industry-pagination .button{min-height:32px;padding:5px 10px}
+/* Supply the shared dialog's existing style scope, outside the size-query container. */
+.fm-media .sm-citation-dialog-host,.fm-media .sm-citation-dialog-host>.publishing-page{display:contents}
+@container industry-citations (max-width:1100px){
+  .fm-media .sm-citation-panel-heading{min-height:76px;align-items:flex-start;justify-content:center;flex-direction:column;gap:4px}
+  .fm-media .sm-citation-panel-heading h3{max-width:100%}
+  .fm-media .sm-citation-panel-heading p{font-size:12px}
+}
+@container industry-citations (max-width:760px){
+  .fm-media .sm-citation-panels{grid-template-columns:minmax(0,1fr);gap:14px}
+  .fm-media .sm-citation-body{height:340px;flex-basis:340px}
+}
+@media(max-width:650px){
+  .fm-media .sm-industry-remote .sm-citation{padding:0 12px 12px}
+  .fm-media .sm-citation-heading{gap:10px;min-height:68px}
+  .fm-media .sm-citation-heading h2{gap:8px;font-size:17px}
+  .fm-media .sm-citation-actions{gap:6px}
+  .fm-media .sm-citation-panels{grid-template-columns:minmax(0,1fr)}
+  .fm-media .sm-citation-panel-heading p{white-space:normal;overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:reduce){.fm-media .sm-citation-spinner{animation:none}}
