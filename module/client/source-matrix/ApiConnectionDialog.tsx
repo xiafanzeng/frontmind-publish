@@ -64,7 +64,7 @@ export function ApiConnectionDialog({open,onClose,onChange}:{open:boolean;onClos
   const automatic=connection?`${providerLabels[connection.provider]} · ${connection.model}`:'';
   setProvider(connection?.provider??'openai');setName(connection?.name===automatic.slice(0,100)?'':connection?.name??'');setModel(connection?.model??'');
   setApiKey('');setShowKey(false);setRegion(connection?.region??'cn-beijing');setWorkspace(connection?.workspace??'');setAzureEndpoint(connection?.azureEndpoint??'');
-  setQuery(emptyQuery());setSearch('');setManual(!!connection||isAzure(connection?.provider??'openai'));setTested(null);setInvalid(null);setConfirmRemove(false);
+  setQuery(emptyQuery());setSearch('');const savedProvider=connection?.provider??'openai';setManual(!!connection||isAzure(savedProvider));setTested(null);setInvalid(null);setConfirmRemove(false);
  }
  async function readState(){
   if(!active.current||writing.current)return;
@@ -199,7 +199,7 @@ export function ApiConnectionDialog({open,onClose,onChange}:{open:boolean;onClos
      <div className="sm-api-model-heading"><span>{azure?'模型目录与部署':'模型'}</span><button ref={queryButton} className="button secondary" type="button" disabled={!apiKey.trim()||querying||testing} aria-busy={querying} onClick={()=>void fetchModels()}>获取模型列表</button></div>
      <div className="sm-api-model-feedback" aria-live="polite">
       {!apiKey.trim()?<p>请先填写 API Key 并获取模型列表</p>:querying?<p role="status">正在查询模型列表…</p>:query.status==='error'?<p className="sm-api-inline-error" role="alert">{query.message}</p>:query.status==='empty'?<p role="status">查询成功，当前目录没有返回模型。可重试或手动输入模型 ID。</p>:query.status==='manual'?<p role="status">{query.message||'此服务商暂不支持模型目录查询，请手动输入模型 ID 并测试。'}</p>:query.status==='catalog'?<p role="status">{query.message} 模型目录不代表已部署；请从 Azure 控制台复制实际部署名称并测试。</p>:query.status==='listed'?<p role="status">已获取 {query.models.length} 个模型，选择后仍需测试调用权限。{query.message}</p>:<p>{azure?'可查询模型目录作参考；请填写实际部署名称。':'点击获取模型列表，再选择需要使用的模型。'}</p>}
-      {query.truncated&&<p>仅展示本次目录返回的前 {query.models.length} 项；其他{azure?'部署名称':'模型 ID'}可手动填写。</p>}
+      {query.truncated&&<p>仅展示本次目录返回的前 {query.models.length} 项；其他{azure?'部署名称':'模型 ID '}可手动填写。</p>}
      </div>
      {query.status==='catalog'&&query.models.length>0&&<details className="sm-api-catalog"><summary>查看模型目录（仅供参考）</summary><ul>{query.models.map(id=><li key={id}>{id}</li>)}</ul></details>}
      {selectable&&!manual?<>

@@ -185,7 +185,7 @@ it('preserves the saved connection on test failure and clears credentials after 
  const notify=vi.fn();const fetcher=mockService({connection:existing,mode:'user',available:true},()=>response({message:'当前模型无调用权限'},false));
  await openReady(notify);key();await manualModel();fireEvent.click(screen.getByRole('button',{name:'测试连接'}));await screen.findByText('当前模型无调用权限');
  expect(notify).toHaveBeenLastCalledWith(existing);expect(postCalls(fetcher,'/save')).toHaveLength(0);
- fireEvent.click(screen.getByRole('button',{name:'关闭',exact:true}));fireEvent.click(screen.getByRole('button',{name:'打开连接设置'}));
+ fireEvent.click(screen.getByRole('button',{name:'关闭'}));fireEvent.click(screen.getByRole('button',{name:'打开连接设置'}));
  await waitFor(()=>expect((screen.getByLabelText('服务商') as HTMLSelectElement).closest('fieldset')?.disabled).toBe(false));
  expect((screen.getByLabelText('API Key') as HTMLInputElement).value).toBe('');expect((screen.getByLabelText('连接备注（选填）') as HTMLInputElement).value).toBe(existing.name);
  expect((screen.getByLabelText('模型 ID') as HTMLInputElement).value).toBe(existing.model);
@@ -214,7 +214,7 @@ it('reconciles a dispatched save after close and locks a reopened dialog until t
  });vi.stubGlobal('fetch',fetcher);const notify=vi.fn();await openReady(notify);key();await manualModel();await testReady();
  fireEvent.click(screen.getByRole('button',{name:'保存已测试连接'}));
  const signal=fetcher.mock.calls.find(([path])=>String(path).endsWith('/save'))?.[1]?.signal;
- fireEvent.click(screen.getByRole('button',{name:'关闭',exact:true}));expect(signal?.aborted).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'关闭'}));expect(signal?.aborted).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'打开连接设置'}));
  expect((screen.getByRole('button',{name:'测试连接'}) as HTMLButtonElement).disabled).toBe(true);
  stored={connection:saved,mode:'user',available:true};
@@ -265,7 +265,7 @@ it('restores an automatic name as an empty remark so a changed model receives a 
 it('ignores an old directory after close/reopen and never carries its Key into the new session',async()=>{
  const pending=deferred<ReturnType<typeof response>>();mockService(noConnection,()=>pending.promise);await openReady();
  key();fireEvent.click(screen.getByRole('button',{name:'获取模型列表'}));
- fireEvent.click(screen.getByRole('button',{name:'关闭',exact:true}));fireEvent.click(screen.getByRole('button',{name:'打开连接设置'}));
+ fireEvent.click(screen.getByRole('button',{name:'关闭'}));fireEvent.click(screen.getByRole('button',{name:'打开连接设置'}));
  await waitFor(()=>expect((screen.getByLabelText('服务商') as HTMLSelectElement).closest('fieldset')?.disabled).toBe(false));
  await act(async()=>pending.resolve(response({mode:'listed',models:['obsolete-model'],message:'',truncated:false})));
  expect(screen.queryByRole('option',{name:'obsolete-model'})).toBeNull();expect((screen.getByLabelText('API Key') as HTMLInputElement).value).toBe('');
