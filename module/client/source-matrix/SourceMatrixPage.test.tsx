@@ -14,10 +14,11 @@ HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', 
 HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
 
 const mediaGateway=vi.hoisted(()=>({listMedia:vi.fn(),getDraft:vi.fn(),getArticleVersion:vi.fn(),createDraft:vi.fn(),updateDraftMedia:vi.fn()}));
-vi.mock('../PublishingContext',()=>({usePublisherGateway:()=>mediaGateway}));
+const gatewayIdentity=vi.hoisted(()=>({current:null as object|null}));
+vi.mock('../PublishingContext',()=>({usePublisherGateway:()=>gatewayIdentity.current??mediaGateway}));
 vi.mock('./industry/IndustryDistribution',()=>({LiveIndustryDistribution:()=> <div>真实行业分布</div>}));
-beforeEach(()=>{Object.values(mediaGateway).forEach(mock=>mock.mockReset());vi.stubGlobal('crypto',webcrypto);});
-afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
+beforeEach(()=>{Object.values(mediaGateway).forEach(mock=>mock.mockReset());gatewayIdentity.current={...mediaGateway};sessionStorage.clear();vi.stubGlobal('crypto',webcrypto);});
+afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
 it('defaults to real industry distribution and exposes only the two canonical tabs',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?draftId=draft-1&articleVersion=version-1#range');
  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({industries:[]})})));
@@ -69,10 +70,11 @@ it('renders structured stale results without replacing or reading nonexistent ma
 
 const media:MediaResource={id:'media-1',externalResourceId:'external-1',name:'可投媒体',shortName:'可投',kind:'news',platform:'新闻',taxonomy:'',mediaType:'',channel:'',region:'',titleLimit:200,priceTenThousandths:'1000000',turnaround:'',active:true,capability:'image',catalogRevision:'catalog-1',logoSource:'generated_fallback',logoResolutionStatus:'missing'};
 function draft(id='draft-1',revision=1,items:MediaResource[]=[]):PublicationDraft{return {id,revision,articleId:'article-1',articleVersionId:'version-1',articleTitle:'当前稿件',articleVersion:1,articleVersionHash:'hash-1',articleContainsImages:false,titleMode:'per_media',items:items.map(media=>({media,title:'当前稿件'})),updatedAt:'2026-10-24T00:00:00Z'};}
-const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:'industry',auxiliary_roles:[],selection:'recommended',matched_questions:[],reason_summary:'已核验行业相关',channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[{role:'industry',display_name:'行业核心',status:'populated',candidate_ids:['candidate-1'],auxiliary_candidate_ids:[]}],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
+const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{binding:{draft_id:'draft-1',article_id:'article-1',article_version_id:'version-1',version_number:1,content_hash:'hash-1',article_title:'当前稿件',fingerprint:'fixture-binding-1'}},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:'industry',auxiliary_roles:[],selection:'recommended',matched_questions:[],reason_summary:'已核验行业相关',channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[{role:'industry',display_name:'行业核心',status:'populated',candidate_ids:['candidate-1'],auxiliary_candidate_ids:[]}],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
 function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
+  if(url.includes('/matrix/identify/context')){const versionId=new URL(url,window.location.origin).searchParams.get('article_version_id')??'version-1';return {ok:true,json:async()=>({status:'not_configured',context:{scopeKey:'authorized-test-project',articleId:'article-1',articleVersionId:versionId,versionNumber:1,title:'当前稿件',contentDigest:'digest-'+versionId,connection:{available:false,mode:'environment',revision:'fixture-identification-unavailable'}},fields:{product:{value:null,source:'unidentified'},industry:{value:null,source:'unidentified'},audience:{value:null,source:'unidentified'},questions:{value:null,source:'unidentified'}}})};}
   return {ok:true,json:async()=>url.includes('/industries')?{industries:[]}:url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
  }));
  mediaGateway.listMedia.mockResolvedValue({items:[media],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
@@ -308,7 +310,7 @@ it('retains the complete matrix across budget-only responses and invalidates pla
  liveDirectory();
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
- const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   if(String(input).endsWith('/budget'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,matrix:{...matrix.matrix,candidates:[{...matrix.matrix.candidates[0],reason_summary:'不得覆盖原矩阵的预算理由'}]},budget_plans:[offerPlan]}})};
@@ -485,7 +487,7 @@ it('applies a server-verified budget plan into the shared cart with preview, ref
  const applyDiff={status:'ok',task_id:'matrix-1',plan_index:0,draft:{id:'draft-1',revision:2},additions:[{mediaResourceId:'media-1',name:'可投媒体',externalResourceId:'external-1',priceTenThousandths:'1000000',totalPriceTenThousandths:'1000000',quantity:1,offerId:'quote-1',publicationSpec:null,purpose:'standard',reason:'命中目标问题'}],alreadySelected:[],skipped:[],overLimit:false,mergedCount:1,knownTotalTenThousandths:'1000000',pendingPriced:0};
  const applyBodies:unknown[]=[];
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
- const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
@@ -519,7 +521,7 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  liveDirectory();
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'200.00',total_remaining:'100.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
- const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
@@ -541,12 +543,12 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  expect(mediaGateway.getDraft).toHaveBeenCalledTimes(2);
 }, 60000);
 
-it('one click generates the matrix then automatically the budget combination with the editable demo budget',async()=>{
+it('one click generates the matrix then automatically the budget combination with an explicitly entered budget and brand dataset',async()=>{
  liveDirectory();
  const budgetBodies:unknown[]=[];
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'3000.00',total_remaining:'2900.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
- const echoedTask={...matrix,scope:{...matrix.scope,task:{industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
@@ -558,10 +560,14 @@ it('one click generates the matrix then automatically the budget combination wit
  });
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&articleVersion=version-1');
  render(<div className="monitoring-module"><SourceMatrixPage view="matrix"/></div>);
+ await screen.findByText('AI 识别暂未配置，可先手动填写。');
+ await screen.findByRole('option',{name:'软件测试'});
  fireEvent.change(await screen.findByLabelText('目标行业 *'),{target:{value:'industry-1'}});
  fireEvent.change(await screen.findByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
+ fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d'}});
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'3000'}});
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
- // 一次点击后自动串联：预算请求以同一矩阵快照和可编辑示例预算 3000 发出
+ // 一次点击后自动串联：预算请求以同一矩阵快照和用户明确填写的预算 3000 发出
  await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1));
  expect(budgetBodies[0]).toMatchObject({plan_id:'plan-1',plan_version:'plan-version-1',budget:{total_cap:'3000',currency:'CNY'}});
  await screen.findByRole('heading',{name:'保守覆盖'});

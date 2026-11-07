@@ -1,0 +1,25 @@
+.fm-media .confirmed-article-header { display:flex; align-items:flex-start; flex-wrap:wrap; gap:12px; min-width:0; margin-bottom:14px; }
+.fm-media .confirmed-article-main { flex:1 1 280px; min-width:0; }
+.fm-media .confirmed-article-trigger,
+.fm-media .confirmed-article-batch > summary { display:flex; align-items:center; gap:12px; width:100%; min-width:0; min-height:40px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:var(--surface,#fff); font:inherit; text-align:left; cursor:pointer; }
+.fm-media .confirmed-article-trigger > strong,
+.fm-media .confirmed-article-batch > summary > strong { flex:0 0 auto; }
+.fm-media .confirmed-article-trigger > span:first-of-type,
+.fm-media .confirmed-article-batch > summary > span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fm-media .confirmed-article-trigger:disabled { opacity:.6; cursor:wait; }
+.fm-media .confirmed-article-trigger:focus-visible,
+.fm-media .confirmed-article-batch > summary:focus-visible { outline:2px solid var(--brand); outline-offset:3px; }
+.fm-media .confirmed-article-edit { flex:0 0 auto; margin-left:auto; white-space:normal; }
+.fm-media .confirmed-article-edit[aria-disabled="true"] { opacity:.6; cursor:wait; }
+.fm-media .confirmed-article-batch ul { display:grid; gap:10px; list-style:none; margin:10px 0 0; padding:12px; border:1px solid var(--line); border-radius:10px; }
+.fm-media .confirmed-article-batch li { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 14px; min-width:0; }
+.fm-media .confirmed-article-batch li strong,
+.fm-media .confirmed-article-full-title { overflow-wrap:anywhere; }
+.fm-media .confirmed-article-batch li small { color:var(--muted); }
+.fm-media .confirmed-article-feedback { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-top:8px; font-size:13px; }
+.fm-media .confirmed-article-versions { min-width:0; }
+.fm-media .confirmed-article-versions select { width:100%; min-width:0; }
+@media(max-width:600px) {
+  .fm-media .confirmed-article-main { flex-basis:100%; }
+  .fm-media .confirmed-article-edit { margin-left:0; }
+}

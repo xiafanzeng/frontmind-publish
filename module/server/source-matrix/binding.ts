@@ -61,6 +61,12 @@ export interface ExistingDraftItem {
 
 export type BindingFailure = 'draft_not_found' | 'version_not_found' | 'draft_version_mismatch';
 
+/** Identification never reads working-copy text or assumes nonexistent metadata columns. */
+export interface IdentificationArticle {
+  articleVersionId: string; articleId: string; versionNumber: number;
+  title: string; body: string; contentHash: string;
+}
+
 /** The version identity the planner uses for manuscript and item keys. */
 export const bindingVersionKey = (binding: Pick<TrustedArticleBinding, 'versionNumber'>) => 'v' + binding.versionNumber;
 
@@ -198,6 +204,26 @@ export function resolvePlanItems(
 
 export class BindingStore {
   constructor(private db: MySql2Database<any>, readonly ctx: BindingOwnerContext) {}
+
+  async loadIdentificationArticle(input: { articleVersionId: string; draftId?: string }): Promise<{ article?: IdentificationArticle; failure?: BindingFailure }> {
+    if (input.draftId) {
+      const draft = await this.loadDraft(input.draftId);
+      if (!draft) return { failure: 'draft_not_found' };
+      if (draft.articleVersionId !== input.articleVersionId) return { failure: 'draft_version_mismatch' };
+    }
+    // Both parent and frozen version must remain inside the authenticated scope.
+    // The schema has no frozen title column: working_name is the real current
+    // article name, included in the identification digest, never a frozen title claim.
+    const rows = await this.rows(sql`select v.id, v.article_id, v.version, v.content_hash, v.plain_text, a.working_name
+      from publisher_article_versions v join publisher_articles a on a.id = v.article_id and a.owner_id = v.owner_id
+      where v.id = ${input.articleVersionId} and v.owner_id = ${this.ctx.ownerId}
+        and (v.enterprise_project_id is null or v.enterprise_project_id = ${this.ctx.enterpriseProjectId})
+        and (a.enterprise_project_id is null or a.enterprise_project_id = ${this.ctx.enterpriseProjectId}) limit 1`);
+    const row = rows[0];
+    if (!row) return { failure: 'version_not_found' };
+    if (typeof row.plain_text !== 'string' || typeof row.working_name !== 'string' || !Number.isSafeInteger(Number(row.version)) || Number(row.version) < 1) throw new Error('invalid_article_content');
+    return { article: { articleVersionId: String(row.id), articleId: String(row.article_id), versionNumber: Number(row.version), title: row.working_name, body: row.plain_text, contentHash: String(row.content_hash) } };
+  }
 
   async loadPlannerCatalog() { return loadPlannerCatalog(this.db,this.ctx.ownerId,this.ctx.enterpriseProjectId); }
 
