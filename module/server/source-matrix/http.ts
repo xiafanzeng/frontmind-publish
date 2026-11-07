@@ -10,6 +10,8 @@ import { MatrixRepository } from './repository.js';
 import { loadConfirmedResearch,augmentResearchRequest } from './research-import-core.js';
 import { resolvePlatformDecisionAdapter } from './ai-connection-http.js';
 import { loadMatrixIndustryContext } from './matrix-industry-context.js';
+import { loadIndustryCatalog } from './industry-catalog.js';
+import { mapLegacyIndustries } from '../../shared/industry-catalog.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
 import { prepareExportResearch,researchCatalog } from './export-research.js';
@@ -65,8 +67,23 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  });
  mountArticleIdentificationRoutes(router,core);
  router.get('/industries',wrap(async(req,res)=>{
-  const repo=await repository(req),items=await repo.industries();res.json({status:items.length?'configured':'configuration_required',industries:items,brand_data_batches:[...BRAND_DATA_BATCHES.map(({id,label,version,sourceFile,recordCount,period,models})=>({id,label,version,sourceFile,recordCount,period,models})),...await repo.brandBatches()],message:items.length?null:'行业数据尚未配置，请联系运营接入真实行业、媒体与报价'});
+
+  const catalog=await loadIndustryCatalog(core,req);
+
+  if(catalog.status!=='ok'){res.status(catalog.httpStatus).json(catalog);return;}
+
+  // Canonical choice availability is independent of local recommendation storage.
+
+  let local:Awaited<ReturnType<MatrixRepository['industryMappings']>>=[],batches:Row[]=[];
+
+  let localUnavailable=false;
+
+  try { const repo=await repository(req); [local,batches]=await Promise.all([repo.industryMappings(),repo.brandBatches()]); } catch { localUnavailable=true; }
+
+  res.json({status:catalog.data.industries.length?'configured':'configuration_required',...catalog.data,legacyMappings:mapLegacyIndustries(local,catalog.data.industries),brand_data_batches:[...BRAND_DATA_BATCHES.map(({id,label,version,sourceFile,recordCount,period,models})=>({id,label,version,sourceFile,recordCount,period,models})),...batches],message:localUnavailable?'行业目录可用；本地推荐数据暂不可用。':catalog.data.industries.length?null:'真实行业目录为空，请联系管理员。'});
+
  }));
+
  router.get('/source-distribution',wrap(async(req,res)=>{
   const repo=await repository(req),view=await repo.sourceDistribution();
   if(['invalid_data','data_limit_exceeded'].includes(view.status))console.warn('source_matrix_distribution_unavailable',{reason:view.status});
@@ -74,8 +91,19 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  }));
  router.post('/matrix/generate',wrap(async(req,res)=>{
   const parsed=start.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
-  const body=parsed.data,repo=await repository(req),industry=await repo.industry(body.industry_id);
-  if(!industry){res.status(409).json({status:'configuration_required',message:'所选行业未配置或无权访问'});return;}
+  const body=parsed.data,repo=await repository(req),catalog=await loadIndustryCatalog(core,req);
+  if(catalog.status!=='ok'){res.status(catalog.httpStatus).json(catalog);return;}
+  let local:Awaited<ReturnType<MatrixRepository['industryMappings']>>;
+  try{local=await repo.industryMappings();}catch{res.status(409).json({status:'data_unavailable',industry_id:body.industry_id,message:'本地推荐数据暂不可用，已保留所选行业，请稍后重试。'});return;}
+  const mappings=mapLegacyIndustries(local,catalog.data.industries);
+  const canonicalId=catalog.data.industries.some(item=>item.id===body.industry_id)?body.industry_id:mappings.find(item=>item.localId===body.industry_id)?.canonicalId;
+  const canonical=catalog.data.industries.find(item=>item.id===canonicalId);
+  if(!canonical){res.status(409).json({status:'invalid_industry',message:'所选行业无法映射到当前真实目录，请重新选择。'});return;}
+  const matches=mappings.filter(item=>item.canonicalId===canonical.id);
+  // Multiple local datasets for one category need an explicit operational choice;
+  // picking the first would silently select an unrelated brand/catalog.
+  const industry=matches.length===1?await repo.industry(matches[0]!.localId):undefined;
+  if(!industry){res.status(409).json({status:'data_unavailable',industry_id:canonical.id,message:'该行业推荐数据未接入或映射不唯一，请保留所选行业并联系运营接入真实媒体与报价。'});return;}
   // A browser can only name the draft/version; the server re-reads and verifies
   // both inside the authenticated owner and project scope before trusting them.
   let binding:TrustedArticleBinding|null=null,manuscripts:Row[]|undefined;
@@ -93,7 +121,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const researchDatasets=await loadConfirmedResearch(core,req,body.dataset_ids??[]);
   const decision=await resolvePlatformDecisionAdapter(core,req);
   if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
-  const taskId=randomUUID(),task:Row={industry_id:industry.industryId,industry:industry.name,...(manuscripts?{manuscripts}:{}),...(body.industry_query?{industry_query:clone(body.industry_query)}:{}),questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
+  const taskId=randomUUID(),task:Row={industry:canonical.name,industry_id:canonical.id,industry_catalog_version:catalog.data.catalogVersion,industry_dataset_id:industry.industryId,...(manuscripts?{manuscripts}:{}),...(body.industry_query?{industry_query:clone(body.industry_query)}:{}),questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
   task.private_actor=actor(req);task.research_datasets=researchDatasets;task.research_dataset_ids=(body.dataset_ids??[]);task.research_dataset_refs=researchDatasets.map(d=>({id:d.id,name:d.name,version:d.version,recordCount:d.records?.length??0,createdAt:d.createdAt,status:'confirmed'}));task.model_connection=null;task.model_source=decision.mode;task.progress='analyzing';
   if(binding)task.binding={draft_id:binding.draftId,article_version_id:binding.articleVersionId,article_id:binding.articleId,version_number:binding.versionNumber,content_hash:binding.contentHash,article_title:binding.articleTitle,fingerprint:binding.fingerprint,bound_at:body.as_of};
   // Brand sample rows are real recommendation input (never an industry-page fallback).
@@ -159,7 +187,42 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   await repo.save(task.taskId,result);
   })().catch(async()=>{await repo.save(task.taskId,{...precheck,limitations:[...precheck.limitations,'result_persistence_failed']}).catch(()=>undefined);});
  }));
- router.get('/classify/:taskId',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}res.json({task_id:task.taskId,state:task.state,progress:task.state==='running'?task.task.progress:undefined,result:task.state==='cancelled'?null:task.latest});}));
+ router.get('/classify/:taskId',wrap(async(req,res)=>{
+
+  const repo=await repository(req),task=await repo.get(String(req.params.taskId));
+
+  if(!task){res.status(404).json({status:'not_found'});return;}
+
+  const publicTask:Row={};
+
+  for(const key of ['industry','industry_id','industry_catalog_version','product','audience','questions','regions','hours','requirements','brand','binding','research_dataset_ids','research_dataset_refs','model_connection','model_source'])if(task.task?.[key]!==undefined)publicTask[key]=clone(task.task[key]);
+
+  const restored:Row={...publicTask,industry_dataset_id:task.industryId};
+
+  const catalog=await loadIndustryCatalog(core,req);
+
+  if(catalog.status==='ok'){
+
+   let mappings:ReturnType<typeof mapLegacyIndustries>=[];
+
+   try{mappings=mapLegacyIndustries(await repo.industryMappings(),catalog.data.industries);}catch{/* Historic tasks remain readable when local data is unavailable. */}
+
+   const mapping=mappings.find(item=>item.localId===task.industryId);
+
+   const canonical=catalog.data.industries.find(item=>item.id===(publicTask.industry_id??mapping?.canonicalId));
+
+   restored.industry_resolution=canonical?'mapped':mapping?.status??'unmapped';
+
+   if(canonical){restored.industry_id=canonical.id;restored.industry=canonical.name;restored.industry_catalog_version=catalog.data.catalogVersion;}
+
+  }else restored.industry_resolution='catalog_unavailable';
+
+  // Read-only compatibility projection; stored snapshots and their hashes stay immutable.
+
+  res.json({task_id:task.taskId,state:task.state,progress:task.state==='running'?task.task.progress:undefined,task:restored,result:task.state==='cancelled'?null:task.latest});
+
+ }));
+
  router.post(['/classify/:taskId/content-plan','/classify/:taskId/formal-plan'],wrap(async(req,res)=>{
   const parsed=editContent.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
   const body=parsed.data,repo=await repository(req),task=await repo.get(String(req.params.taskId));

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { identificationMessages, validateIdentificationFields, identifyWithinDeadline, identificationDigest } from './article-identification.js';
+import { identificationMessages, validateIdentificationFields, identifyWithinDeadline, identificationDigest, identificationCandidates } from './article-identification.js';
 import { createEnvDecisionAdapter } from './decisions.js';
 import { invokeAi } from './ai-connection-provider.js';
 
@@ -16,8 +16,8 @@ it('keeps valid fields while rejecting fabricated evidence and nonexistent indus
     questions: { value: ['如何管理库存？', '如何发现缺货？'], source: 'inferred' },
   } }, article, industries);
   expect(fields.product).toMatchObject({ value: '星河软件', source: 'article' });
-  expect(fields.industry).toEqual({ ...unknown, candidate: '零售服务' });
-  expect(fields.audience).toEqual(unknown);
+  expect(fields.industry).toMatchObject({ ...unknown, candidate: '零售服务', reason: 'industry_not_in_catalog' });
+  expect(fields.audience).toEqual({ value: '门店负责人', source: 'inferred', reason: 'evidence_not_verbatim' });
   expect(fields.questions).toEqual({ value: '如何管理库存？\n如何发现缺货？', source: 'inferred' });
 });
 
@@ -26,18 +26,20 @@ it('never treats unrelated verbatim evidence as support for an article fact', ()
     product: { value: '其他品牌', source: 'article', evidence: '门店负责人可以查看缺货情况。' },
     industry: { value: 'retail', source: 'article', evidence: '星河软件帮助零售企业管理库存。' },
   } }, article, industries);
-  expect(fields.product).toEqual(unknown);
-  expect(fields.industry).toEqual({ value: 'retail', source: 'article', evidence: '星河软件帮助零售企业管理库存。' });
+  expect(fields.product).toEqual({ ...unknown, reason: 'unsupported_product' });
+  expect(fields.industry).toMatchObject({ value: 'retail', source: 'article', evidence: '星河软件帮助零售企业管理库存。', canonicalId: 'retail' });
 });
 
-it('rejects illegal root structure and drops oversized or additional field data', () => {
+it('rejects illegal structure and oversized values while ignoring harmless extra keys', () => {
   expect(() => validateIdentificationFields({ media: [] }, article, industries)).toThrow('provider_invalid_response');
   const fields = validateIdentificationFields({ fields: {
     product: { value: 'x'.repeat(201), source: 'inferred' },
     audience: { value: '零售人员', source: 'inferred', price: 0 },
     questions: { value: '如何选型', source: 'unidentified' },
   } }, article, industries);
-  expect(fields).toEqual({ product: unknown, industry: unknown, audience: unknown, questions: unknown });
+  expect(fields.product).toMatchObject({ ...unknown, reason: 'too_long' });
+  expect(fields.audience).toEqual({ value: '零售人员', source: 'inferred' });
+  expect(fields.questions.value).toBeNull();
 });
 
 it('sends full frozen text as untrusted data and binds the digest to actual content and title', () => {
@@ -81,12 +83,41 @@ it('caps upstream response bytes without accepting a truncated response', async 
   await expect(invokeAi({ name: 'test', provider: 'glm', model: 'test', apiKey: 'test-only' }, {}, [], false, { identification: true })).rejects.toThrow('provider_response_too_large');
 });
 
-it('leaves all platform decisions unavailable when the environment endpoint is outside the allowlist', () => {
+it('leaves identification unavailable for a custom environment endpoint outside the allowlist', () => {
   const adapter = createEnvDecisionAdapter({ FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'test-only', FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL: 'https://api.xty.app/v1', FRONTMIND_SOURCE_MATRIX_LLM_MODEL: 'gpt-4o' });
-  expect(adapter).toBeUndefined();
+  expect(adapter?.identify).toBeUndefined();
+  expect(adapter?.matrix).toBeTypeOf('function');
 });
 
 it.each([{ status: 401, code: 'provider_credential_invalid' }, { status: 429, code: 'provider_rate_limited' }])('classifies upstream failures without leaking their response: $status', async ({ status, code }) => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":{"message":"sensitive provider details"}}', { status })));
   await expect(invokeAi({ name: 'test', provider: 'glm', model: 'test', apiKey: 'test-only' }, {}, [], false, { identification: true })).rejects.toThrow(code);
+});
+
+
+it('preserves a real product with paraphrased evidence as a suggestion but never fabricates a quote', () => {
+  const fields = validateIdentificationFields({ confidence: 0.9, fields: {
+    product: { value: '星河软件', source: 'article', evidence: '星河软件是零售管理工具', confidence: 0.9 },
+    audience: { value: '零售企业决策者', source: 'article', evidence: '星河软件帮助零售企业管理库存。', reason: 'private-model-text' },
+  } }, article, industries);
+  expect(fields.product).toEqual({ value: '星河软件', source: 'inferred', reason: 'evidence_not_verbatim' });
+  expect(fields.audience).toMatchObject({ value: '零售企业决策者', source: 'inferred', reason: 'inferred_from_article' });
+  expect(JSON.stringify(fields)).not.toContain('private-model-text');
+});
+
+it('finds a late category across 5000 long labels without sending the full catalog to the model', () => {
+  const directory = Array.from({ length: 4999 }, (_, i) => ({ id: String(i + 1), name: '甲'.repeat(490) + i, path: ['行业', '甲'.repeat(490) + i] }));
+  directory.push({ id: '5000', name: '零售', path: ['商业', '零售'] });
+  const selected = identificationCandidates(article, directory);
+  expect(selected.industries.map(item => item.id)).toContain('5000');
+  expect(selected.industries.length).toBeLessThanOrEqual(64);
+  expect(JSON.stringify(selected.industries).length).toBeLessThan(24002);
+  expect(selected.catalogSearch).toMatchObject({ total: 5000, complete: false });
+});
+
+it('leaves large unsupported or tied category sets unknown instead of selecting the first entries', () => {
+  const directory = Array.from({ length: 501 }, (_, i) => ({ id: String(i), name: '零售' }));
+  expect(identificationCandidates(article, directory).industries).toEqual([]);
+  expect(identificationCandidates({ title: '天气', body: '阳光晴朗' }, directory).industries).toEqual([]);
+  expect(validateIdentificationFields({ fields: { industry: { value: '零售', source: 'inferred' } } }, article, directory).industry).toMatchObject({ value: null, reason: 'ambiguous_industry' });
 });

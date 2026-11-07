@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { IdentificationFieldKey } from '../../shared/article-identification';
-import { articleIdentificationStoreFor, emptyIdentificationSnapshot, type IdentificationRoute, type IdentificationSnapshot, type IdentificationValues } from './article-identification-store';
+import { articleIdentificationStoreFor, emptyIdentificationSnapshot, type IdentificationHydrationOptions, type IdentificationIndustryCatalog, type IdentificationRoute, type IdentificationSnapshot, type IdentificationValues } from './article-identification-store';
 
 export interface UseArticleIdentificationOptions extends IdentificationRoute {
   gateway: object;
@@ -10,7 +10,9 @@ export interface UseArticleIdentificationOptions extends IdentificationRoute {
 }
 export interface ArticleIdentification extends IdentificationSnapshot {
   setField: (key: IdentificationFieldKey, value: string) => void;
-  hydrate: (values: IdentificationValues, hydrationId: string) => void;
+  hydrate: (values: Partial<IdentificationValues>, hydrationId: string, options?: IdentificationHydrationOptions) => void;
+  setIndustryCatalog: (catalog: IdentificationIndustryCatalog) => void;
+  remapIndustry: (fromId: string, toId: string) => void;
   identify: () => Promise<void>;
   retry: () => Promise<void>;
   adopt: (key: IdentificationFieldKey) => void;
@@ -27,7 +29,9 @@ export function useArticleIdentification({ gateway, workspace, articleVersionId,
   useEffect(() => { route?.setAutomatic(autoIdentify); return () => route?.setAutomatic(false); }, [route, autoIdentify]);
   const actions = useMemo(() => ({
     setField: (key: IdentificationFieldKey, value: string) => route?.setField(key, value),
-    hydrate: (values: IdentificationValues, hydrationId: string) => route?.hydrate(values, hydrationId),
+    hydrate: (values: Partial<IdentificationValues>, hydrationId: string, options?: IdentificationHydrationOptions) => route?.hydrate(values, hydrationId, options),
+    setIndustryCatalog: (catalog: IdentificationIndustryCatalog) => route?.setIndustryCatalog(catalog),
+    remapIndustry: (fromId: string, toId: string) => route?.remapIndustry(fromId, toId),
     identify: async () => { await route?.identify(); }, retry: async () => { await route?.retry(); },
     adopt: (key: IdentificationFieldKey) => route?.adopt(key),
     adoptFormScope: (nextScope: string) => route?.adoptFormScope(nextScope),

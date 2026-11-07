@@ -1,7 +1,9 @@
 import type { Row } from './common.js';
 export interface ArticleIdentificationInput {
  article:Readonly<{title:string;body:string}>;
- industries:ReadonlyArray<Readonly<{id:string;name:string}>>;
+ industries:ReadonlyArray<Readonly<{id:string;name:string;path?:readonly string[]}>>;
+ /** Candidate search scans the complete catalog before a bounded prompt is built. */
+ catalogSearch?:Readonly<{total:number;matched:number;complete:boolean}>;
  signal?:AbortSignal;
 }
 /** Server-only seam. Host injects a real model. Never accept decisions from HTTP.

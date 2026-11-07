@@ -6,7 +6,7 @@ export interface CatalogMatch {resource_id:string;source_name:string;account_id?
 export interface ResourceSelection {candidate_id:string;resource_id:string;offer_id:string;publication_spec:Json}
 export interface Candidate {
  media_intro?:string;content_direction?:string;layer_rank?:number;ranking_reason?:string;catalog_matches?:CatalogMatch[];
- candidate_id:string;resource_id:string|null;attributes:Record<string,Json>;offers:Offer[];primary_role:string|null;auxiliary_roles:string[];selection:string;matched_questions:string[];reason_summary?:string;reason_details?:string[];unconfirmed_items?:string[];references?:Json[];channel_status:string;manuscript_status:string;hard_failures:string[];pending_conditions:string[];evidence_relation:string;evidence_ids:string[];aggregate_ids:string[];industry_aggregate_ids?:string[];
+ candidate_id:string;resource_id:string|null;attributes:Record<string,Json>;offers:Offer[];primary_role:string|null;auxiliary_roles:string[];selection:string;matched_questions:string[];reason_summary?:string;reason_details?:string[];unconfirmed_items?:string[];references?:Json[];channel_status:string;manuscript_status:string;hard_failures:string[];pending_conditions:string[];evidence_relation:string;evidence_ids:string[];aggregate_ids:string[];
 }
 export interface Analysis {
  status:string;known_detail_count:number;total_citations:number|null;groups:Array<{scope:EvidenceScope;known_detail_count:number;total_citations:number|null}>;
@@ -31,7 +31,7 @@ export interface MatrixResult {
  matrix:{status:string;candidates:Candidate[];layers:Array<{role:string;display_name:string;status:string;candidate_ids:string[];auxiliary_candidate_ids:string[];reason_summary?:string}>;fit_order:string[]};
  source_analysis:Analysis;budget_plans:BudgetPlan[];limitations:string[];warnings:Issue[];errors:Issue[];minimum_known_cost:Json;
 }
-export interface TaskResponse {progress?:'analyzing'|'validating';task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}
+export interface TaskResponse {task?:Record<string,Json>;progress?:'analyzing'|'validating';task_id?:string;state?:string;result?:MatrixResult|null;status?:string;message?:string;errors?:Issue[]}
 /** Server-verified binding recorded inside result.scope.task.binding. */
 export interface ServerBinding {draft_id:string|null;article_version_id:string;article_id:string;version_number:number;content_hash:string;article_title:string;fingerprint:string;bound_at?:string}
 export interface ApplyPlanDiff {

@@ -4,7 +4,7 @@ import type { IndustryFilters, IndustryFailure } from '../../../contracts/indust
 import { IndustryRequestError, integerText, ratioText, totalOf, type industryRequest, type IndustryEndpoint, type IndustryQuery } from './industry-source-client';
 import { defaultSelection, IndustrySourceStore, industryStoreFor } from './industry-source-store';
 
-const filters: IndustryFilters = { models: [{ value: 'all', label: '全部模型' }, { value: 'doubao_api', label: '豆包' }], minDate: '2026-09-01', maxDate: '2026-10-29', industryTree: [], sourceTypes: ['新闻资讯'] };
+const filters: IndustryFilters = { models: [{ value: 'all', label: '全部模型' }, { value: 'doubao_api', label: '豆包' }], minDate: '2026-09-01', maxDate: '2026-10-29', industryTree: [{ id: 'category-101', scopeId: '101', scopeType: 'CATEGORY', label: '制造业', children: [{ id: 'category-102', scopeId: '102', scopeType: 'CATEGORY', label: '工业软件', children: [] }] }], sourceTypes: ['新闻资讯'] };
 const page = (endpoint: IndustryEndpoint, next: string | null = null) => ({ items: endpoint === 'media-ranking' ? [{ code: '媒体原名', name: '媒体原名', citationCount: '9' }] : [{ sequence: '1', linkId: 'content-1', title: '内容', url: null, icon: null, media: '媒体原名', sourceType: '新闻资讯', publishTime: null, citationCount: '6', citationRatio: '60.00' }], pageSize: endpoint === 'media-ranking' ? 50 : 20, total: '3', totalCitations: '10', snapshotToken: endpoint + '-session', nextCursor: next, expiresAt: String(Date.now() + 600_000) });
 const ok = (data: unknown) => ({ status: 'ok' as const, source: 'molizhishu-public-industry' as const, fetchedAt: '2026-11-06T12:00:00Z', data });
 function harness(override?: (endpoint: IndustryEndpoint, query: IndustryQuery) => unknown) {
@@ -185,5 +185,88 @@ describe('industry integer and ratio presentation', () => {
     expect(ratioText('6', '10')).toBe('60.00');
     expect(ratioText('1', '3')).toBe('33.33');
     expect(ratioText('0', '0')).toBe('0.00');
+  });
+});
+
+// The deferred article path must leave all paid lanes untouched until its owner applies a scope.
+describe('article query ownership and shared catalog (source-only)', () => {
+  it('loads only filters on repeated deferred starts, then initializes one valid scope once', async () => {
+    const { calls, store } = harness();
+    store.start(undefined, { deferInitialization: true }); store.start(undefined, { deferInitialization: true });
+    await settled(store); expect(calls.map(call => call.endpoint)).toEqual(['filters']);
+    expect(store.getSnapshot().common).toBeNull();
+    const common = { periodType: 'MONTH' as const, date: '2026-10-01', scopeType: 'CATEGORY' as const, scopeId: '102', modelCode: 'all' };
+    store.apply(common); store.apply({ ...common }); await settled(store);
+    expect(calls.map(call => call.endpoint)).toEqual(['filters', 'media-ranking', 'contents', 'distributions']);
+  });
+  it('separates article/version query stores while preserving the same article on tab/remount', () => {
+    const gateway = {};
+    const first = industryStoreFor(gateway, 1, 'article-A:v1');
+    expect(first).toBe(industryStoreFor(gateway, 1, 'article-A:v1'));
+    expect(first).not.toBe(industryStoreFor(gateway, 1, 'article-A:v2'));
+    expect(first).not.toBe(industryStoreFor(gateway, 1, 'article-B:v1'));
+    expect(first).not.toBe(industryStoreFor(gateway, 1));
+    first.markManualScope(); expect(industryStoreFor(gateway, 1, 'article-A:v1').hasManualScope).toBe(true);
+  });
+  it('keeps workspace quota sticky across article changes and free catalog updates', () => {
+    const gateway = {}, first = industryStoreFor(gateway, 1, 'article-A:v1'), second = industryStoreFor(gateway, 1, 'article-B:v1');
+    const failure = { status: 'quota_exhausted' as const, message: '共享查询额度不足', httpStatus: 429, retryable: false };
+    first.reportExportFailure(failure);
+    expect(second.getSnapshot().blocked).toBe(failure);
+    const third = industryStoreFor(gateway, 1, 'article-C:v1'); expect(third.getSnapshot().blocked).toBe(failure);
+    second.receiveCatalog({ loading: false, error: null, catalog: { status: 'configured', industries: [], filters, catalogVersion: 'v1', legacyMappings: [], brand_data_batches: [] } });
+    expect(second.getSnapshot().blocked).toBe(failure);
+  });
+});
+
+// A catalog recheck is shared metadata work, not a request to change/query an article.
+describe('shared catalog retry synchronization (source-only)', () => {
+  it('gates initialization while the shared catalog is loading and accepts the same filter reference on success', async () => {
+    const { calls, store } = harness(); store.start(undefined, { deferInitialization: true }); await settled(store);
+    const value = { status: 'configured' as const, industries: [], filters, catalogVersion: 'v1', legacyMappings: [], brand_data_batches: [] };
+    store.receiveCatalog({ catalog: value, loading: true, error: null });
+    expect(store.getSnapshot().filters.loading).toBe(true);
+    store.receiveCatalog({ catalog: value, loading: false, error: null });
+    expect(store.getSnapshot().filters.loading).toBe(false);
+    expect(store.getSnapshot().filters.data).toBe(filters);
+    expect(store.getSnapshot().common).toBeNull(); expect(calls.map(call => call.endpoint)).toEqual(['filters']);
+  });
+});
+
+
+describe('authorized context and removed catalog scope guards (source-only)', () => {
+  const category = (scopeId: string) => ({ periodType: 'MONTH' as const, date: '2026-10-01', scopeType: 'CATEGORY' as const, scopeId, modelCode: 'all' });
+  const refreshedFilters: IndustryFilters = { ...filters, industryTree: filters.industryTree[0]!.children };
+  const changedCatalog = { status: 'configured' as const, industries: [], filters: refreshedFilters, catalogVersion: 'v2', legacyMappings: [], brand_data_batches: [] };
+  it('loads catalog metadata but cannot start any paid operation before authorized context is ready', async () => {
+    const { calls, store } = harness(); store.setContextReady(false); store.start(undefined, { deferInitialization: true }); await settled(store);
+    store.apply(category('101')); store.apply({ ...category('101'), scopeType: 'ALL', scopeId: undefined });
+    store.refresh(); store.restart('media'); store.selectContent({ ...defaultSelection, media: 'x' }); await store.retryDistributions();
+    expect(calls.map(call => call.endpoint)).toEqual(['filters']); expect(store.getSnapshot().common).toBeNull();
+    store.setContextReady(true); store.apply(category('102')); await settled(store);
+    expect(calls).toHaveLength(4); expect(store.getSnapshot().common?.scopeId).toBe('102');
+  });
+  it('preserves a removed category, clears all result lanes and rejects refresh/paging/retry instead of querying ALL', async () => {
+    const { calls, store } = harness(); store.start(undefined, { deferInitialization: true }); await settled(store);
+    store.apply(category('101')); await settled(store); const before = calls.length;
+    store.receiveCatalog({ catalog: changedCatalog, loading: false, error: null });
+    expect(store.hasInvalidScope).toBe(true); expect(store.getSnapshot().common).toMatchObject({ scopeType: 'CATEGORY', scopeId: '101' });
+    expect(store.getSnapshot().media.data).toBeNull(); expect(store.getSnapshot().contents.data).toBeNull(); expect(store.getSnapshot().distributions.data).toBeNull();
+    store.refresh(); store.restart('media'); store.retry('contents'); store.more('media'); store.setPageSize('contents', 100);
+    store.selectContent({ ...defaultSelection, media: 'old' }); await store.retryDistributions();
+    expect(calls).toHaveLength(before);
+    store.markManualScope(); store.apply(category('102')); await settled(store);
+    expect(store.hasInvalidScope).toBe(false); expect(calls).toHaveLength(before + 3);
+    expect(store.getSnapshot().common?.scopeId).toBe('102');
+  });
+  it('aborts an in-flight removed-category lane and ignores its late response', async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const { calls, store } = harness((endpoint, query) => endpoint === 'media-ranking' && query.scopeId === '101' ? pending : undefined);
+    store.start(undefined, { deferInitialization: true }); await settled(store); store.apply(category('101'));
+    store.receiveCatalog({ catalog: changedCatalog, loading: false, error: null });
+    const before = calls.length; finish(ok(page('media-ranking'))); await Promise.resolve(); await Promise.resolve();
+    expect(store.getSnapshot().media.data).toBeNull(); expect(store.getSnapshot().media.loading).toBe(false);
+    expect(store.getSnapshot().common?.scopeId).toBe('101'); expect(calls).toHaveLength(before);
   });
 });

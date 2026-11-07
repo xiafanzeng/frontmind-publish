@@ -6,6 +6,11 @@ import { DISTRIBUTION_LIMITS,readSourceDistribution } from './distribution.js';
 export class MatrixRepository {
  constructor(private db:MySql2Database<any>,readonly tenantId:string,private actorId?:string){}
  async industries(){return this.db.select({id:industries.industryId,name:industries.name}).from(industries).where(eq(industries.tenantId,this.tenantId));}
+ /** Explicit canonical_scope_id is optional trusted dataset metadata, never a browser value. */
+ async industryMappings(){
+  const rows=await this.db.select({id:industries.industryId,name:industries.name,dataset:industries.dataset}).from(industries).where(eq(industries.tenantId,this.tenantId));
+  return rows.map(row=>({id:row.id,name:row.name,...(typeof row.dataset?.canonical_scope_id==='string'?{canonicalId:row.dataset.canonical_scope_id}:{})}));
+ }
  async brandBatches(){
   const configured=await this.db.select({dataset:industries.dataset}).from(industries).where(eq(industries.tenantId,this.tenantId));
   const batches:Row[]=[];
