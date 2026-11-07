@@ -18,8 +18,10 @@ export type PublishingArticlePickerProps = {
   excludedIds?: readonly string[];
   disabled?: boolean;
   trigger?: HTMLButtonElement;
-  /** Confirmed-version selection reuses the same authorized list and detail lifecycle. */
+  /** Media selection resolves the latest saved content through its parent. */
   purpose?: "edit" | "confirmed-version";
+  /** A parent that cancels its pending preparation may keep close available. */
+  allowCancelWhileApplying?: boolean;
   /** Extra authorized owner/project identity supplied by the consuming workflow. */
   contextKey?: string;
 };
@@ -36,8 +38,8 @@ const updatedLabel = (value: string) => {
 };
 type ListState = { gateway: PublisherGateway; scope: string; loading: boolean; articles: ArticleSummary[]; error?: string };
 
-/** Selection is read-only: no save, freeze, copy, task creation or implicit close. */
-export default function PublishingArticlePicker({ open, onClose, onSelect, multiple = false, excludedIds = [], disabled = false, trigger, purpose = "edit", contextKey = "" }: PublishingArticlePickerProps) {
+/** List/detail reads are shared; only the parent owns mutations and closing. */
+export default function PublishingArticlePicker({ open, onClose, onSelect, multiple = false, excludedIds = [], disabled = false, trigger, purpose = "edit", allowCancelWhileApplying = false, contextKey = "" }: PublishingArticlePickerProps) {
   const gateway = usePublisherGateway();
   const workspaceKey = usePublishingWorkspaceKey();
   const flow = usePublishingFlow();
@@ -137,16 +139,17 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
   }, [excludedKey, disabled, invalidateSelection]);
 
   const visible = list.gateway === gateway && list.scope === scope ? list : { loading: true, articles: [], error: undefined };
-  // A working copy can still have confirmed historical versions. The detail
-  // step, not its mutable status label, validates the selected frozen version.
-  const articles = purpose === "confirmed-version" ? visible.articles.filter(article => article.currentVersionId || article.currentVersion > 0) : visible.articles;
+  // New drafts are selectable too. The media parent prepares a real snapshot
+  // of the latest saved content; an old currentVersionId is not that content.
+  const articles = visible.articles;
   const filtered = articles.filter((article) => (status === "all" || article.status === status) && `${article.title} ${article.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const busy = phase !== "idle";
+  const closeBlocked = phase === "applying" && !allowCancelWhileApplying;
   const selected = selectedIds.filter((id) => articles.some((article) => article.id === id && !unavailableReason(article, excluded)));
 
   const close = () => {
     // Once handed to the parent's guarded transition, let that transition settle.
-    if (phase === "applying") return;
+    if (closeBlocked) return;
     invalidateSelection();
     setPhase("idle");
     onClose();
@@ -199,7 +202,8 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
     } catch (reason) {
       if (!valid()) return;
       setPhase("idle");
-      setSelectionError(reason instanceof Error && reason.message.startsWith("所选稿件") ? reason.message : "无法载入所选稿件，请重试；稿件可能已删除或访问权限已变化。");
+      const fallback = "无法载入所选稿件，请重试；稿件可能已删除或访问权限已变化。";
+      setSelectionError(purpose === "confirmed-version" ? mediaReadError(reason, fallback) : reason instanceof Error && reason.message.startsWith("所选稿件") ? reason.message : fallback);
     } finally {
       clearTimeout(timeout);
       if (request.current === token) {
@@ -213,20 +217,20 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
     <DialogContent className="publishing-article-picker" overlayClassName="publishing-article-picker-overlay" showCloseButton={false} style={portalStyle}
       onOpenAutoFocus={(event) => { event.preventDefault(); search.current?.focus({ preventScroll: true }); }}
       onCloseAutoFocus={(event) => { event.preventDefault(); if (lastTrigger.current?.isConnected) lastTrigger.current.focus({ preventScroll: true }); }}
-      onEscapeKeyDown={(event) => { if (phase === "applying") event.preventDefault(); }}
-      onPointerDownOutside={(event) => { if (phase === "applying") event.preventDefault(); }}>
+      onEscapeKeyDown={(event) => { if (closeBlocked) event.preventDefault(); }}
+      onPointerDownOutside={(event) => { if (closeBlocked) event.preventDefault(); }}>
       <header className="publishing-article-picker-header">
         <div><DialogTitle className="publishing-article-picker-title">{multiple ? "选择稿件并追加" : "选择稿件"}</DialogTitle>
-          <DialogDescription className="publishing-article-picker-description">{purpose === "confirmed-version" ? "选择已有稿件后核对已确认版本；确认前保留当前稿件。" : multiple ? "可选择多篇稿件追加到当前批量，已加入的稿件和未保存卡片将保留。" : "选择一篇已有稿件继续编辑；切换后会离开当前稿件。"}</DialogDescription></div>
-        <button type="button" className="publishing-article-picker-button" aria-label="关闭选择稿件" disabled={phase === "applying"} onClick={close}><X size={18} aria-hidden="true" /></button>
+          <DialogDescription className="publishing-article-picker-description">{purpose === "confirmed-version" ? "使用稿件最新保存的内容；关联完成前保留当前稿件。" : multiple ? "可选择多篇稿件追加到当前批量，已加入的稿件和未保存卡片将保留。" : "选择一篇已有稿件继续编辑；切换后会离开当前稿件。"}</DialogDescription></div>
+        <button type="button" className="publishing-article-picker-button" aria-label="关闭选择稿件" disabled={closeBlocked} onClick={close}><X size={18} aria-hidden="true" /></button>
       </header>
       <div className="publishing-article-picker-filters">
         <label className="publishing-article-picker-search"><Search size={16} aria-hidden="true" /><input ref={search} type="search" aria-label="搜索稿件标题或 ID" placeholder="搜索标题或 ID" value={query} disabled={busy} onChange={(event) => setQuery(event.target.value)} />
           {query && <button type="button" aria-label="清空稿件搜索" disabled={busy} onClick={() => { setQuery(""); search.current?.focus(); }}><X size={16} aria-hidden="true" /></button>}</label>
         <label className="publishing-article-picker-status">状态<select aria-label="稿件状态" value={status} disabled={busy} onChange={(event) => setStatus(event.target.value as ArticleStatus | "all")}><option value="all">全部状态</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>
-      <div className="publishing-article-picker-scroll" role={multiple ? "group" : "radiogroup"} aria-label={purpose === "confirmed-version" ? "已有确认版本的稿件" : multiple ? "可追加稿件" : "可编辑稿件"} aria-busy={visible.loading || busy}>
-        {visible.loading ? <p className="publishing-article-picker-message" role="status">正在读取稿件列表…</p> : visible.error ? <div className="publishing-article-picker-message" role="alert"><p>{visible.error}</p><button type="button" className="publishing-article-picker-button" onClick={() => setReload((value) => value + 1)}>重试列表</button></div> : !articles.length ? <p className="publishing-article-picker-message" role="status">{purpose === "confirmed-version" ? "暂无已确认稿件，请先在编辑稿件中确认版本。" : "暂无稿件，请先上传文档或撰写稿件。"}</p> : !filtered.length ? <p className="publishing-article-picker-message" role="status">没有匹配的稿件，请调整搜索或状态筛选。</p> : filtered.map((article) => {
+      <div className="publishing-article-picker-scroll" role={multiple ? "group" : "radiogroup"} aria-label={purpose === "confirmed-version" ? "可选择稿件" : multiple ? "可追加稿件" : "可编辑稿件"} aria-busy={visible.loading || busy}>
+        {visible.loading ? <p className="publishing-article-picker-message" role="status">正在读取稿件列表…</p> : visible.error ? <div className="publishing-article-picker-message" role="alert"><p>{visible.error}</p><button type="button" className="publishing-article-picker-button" onClick={() => setReload((value) => value + 1)}>重试列表</button></div> : !articles.length ? <p className="publishing-article-picker-message" role="status">暂无稿件，请先上传文档或撰写稿件。</p> : !filtered.length ? <p className="publishing-article-picker-message" role="status">没有匹配的稿件，请调整搜索或状态筛选。</p> : filtered.map((article) => {
           const reason = unavailableReason(article, excluded);
           const id = `${inputId}-${article.id}`;
           return <label key={article.id} className={`publishing-article-picker-row${selected.includes(article.id) ? " is-selected" : ""}${reason ? " is-unavailable" : ""}`}>
@@ -236,8 +240,8 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
         })}
       </div>
       <footer className="publishing-article-picker-footer">
-        <div className="publishing-article-picker-feedback">{selectionError ? <p role="alert">{selectionError}</p> : <p role="status">{phase === "reading" ? "正在读取完整稿件，可取消…" : phase === "applying" ? multiple ? "正在追加稿件…" : "正在切换稿件…" : `已选择 ${selected.length} 篇稿件`}</p>}</div>
-        <div className="publishing-article-picker-actions"><button type="button" className="publishing-article-picker-button" disabled={phase === "applying"} onClick={close}>取消</button><button type="button" className="publishing-article-picker-button is-primary" disabled={busy || disabled || visible.loading || Boolean(visible.error) || !selected.length} onClick={() => { void confirm(); }}>{selectionError ? "重试载入" : purpose === "confirmed-version" ? "选择确认版本" : multiple ? "追加所选稿件" : "使用此稿件"}</button></div>
+        <div className="publishing-article-picker-feedback">{selectionError ? <p role="alert">{selectionError}</p> : <p role="status">{phase === "reading" ? "正在读取完整稿件，可取消…" : phase === "applying" ? purpose === "confirmed-version" ? "正在关联最新稿件…" : multiple ? "正在追加稿件…" : "正在切换稿件…" : `已选择 ${selected.length} 篇稿件`}</p>}</div>
+        <div className="publishing-article-picker-actions"><button type="button" className="publishing-article-picker-button" disabled={closeBlocked} onClick={close}>取消</button><button type="button" className="publishing-article-picker-button is-primary" disabled={busy || disabled || visible.loading || Boolean(visible.error) || !selected.length} onClick={() => { void confirm(); }}>{selectionError ? "重试载入" : multiple ? "追加所选稿件" : "使用此稿件"}</button></div>
       </footer>
     </DialogContent>
   </Dialog>;

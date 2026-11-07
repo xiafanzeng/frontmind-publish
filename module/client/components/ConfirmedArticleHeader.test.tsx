@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Source-only regression cases; run in the final merged repository.
-import React, { type ReactNode } from 'react';
+import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PublishingGatewayProvider } from '../PublishingContext';
@@ -9,23 +9,25 @@ import type { PublisherGateway } from '../gateway';
 import type { ArticleDetail, ArticleVersion } from '../types';
 import { ConfirmedArticleHeader } from './ConfirmedArticleHeader';
 
-vi.mock('../source-matrix/MediaMarket', () => ({
-  MediaDialog: ({ open, title, children, onCancel, onConfirm, confirmLabel, confirmDisabled }: {
-    open: boolean; title: string; children: ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel: string; confirmDisabled?: boolean;
-  }) => open ? <div role="dialog" aria-label={title}>{children}<button onClick={onCancel}>取消版本选择</button><button disabled={confirmDisabled} onClick={onConfirm}>{confirmLabel}</button></div> : null,
-}));
 const version = (id: string, n: number): ArticleVersion => ({ id, version: n, hash: `hash-${id}`, frozen: true, containsImages: false, createdAt: '2026-11-07T00:00:00Z', createdBy: 'owner' });
 const article: ArticleDetail = {
   id: 'a', title: '真实稿件长标题', status: 'frozen', currentVersion: 2, currentVersionId: 'a-v2', revision: 3,
   wordCount: 6, imageCount: 0, updatedAt: '2026-11-07T00:00:00Z', bodyText: '当前工作副本正文', images: [],
   versions: [version('a-v2', 2), version('a-v1', 1)], importChecks: { docxSafe: true, externalLinkCount: 0, structureValid: true },
 };
-function fixture() {
+const newDraft: ArticleDetail = { ...article, id: 'new', status: 'draft', currentVersion: 0, currentVersionId: undefined, versions: [] };
+function frozenCopy(value: ArticleDetail): ArticleDetail {
+  const snapshot = version(`${value.id}-latest`, value.currentVersion + 1);
+  return { ...value, status: 'frozen', currentVersionId: snapshot.id, currentVersion: snapshot.version, versions: [snapshot, ...value.versions] };
+}
+function fixture(initial = article) {
+  let current = initial;
   return {
-    listArticles: vi.fn<PublisherGateway['listArticles']>().mockResolvedValue([article, { ...article, id: 'unconfirmed', currentVersion: 0, currentVersionId: undefined, status: 'draft' }]),
-    getArticle: vi.fn<PublisherGateway['getArticle']>().mockResolvedValue(article),
-    getArticleVersion: vi.fn<PublisherGateway['getArticleVersion']>(async id => article.versions.find(row => row.id === id)!),
-    createDraft: vi.fn(), saveArticle: vi.fn(), freezeArticle: vi.fn(),
+    listArticles: vi.fn<PublisherGateway['listArticles']>().mockResolvedValue([initial]),
+    getArticle: vi.fn<PublisherGateway['getArticle']>(async () => current),
+    getArticleVersion: vi.fn<PublisherGateway['getArticleVersion']>(async id => current.versions.find(row => row.id === id)!),
+    freezeArticle: vi.fn<PublisherGateway['freezeArticle']>(async () => { current = frozenCopy(current); return current; }),
+    createDraft: vi.fn(), saveArticle: vi.fn(),
   };
 }
 function tree(gateway: ReturnType<typeof fixture>, onSelect = vi.fn(), props: Partial<React.ComponentProps<typeof ConfirmedArticleHeader>> = {}) {
@@ -33,61 +35,99 @@ function tree(gateway: ReturnType<typeof fixture>, onSelect = vi.fn(), props: Pa
     <ConfirmedArticleHeader rows={[]} onSelect={onSelect} {...props}/>
   </PublishingGatewayProvider>;
 }
-async function openVersionChoice() {
+async function choose(id = 'a') {
   fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
-  const row = await screen.findByRole('radio', { name: /ID：a/ });
-  expect((screen.getByRole('button', { name: '选择确认版本' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.queryByRole('radio', { name: /ID：unconfirmed/ })).toBeNull();
+  const row = await screen.findByRole('radio', { name: new RegExp(`ID：${id}`) });
   fireEvent.click(row);
-  fireEvent.click(screen.getByRole('button', { name: '选择确认版本' }));
-  await screen.findByRole('combobox', { name: '稿件版本' });
+  const confirm = screen.getByRole('button', { name: '使用此稿件' });
+  fireEvent.click(confirm); fireEvent.click(confirm);
 }
 afterEach(() => { cleanup(); configurePublishingHost({}); vi.restoreAllMocks(); });
 
-describe('shared confirmed article header', () => {
-  it('does not automatically select the first article and commits an explicitly chosen historical version only after verification', async () => {
+describe('shared latest article header', () => {
+  it('confirms once and binds the latest saved version without a second version dialog', async () => {
     const gateway = fixture(); const onSelect = vi.fn();
-    render(tree(gateway, onSelect));
+    render(tree(gateway, onSelect, { selectedVersionId: 'a-v1' }));
     expect(gateway.listArticles).not.toHaveBeenCalled();
-    await openVersionChoice();
-    expect(onSelect).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByRole('combobox', { name: '稿件版本' }), { target: { value: 'a-v1' } });
-    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith({ article, version: article.versions[1] }));
-    expect(gateway.getArticleVersion).toHaveBeenCalledWith('a-v1', expect.any(AbortSignal));
-    expect(gateway.getArticle).toHaveBeenCalledTimes(2);
+    await choose();
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    expect(onSelect).toHaveBeenCalledWith({ article, version: article.versions[0] });
+    expect(gateway.getArticleVersion).toHaveBeenCalledWith('a-v2', expect.any(AbortSignal));
+    expect(screen.queryByRole('combobox', { name: '稿件版本' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(gateway.createDraft).not.toHaveBeenCalled();
     expect(gateway.saveArticle).not.toHaveBeenCalled();
     expect(gateway.freezeArticle).not.toHaveBeenCalled();
   });
-  it('preserves the previous selection on a mismatched or removed version and supports retry', async () => {
+
+  it.each([newDraft, { ...article, status: 'draft' as const, revision: 4, bodyText: '较新工作副本' }])('freezes the latest working copy, including a new draft without history', async draft => {
+    const gateway = fixture(draft); const onSelect = vi.fn();
+    render(tree(gateway, onSelect));
+    await choose(draft.id);
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    expect(gateway.freezeArticle).toHaveBeenCalledTimes(1);
+    expect(gateway.freezeArticle).toHaveBeenCalledWith(draft.id, draft.revision);
+    expect(onSelect.mock.calls[0]![0]).toEqual({ article: frozenCopy(draft), version: frozenCopy(draft).versions[0] });
+    expect(draft.versions).toEqual(draft.id === 'a' ? article.versions : []);
+  });
+
+  it('keeps the previous selection and picker on verification failure, then retries', async () => {
     const gateway = fixture(); const onSelect = vi.fn();
-    gateway.getArticleVersion.mockResolvedValueOnce({ ...article.versions[0]!, hash: 'another-version-hash' });
+    gateway.getArticleVersion.mockResolvedValueOnce({ ...article.versions[0]!, hash: 'wrong-hash' });
     render(tree(gateway, onSelect, { rows: [{ id: 'previous', title: '原稿', version: 4 }] }));
-    await openVersionChoice();
-    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
-    await screen.findByText('稿件或确认版本已失效，请重新选择。');
+    await choose();
+    await screen.findByText('稿件或关联版本已失效，请重新选择。');
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByText('原稿 · v4')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '重试选择版本' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试载入' }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
   });
-  it('ignores a late version response after cancellation', async () => {
-    const gateway = fixture(); const onSelect = vi.fn();
-    let resolve!: (value: ArticleVersion) => void;
-    gateway.getArticleVersion.mockImplementation(() => new Promise(done => { resolve = done; }));
+
+  it('shows a freeze failure without selecting an old historical snapshot', async () => {
+    const gateway = fixture({ ...article, status: 'draft' }); const onSelect = vi.fn();
+    gateway.freezeArticle.mockRejectedValueOnce(new Error('稿件已更新，请重新读取。'));
     render(tree(gateway, onSelect));
-    await openVersionChoice();
-    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
-    await waitFor(() => expect(gateway.getArticleVersion).toHaveBeenCalledTimes(1));
-    const signal = gateway.getArticleVersion.mock.calls[0][1]!;
-    fireEvent.click(screen.getByRole('button', { name: '取消版本选择' }));
-    expect(signal.aborted).toBe(true);
-    await act(async () => { resolve(article.versions[0]!); });
+    await choose();
+    await screen.findByText('稿件已更新，请重新读取。');
+    expect(gateway.getArticleVersion).not.toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('cancels waiting for an unabortable freeze without a late binding', async () => {
+    const gateway = fixture(newDraft); const onSelect = vi.fn();
+    let resolve!: (value: ArticleDetail) => void;
+    gateway.freezeArticle.mockImplementation(() => new Promise(done => { resolve = done; }));
+    render(tree(gateway, onSelect));
+    await choose(newDraft.id);
+    await waitFor(() => expect(gateway.freezeArticle).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await act(async () => { resolve(frozenCopy(newDraft)); });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(gateway.getArticleVersion).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
-  it('makes a batch a read-only current list without offering replacement by one article', () => {
+
+  it('does not open or freeze when the page guard is cancelled', () => {
+    const gateway = fixture(); const onRequestSelect = vi.fn();
+    render(tree(gateway, vi.fn(), { onRequestSelect }));
+    fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
+    expect(onRequestSelect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(gateway.listArticles).not.toHaveBeenCalled();
+    expect(gateway.freezeArticle).not.toHaveBeenCalled();
+  });
+
+  it('keeps the picker open when the page declines the resolved selection', async () => {
+    const gateway = fixture(); const onSelect = vi.fn().mockResolvedValue(false);
+    render(tree(gateway, onSelect));
+    await choose();
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect((screen.getByRole('button', { name: '使用此稿件' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('makes a batch a read-only current list without replacement by one article', () => {
     const gateway = fixture(); const onSelect = vi.fn();
     render(tree(gateway, onSelect, { batch: true, rows: [{ id: 'a', title: '稿一', version: 2 }, { id: 'b', title: '稿二', version: 7, excluded: true }] }));
     expect(screen.queryByRole('button', { name: /当前稿件/ })).toBeNull();
@@ -95,20 +135,31 @@ describe('shared confirmed article header', () => {
     expect(screen.getByText('稿一')).toBeTruthy();
     expect(screen.getByText('v7 · 已从本批次排除')).toBeTruthy();
     expect(gateway.listArticles).not.toHaveBeenCalled();
-    expect(onSelect).not.toHaveBeenCalled();
   });
-  it('invalidates an outstanding version read when the current article scope changes', async () => {
+
+  it('invalidates an outstanding version read when the article scope changes', async () => {
     const gateway = fixture(); const onSelect = vi.fn();
     let resolve!: (value: ArticleVersion) => void;
     gateway.getArticleVersion.mockImplementation(() => new Promise(done => { resolve = done; }));
     const view = render(tree(gateway, onSelect));
-    await openVersionChoice();
-    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
+    await choose();
     await waitFor(() => expect(gateway.getArticleVersion).toHaveBeenCalledTimes(1));
     view.rerender(tree(gateway, onSelect, { selectedVersionId: 'other-v', rows: [{ id: 'other', title: '新的当前稿件', version: 5 }] }));
     await act(async () => { resolve(article.versions[0]!); });
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByText('新的当前稿件 · v5')).toBeTruthy();
+  });
+
+  it('does not cancel a new selection when the unchanged current header finishes loading', async () => {
+    const gateway = fixture(); const onSelect = vi.fn();
+    let resolve!: (value: ArticleVersion) => void;
+    gateway.getArticleVersion.mockImplementation(() => new Promise(done => { resolve = done; }));
+    const view = render(tree(gateway, onSelect, { selectedVersionId: 'previous-v', loading: true }));
+    await choose();
+    await waitFor(() => expect(gateway.getArticleVersion).toHaveBeenCalledTimes(1));
+    view.rerender(tree(gateway, onSelect, { selectedVersionId: 'previous-v', rows: [{ id: 'previous-v', title: '原稿', version: 4 }] }));
+    await act(async () => { resolve(article.versions[0]!); });
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
   });
 });

@@ -41,6 +41,8 @@ import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import PublishingArticlePicker from "../components/PublishingArticlePicker";
 import { articleEditorHref } from "../articleEditorRoute";
 import { consumePreparedArticle, prepareArticleEditor } from "../articleEditorHandoff";
+import { resolveLatestArticleSelection, type LatestArticleSelection } from "../latestArticleSelection";
+import { prepareArticleSelection } from "../articleSelectionHandoff";
 import { titleModeForFlowMode } from "../components/PublishingFlowSteps";
 import {
   PublishingBreadcrumbs,
@@ -183,17 +185,30 @@ function ArticleEditorSession({
   const [uploading, setUploading] = useState(0);
   const freezeLock = useRef(false);
   const [freezing, setFreezing] = useState(false);
+  const [handoffPending, setHandoffPending] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   // 组织模式仅用于本页交互组织，不新增网关字段。
   const [editorMode, setEditorMode] = useState<EditorMode>(
     modeParam === "multi" || modeParam === "batch" ? modeParam : "single",
   );
-  const mediaRoute = (versionId: string, keepDraft = false) => {
+  const mediaRoute = async ({ article: selected, version }: LatestArticleSelection, assertCurrent: () => void) => {
     const params = new URLSearchParams(search);
     for (const key of ["batchArticle", "batchArticleVersion", "batchDraft", "excludedDraft", "titleMode"]) params.delete(key);
-    if (!keepDraft) params.delete("draftId");
-    params.set("articleVersion", versionId);
+    const previousDraftId = params.get("draftId");
+    let sameContext = (params.get("articleId") ?? articleId) === selected.id && params.get("articleVersion") === version.id;
+    if (previousDraftId) {
+      const previous = await gateway.getDraft(previousDraftId);
+      assertCurrent();
+      sameContext = previous.id === previousDraftId && previous.articleId === selected.id && previous.articleVersionId === version.id;
+      if (!sameContext) params.delete("draftId");
+    }
+    if (!sameContext) {
+      // These identify the previous matrix result, not the current workbench flow.
+      for (const key of ["task", "matrixTask", "returnTo", "researchDataset", "researchSelection"]) params.delete(key);
+    }
+    params.set("articleId", selected.id);
+    params.set("articleVersion", version.id);
     params.set("mode", editorMode);
     // Explicit upstream intent is distinct from a restored/display-only mode.
     params.set("titleMode", titleModeForFlowMode(editorMode));
@@ -368,103 +383,98 @@ function ArticleEditorSession({
   });
 
   useEffect(() => {
-    if (!article || !dirty || saving || pickerOpen || editorMode === "batch") return;
+    if (!article || !dirty || saving || freezing || pickerOpen || editorMode === "batch") return;
     const timer = window.setTimeout(
       () => void saveNow().catch(() => undefined),
       800,
     );
     return () => window.clearTimeout(timer);
-  }, [article, dirty, saveNow, saving, signature, pickerOpen, editorMode]);
+  }, [article, dirty, saveNow, saving, freezing, signature, pickerOpen, editorMode]);
 
-  const freezeAndContinue = async () => {
-    if (!article || saving || freezeLock.current || flow?.outcomePending)
+  const freezeAndContinue = async (continueToMedia = false) => {
+    if (!article || saving || saveLock.current || uploadLock.current || freezeLock.current || flow?.outcomePending)
       return;
     const isCurrent = operationScope();
+    const submittedSignature = currentEditor.current.signature;
+    const assertCurrent = () => {
+      if (!isCurrent()) throw new Error("稿件工作区已切换，请回到原稿件继续。");
+      if (currentEditor.current.signature !== submittedSignature)
+        throw new Error("稿件在准备期间有新修改，请再次点击选择媒体。");
+    };
     freezeLock.current = true;
     setFreezing(true);
     setSaveError("");
+    setFrozenResult(undefined);
     try {
       const saved = (await saveNow()) ?? article;
-      if (!isCurrent()) return;
-      const frozen = await gateway.freezeArticle(saved.id, saved.revision);
-      if (!isCurrent()) return;
+      assertCurrent();
+      const selection = await resolveLatestArticleSelection(gateway, saved.id, {
+        expectedRevision: saved.revision,
+        isCurrent: () => isCurrent() && currentEditor.current.signature === submittedSignature,
+      });
+      assertCurrent();
+      const frozen = selection.article;
       setArticle(frozen);
-      setSavedSignature(
-        JSON.stringify([
-          frozen.title,
-          sanitizePublisherEditorHtml(
-            frozen.bodyHtml ?? publisherPlainTextToHtml(frozen.bodyText),
-            frozen.images,
-          ),
-          frozen.images,
-        ]),
-      );
+      setSavedSignature(submittedSignature);
+      const route = flow && !continueToMedia ? "" : await mediaRoute(selection, assertCurrent);
+      assertCurrent();
       if (flow) {
-        setFrozenResult(frozen);
         await flow.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
-        if (!isCurrent()) return;
-        await flow
-          .record({
-            id: `article-frozen:${frozen.currentVersionId}`,
+        assertCurrent();
+        await flow.record({
+            id: `article-frozen:${selection.version.id}`,
             label: "稿件版本已冻结",
             detail: `${frozen.title} · v${frozen.currentVersion}`,
             resources: [
               { kind: "article", id: frozen.id },
-              { kind: "article_version", id: frozen.currentVersionId! },
+              { kind: "article_version", id: selection.version.id },
             ],
             outputRefs: [
               {
                 resource: {
                   kind: "article_version",
-                  id: frozen.currentVersionId!,
+                  id: selection.version.id,
                   label: frozen.title,
                 },
                 version: String(frozen.currentVersion),
-                sourceStepId: `article-frozen:${frozen.currentVersionId}`,
+                sourceStepId: `article-frozen:${selection.version.id}`,
               },
             ],
-          })
-          .catch(() => undefined);
-      } else
-        performApprovedWorkspaceNavigation(() =>
-          navigate(
-            publishingTaskUrl(
-              mediaRoute(frozen.currentVersionId!),
-            ),
-          ),
-        );
+          });
+        assertCurrent();
+        if (!continueToMedia) { setFrozenResult(frozen); return; }
+      }
+      prepareArticleSelection(gateway, workspaceKey, selection);
+      if (flow) {
+        setHandoffPending(true);
+        await flow.handoff({
+          targetAgentId: "media",
+          title: `媒体选择 · ${frozen.title}`,
+          resources: [
+            { kind: "article", id: frozen.id },
+            { kind: "article_version", id: selection.version.id },
+          ],
+          idempotencyKey: `article-media-${selection.version.id}`,
+          route,
+        });
+        // The host owns navigation during handoff; old completions cannot update this page.
+        if (!isCurrent()) return;
+        assertCurrent();
+      } else {
+        performApprovedWorkspaceNavigation(() => navigate(publishingTaskUrl(route)));
+      }
     } catch (reason) {
-      setSaveError(reason instanceof Error ? reason.message : "无法冻结版本");
+      if (isCurrent()) setSaveError(currentEditor.current.signature !== submittedSignature
+        ? "稿件在准备期间有新修改，请再次点击选择媒体。"
+        : reason instanceof Error ? reason.message : "稿件准备未完成，请重试。");
     } finally {
       freezeLock.current = false;
-      setFreezing(false);
+      if (isCurrent()) { setFreezing(false); setHandoffPending(false); }
     }
   };
   const handoffToMedia = async () => {
-    if (!flow || !frozenResult?.currentVersionId || dirty || freezeLock.current || flow.outcomePending)
-      return;
-    freezeLock.current = true;
-    setFreezing(true);
-    try {
-      await flow.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
-      await flow.handoff({
-        targetAgentId: "media",
-        title: `媒体选择 · ${frozenResult.title}`,
-        resources: [
-          { kind: "article", id: frozenResult.id },
-          { kind: "article_version", id: frozenResult.currentVersionId },
-        ],
-        idempotencyKey: `article-media-${frozenResult.currentVersionId}`,
-        route: mediaRoute(frozenResult.currentVersionId),
-      });
-    } catch (reason) {
-      setSaveError(
-        reason instanceof Error ? reason.message : "交接未完成，请重试",
-      );
-    } finally {
-      freezeLock.current = false;
-      setFreezing(false);
-    }
+    if (!flow || !frozenResult?.currentVersionId || dirty) return;
+    await freezeAndContinue(true);
   };
 
   const updateAlt = (id: string, altText: string) => {
@@ -476,6 +486,7 @@ function ArticleEditorSession({
   const uploadImage = useCallback(
     async (file: File) => {
       if (!article) throw new Error("稿件尚未就绪");
+      if (freezeLock.current) throw new Error("稿件正在准备，请稍后上传图片。");
       const isCurrent = operationScope();
       uploadLock.current += 1;
       setUploading(uploadLock.current);
@@ -509,25 +520,8 @@ function ArticleEditorSession({
 
   const goToMediaSelection = async () => {
     if (editorMode === "batch") { batchContinue.current?.(); return; }
-    if (isNew || embedded || saving || freezing || flow?.outcomePending) return;
-    if (article?.currentVersionId && article.status === "frozen" && !dirty) {
-      if (freezeLock.current) return;
-      const isCurrent = operationScope();
-      freezeLock.current = true;
-      setFreezing(true);
-      try {
-        await flow?.saveSelections({ editorMode, titleMode: titleModeForFlowMode(editorMode) });
-        if (!isCurrent()) return;
-        performApprovedWorkspaceNavigation(() => navigate(publishingTaskUrl(mediaRoute(article.currentVersionId!, true))));
-      } catch (reason) {
-        if (isCurrent()) setSaveError(reason instanceof Error ? reason.message : "标题模式尚未保存，请重试。");
-      } finally {
-        freezeLock.current = false;
-        if (isCurrent()) setFreezing(false);
-      }
-      return;
-    }
-    void freezeAndContinue();
+    if (isNew || embedded || pending) return;
+    await freezeAndContinue(true);
   };
 
   const enterCreatedArticle = (createdId: string) => {
@@ -609,7 +603,7 @@ function ArticleEditorSession({
           type="button"
           className="publishing-button publishing-button-primary"
           onClick={goToMediaSelection}
-          disabled={(isNew && editorMode !== "batch") || embedded || saving || freezing || flow?.outcomePending}
+          disabled={(isNew && editorMode !== "batch") || embedded || pending}
           title={editorMode === "batch" ? "确认全部稿件后进入媒体选择首页" : article?.currentVersionId ? "进入媒体选择首页" : "先冻结当前版本，再进入媒体选择首页"}
         >
           选择媒体
@@ -821,7 +815,7 @@ function ArticleEditorSession({
               className="publishing-button publishing-button-secondary"
               type="button"
               onClick={() => void saveNow().catch(() => undefined)}
-              disabled={!dirty || saving}
+              disabled={!dirty || pending}
             >
               {saving ? (
                 <LoaderCircle className="publishing-spin" size={16} />
@@ -833,11 +827,11 @@ function ArticleEditorSession({
             <button
               className="publishing-button publishing-button-primary"
               type="button"
-              onClick={freezeAndContinue}
+              onClick={() => void freezeAndContinue()}
               disabled={
                 saving ||
                 freezing ||
-                flow?.outcomePending ||
+                flow?.outcomePending || uploading > 0 ||
                 !title.trim() ||
                 !content.text.trim()
               }
@@ -966,7 +960,8 @@ function ArticleEditorSession({
               字 · {images.length} 张图片
             </span>
           </div>
-          <div className="publishing-editor-layout">
+          {handoffPending ? <p role="status">正在进入媒体选择，请稍候…</p> : null}
+          <div className="publishing-editor-layout" inert={handoffPending}>
             <section
               className="publishing-panel publishing-editor-card"
               id="publishing-current-article"
@@ -979,7 +974,7 @@ function ArticleEditorSession({
                     type="button"
                     className="publishing-link-button"
                     onClick={goToMediaSelection}
-                    disabled={saving || freezing || flow?.outcomePending}
+                    disabled={pending}
                   >
                     选择媒体
                   </button>
@@ -1097,10 +1092,9 @@ function ArticleEditorSession({
                   <button
                     className="publishing-button publishing-button-accent publishing-button-block"
                     type="button"
-                    onClick={freezeAndContinue}
+                    onClick={goToMediaSelection}
                     disabled={
-                      saving ||
-                      freezing ||
+                      pending ||
                       !title.trim() ||
                       !content.text.trim()
                     }

@@ -10,6 +10,7 @@ import MediaLibraryPage from "./MediaLibraryPage";
 import { PublishingGatewayProvider } from "../PublishingContext";
 import { PublishingFlowProvider, type PublishingFlow } from "../PublishingFlowContext";
 import { configurePublishingHost } from "../host";
+import { prepareArticleSelection } from "../articleSelectionHandoff";
 import type { PublisherGateway } from "../gateway";
 import type { ArticleDetail, CatalogFreshness, MediaFacets, MediaResource, PublicationDraft } from "../types";
 
@@ -989,7 +990,7 @@ describe("shared confirmed article navigation", () => {
     expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
   });
 
-  it('switches article only after the shared read-only selector verifies its version and drops old cart/task bindings', async () => {
+  it('switches article with one confirmation and drops old cart/task bindings', async () => {
     const first = article();
     const second = article({ id: 'article-2', title: '第二篇真实稿件', currentVersionId: 'version-2', versions: [{ ...first.versions[0]!, id: 'version-2', hash: 'hash-2' }] });
     const fixture = gatewayFixture(undefined, first, draft([media('a')]));
@@ -1001,10 +1002,7 @@ describe("shared confirmed article navigation", () => {
     await waitFor(() => expect(count()).toBe('1'));
     fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
     fireEvent.click(await screen.findByRole('radio', { name: /ID：article-2/ }));
-    fireEvent.click(screen.getByRole('button', { name: '选择确认版本' }));
-    await screen.findByRole('combobox', { name: '稿件版本' });
-    expect(count()).toBe('1');
-    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
+    fireEvent.click(screen.getByRole('button', { name: '使用此稿件' }));
     await waitFor(() => expect(view.location.history?.at(-1)).toContain('articleId=article-2'));
     const target = new URL(view.location.history!.at(-1)!, window.location.origin);
     expect(target.pathname).toBe('/publishing/media/third');
@@ -1018,6 +1016,77 @@ describe("shared confirmed article navigation", () => {
     expect(fixture.createDraft).not.toHaveBeenCalled();
     expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
     expect(oldFlow.ensureTask).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: '选择已确认版本' })).toBeNull();
+    await screen.findByText('第二篇真实稿件 · v1');
+  });
+
+  it('honors the explicit editor article/version instead of inheriting an old flow draft', async () => {
+    const fixture = gatewayFixture();
+    const oldFlow = flow({ resources: [{ kind: 'publication_draft', id: 'old-draft' }, { kind: 'article_version', id: 'old-version' }] });
+    harness(fixture.gateway, '/publishing/media/third?articleId=article-1&articleVersion=version-1&workbenchTask=task-1', oldFlow);
+    await screen.findByText('已确认稿件 · v1');
+    expect(fixture.getDraft).not.toHaveBeenCalled();
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(fixture.createDraft).toHaveBeenCalledWith('version-1', ['a'], expect.any(String), 'single'));
+  });
+
+  it('keeps the complete prepared binding visible if route revalidation fails and blocks downstream selection', async () => {
+    const detail = article();
+    const fixture = gatewayFixture(undefined, detail);
+    prepareArticleSelection(fixture.gateway, 1, { article: detail, version: detail.versions[0]! });
+    fixture.getArticle.mockRejectedValue(new Error('稿件读取暂时失败'));
+    harness(fixture.gateway, '/publishing/media/third?articleId=article-1&articleVersion=version-1');
+    await screen.findByText('已确认稿件 · v1');
+    await screen.findByText(/稿件读取暂时失败/);
+    expect((screen.getByRole('button', { name: '配置标题' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it('selects a never-frozen article through the existing snapshot API without a second version dialog', async () => {
+    const working = article({ id: 'new-article', title: '最新正文稿件', status: 'draft', currentVersion: 0, currentVersionId: undefined, versions: [] });
+    const latest = { ...working, status: 'frozen' as const, currentVersion: 1, currentVersionId: 'new-version',
+      versions: [{ ...article().versions[0]!, id: 'new-version' }] };
+    const fixture = gatewayFixture(undefined, working);
+    let current = working;
+    fixture.getArticle.mockImplementation(async () => current);
+    fixture.getArticleVersion.mockImplementation(async () => latest.versions[0]!);
+    fixture.gateway.freezeArticle = vi.fn(async () => { current = latest; return latest; });
+    const view = harness(fixture.gateway, '/publishing/media/third');
+    fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: /ID：new-article/ }));
+    fireEvent.click(screen.getByRole('button', { name: '使用此稿件' }));
+    await waitFor(() => expect(view.location.history?.at(-1)).toContain('articleVersion=new-version'));
+    await screen.findByText('最新正文稿件 · v1');
+    expect(fixture.gateway.freezeArticle).toHaveBeenCalledWith('new-article', working.revision);
+    expect(screen.queryByRole('dialog', { name: '选择已确认版本' })).toBeNull();
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it('detaches an unreadable draft when the same article is explicitly selected again', async () => {
+    const fixture = gatewayFixture();
+    fixture.getDraft.mockRejectedValue(new Error('旧投放草稿已失效'));
+    const view = harness(fixture.gateway, '/publishing/drafts/missing/media/third?articleId=article-1&articleVersion=version-1');
+    await screen.findByText(/旧投放草稿已失效/);
+    fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: /ID：article-1/ }));
+    fireEvent.click(screen.getByRole('button', { name: '使用此稿件' }));
+    await waitFor(() => expect(new URL(view.location.history.at(-1)!, window.location.origin).pathname).toBe('/publishing/media/third'));
+    await screen.findByText('已确认稿件 · v1');
+    await waitFor(() => expect(screen.queryByText(/旧投放草稿已失效/)).toBeNull());
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+  });
+
+  it('retries a previously verified matching draft when the same article is reselected', async () => {
+    const fixture = gatewayFixture(undefined, article(), draft([media('a')]));
+    harness(fixture.gateway, '/publishing/drafts/draft-1/media/third?articleId=article-1&articleVersion=version-1');
+    await waitFor(() => expect(count()).toBe('1'));
+    const readsBefore = fixture.getDraft.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: /ID：article-1/ }));
+    fireEvent.click(screen.getByRole('button', { name: '使用此稿件' }));
+    await waitFor(() => expect(fixture.getDraft.mock.calls.length).toBeGreaterThan(readsBefore));
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+    expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
   });
 
   it('asks before discarding an unpersisted independent media shortlist on matrix navigation', async () => {
