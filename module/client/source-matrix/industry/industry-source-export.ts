@@ -156,7 +156,9 @@ export async function collectCitationExport(store: IndustrySourceStore, signal: 
       }
     }
     const finalState = assertLive();
-    const copyPage = <T extends CitationRow,>(page: IndustryPage<T>, fetchedAt: string | null): ExportPage<T> => Object.freeze({ ...page, items: Object.freeze(page.items.map(row => Object.freeze({ ...row }))), fetchedAt });
+    // Object.freeze widens a generic spread to an index signature; keep the row type explicit.
+    const copyRow = <T extends CitationRow,>(row: T): Readonly<T> => Object.freeze({ ...row } as T);
+    const copyPage = <T extends CitationRow,>(page: IndustryPage<T>, fetchedAt: string | null): ExportPage<T> => Object.freeze({ ...page, items: Object.freeze(page.items.map(row => copyRow(row))), fetchedAt });
     return Object.freeze({ common: commonCopy, selection: selectionCopy, media: copyPage(finalState.media.data!, finalState.media.fetchedAt), contents: copyPage(finalState.contents.data!, finalState.contents.fetchedAt), exportedAt: new Date().toISOString() });
   } finally {
     unsubscribe(); signal.removeEventListener('abort', observe); waiter.wake?.(); waiter.wake = null;

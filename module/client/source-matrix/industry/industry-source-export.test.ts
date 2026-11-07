@@ -20,7 +20,7 @@ function harness(override?: Override) {
     if (custom !== undefined) return await custom;
     return ok(endpoint === 'filters' ? filters : endpoint === 'distributions' ? { sourceTypeDistribution: [], publishTimeDistribution: [] } : endpoint === 'media-ranking' ? page([media('m1')], '1') : page([content('c1')], '1', null, 'contents'));
   };
-  return { calls, store: new IndustrySourceStore(transport as typeof industryRequest) };
+  return { calls, store: new IndustrySourceStore(transport as unknown as typeof industryRequest) };
 }
 async function settled(store: IndustrySourceStore) {
   await vi.waitFor(() => { const s = store.getSnapshot(); expect(s.filters.loading || s.media.loading || s.contents.loading || s.distributions.loading).toBe(false); });
