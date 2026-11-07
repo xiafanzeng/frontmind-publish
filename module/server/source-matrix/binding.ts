@@ -84,7 +84,9 @@ export function bindingFingerprint(input: {
 }
 
 /** Manuscripts always come from the server-verified frozen version, never the browser. */
-export function bindingManuscripts(binding: TrustedArticleBinding): Row[] {
+export function bindingManuscripts(binding: TrustedArticleBinding, article?: IdentificationArticle): Row[] {
+  if (article && (article.articleVersionId !== binding.articleVersionId || article.articleId !== binding.articleId || article.contentHash !== binding.contentHash || article.versionNumber !== binding.versionNumber)) throw new Error('matrix_manuscript_binding_mismatch');
+  const content = article ? Array.from(article.body) : null;
   return [{
     article_id: binding.articleId,
     version: bindingVersionKey(binding),
@@ -92,6 +94,7 @@ export function bindingManuscripts(binding: TrustedArticleBinding): Row[] {
     content_hash: binding.contentHash,
     contains_images: binding.containsImages,
     source: 'trusted_article_version',
+    ...(content ? { content_excerpt: content.slice(0, 16000).join(''), content_excerpt_truncated: content.length > 16000, content_source: 'authorized_frozen_plain_text' } : {}),
   }];
 }
 

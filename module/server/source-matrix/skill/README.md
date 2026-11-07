@@ -1,6 +1,8 @@
-# Source Matrix Planner 2026.10.26-web.1
+# Source Matrix Planner 2026.11.07-web.2
 
 先阅读 SKILL.md。上游及改动边界见 ORIGIN.md。运行依赖仍按 requirements.txt / requirements-excel.txt，网站使用同源 TypeScript，没有新增 Python 或 npm 依赖。
+
+网站平台AI、授权冻结正文、真实行业快照与两种aggregate关联见 references/platform-industry-context.md。该网站增补由原生TypeScript校验，Python离线脚本不自动获得新的全行业引用能力；本轮不运行或改写离线历史产物。
 
 保留：scripts/planner.py（结构化 matrix/budget）、scripts/export_adapter.py（Excel 研究）、scripts/render_preview.py（离线快照）。新增 scripts/content_planning.py：读取可信矩阵和目录，复核 AI 提出的不同新稿/同稿重复篇数及费用，输出非执行 content_plans。字段和调用见 references/content-planning.md。
 

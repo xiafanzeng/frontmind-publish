@@ -81,10 +81,9 @@ it('caps upstream response bytes without accepting a truncated response', async 
   await expect(invokeAi({ name: 'test', provider: 'glm', model: 'test', apiKey: 'test-only' }, {}, [], false, { identification: true })).rejects.toThrow('provider_response_too_large');
 });
 
-it('leaves identification unavailable for a custom environment endpoint outside the allowlist', () => {
+it('leaves all platform decisions unavailable when the environment endpoint is outside the allowlist', () => {
   const adapter = createEnvDecisionAdapter({ FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'test-only', FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL: 'https://api.xty.app/v1', FRONTMIND_SOURCE_MATRIX_LLM_MODEL: 'gpt-4o' });
-  expect(adapter?.identify).toBeUndefined();
-  expect(adapter?.matrix).toBeTypeOf('function');
+  expect(adapter).toBeUndefined();
 });
 
 it.each([{ status: 401, code: 'provider_credential_invalid' }, { status: 429, code: 'provider_rate_limited' }])('classifies upstream failures without leaking their response: $status', async ({ status, code }) => {

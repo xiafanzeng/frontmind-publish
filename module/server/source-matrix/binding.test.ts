@@ -38,6 +38,16 @@ it('changes the fingerprint when the version content, draft or cart changes',()=
  expect(bindingFingerprint(binding)).toBe(base);
 });
 
+it('only attaches bounded content from the same authorized frozen identity',()=>{
+ const article={articleVersionId:binding.articleVersionId,articleId:binding.articleId,versionNumber:binding.versionNumber,title:binding.articleTitle,contentHash:binding.contentHash,body:'正文😀'.repeat(6000)};
+ const manuscript=bindingManuscripts(binding,article)[0]!;
+ expect(Array.from(manuscript.content_excerpt)).toHaveLength(16000);
+ expect(manuscript.content_excerpt_truncated).toBe(true);
+ expect(manuscript.content_source).toBe('authorized_frozen_plain_text');
+ expect(()=>bindingManuscripts(binding,{...article,contentHash:'other'})).toThrow('matrix_manuscript_binding_mismatch');
+ expect(bindingManuscripts(binding,{...article,body:'完整正文'})[0]).toMatchObject({content_excerpt:'完整正文',content_excerpt_truncated:false});
+});
+
 const asOf='2026-10-26T12:00:00+08:00';
 const quoted=(id:string):BindingMediaResource=>resource(id,'1000000',{rawPayload:{publisher_quote_v1:{offer_id:'offer-'+id,publication_spec:'text',provider_resource_id:'ext-'+id,provider_execution:'independent_unit_orders',repeat_allowed:true,pricing:{kind:'unit',amount:'100.00',currency:'CNY',quoted_at:'2026-10-01T00:00:00+08:00',valid_until:'2026-11-01T00:00:00+08:00',mandatory_fees:[{amount:'5.00',basis:'item'}]}}}});
 const item=(quantity=1)=>({article_id:'article-1',version:'v2',resource_id:'media-2',offer_id:'offer-media-2',publication_spec:'text',quantity,purpose:'standard'});

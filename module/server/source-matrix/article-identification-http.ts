@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
@@ -6,14 +6,13 @@ import type { IdentificationContext, IdentificationContextResponse, Identificati
 import { BindingStore, type IdentificationArticle } from './binding.js';
 import { MatrixRepository } from './repository.js';
 import { digest } from './common.js';
-import { resolveUserDecisionAdapter } from './ai-connection-http.js';
+import { resolvePlatformDecisionAdapter } from './ai-connection-http.js';
 import { identificationDigest, unidentifiedFields, validateIdentificationFields, identifyWithinDeadline, IDENTIFICATION_MAX_CHARACTERS } from './article-identification.js';
 
 const selection = z.object({ article_version_id: z.string().uuid(), draft_id: z.string().uuid().optional() }).strict();
 const identifyBody = selection.extend({ content_digest: z.string().regex(/^[a-f0-9]{64}$/), connection_revision: z.string().min(1).max(160) }).strict();
 const unconfiguredMessage = 'AI 识别暂未配置，可先手动填写。';
-type Decision = Awaited<ReturnType<typeof resolveUserDecisionAdapter>>;
-const hostRevisions = new WeakMap<object, { identify: unknown; revision: string }>();
+type Decision = Awaited<ReturnType<typeof resolvePlatformDecisionAdapter>>;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function failure(status: number, code: string, publicMessage: string) { return Object.assign(new Error(code), { status, code, publicMessage }); }
 
@@ -25,19 +24,11 @@ function authorizedScope(core: ModuleHttpCore, req: Request) {
 
 function connectionOf(core: ModuleHttpCore, decision: Decision): IdentificationContext['connection'] {
   let revision: string;
-  if (decision.mode === 'user') revision = 'user:' + decision.connection!.revision;
-  else if (decision.mode === 'environment') {
+  if (decision.mode === 'environment') {
     // A keyed fingerprint notices credential rotation without publishing a key
     // or an unkeyed hash of it. It is stable across equivalent server workers.
     const env = core.environment;
     revision = 'environment:' + createHmac('sha256', env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY || 'unconfigured').update(JSON.stringify([env.FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL || '', env.FRONTMIND_SOURCE_MATRIX_LLM_MODEL || '', env.FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS || '', 'identify-v1'])).digest('hex');
-  } else if (decision.mode === 'host' && decision.adapter) {
-    if (decision.adapter.identificationRevision) revision = 'host:' + hash(decision.adapter.identificationRevision);
-    else {
-      let entry = hostRevisions.get(decision.adapter);
-      if (!entry || entry.identify !== decision.adapter.identify) { entry = { identify: decision.adapter.identify, revision: randomUUID() }; hostRevisions.set(decision.adapter, entry); }
-      revision = 'host:' + entry.revision;
-    }
   } else revision = 'none:identify-v1';
   return { mode: decision.mode, available: typeof decision.adapter?.identify === 'function', revision };
 }
@@ -49,12 +40,12 @@ function contextOf(scopeKey: string, article: IdentificationArticle, connection:
 function modelFailure(error: unknown): Error {
   const messages: Record<string, [number, string]> = {
     provider_timeout: [503, 'AI 识别超时，请稍后重试；已填写内容会保留。'],
-    provider_credential_invalid: [503, 'AI 连接认证失败，请联系管理员或检查当前模型连接。'],
-    provider_permission_denied: [503, '当前 AI 连接没有使用该模型的权限。'],
+    provider_credential_invalid: [503, '平台 AI 服务认证暂不可用，请联系运营。'],
+    provider_permission_denied: [503, '平台 AI 服务暂时没有该模型的使用权限，请联系运营。'],
     provider_quota_exhausted: [503, 'AI 服务额度暂不可用，可先手动填写。'],
     provider_rate_limited: [429, 'AI 请求过于频繁，请稍后重试。'],
-    provider_model_unavailable: [503, '配置的 AI 模型暂不可用，请检查模型连接。'],
-    provider_parameters_invalid: [503, 'AI 服务不支持当前识别协议，请检查模型连接。'],
+    provider_model_unavailable: [503, '平台配置的 AI 模型暂不可用，请联系运营。'],
+    provider_parameters_invalid: [503, '平台 AI 服务暂不支持当前识别协议，请联系运营。'],
     provider_refused: [422, '模型未能处理这篇稿件，可手动填写或稍后重试。'],
     provider_response_too_large: [422, 'AI 返回内容超出限制，未采用该结果，请重试。'],
     provider_incomplete_response: [422, 'AI 未完成本次识别，未采用不完整结果，请重试。'],
@@ -77,7 +68,7 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (!loaded.article) throw failure(loaded.failure === 'draft_version_mismatch' ? 409 : 404, 'binding_not_found', '当前稿件或版本不可用，请重新选择已授权稿件。');
     const industries = await new MatrixRepository(db, scope.tenantId).industries();
     if (industries.length > 500 || industries.some(item => typeof item.id !== 'string' || !item.id || item.id.length > 80 || typeof item.name !== 'string' || !item.name || item.name.length > 200)) throw failure(503, 'industry_configuration_required', '行业选项暂不可用，可先手动填写其他内容。');
-    const decision = await resolveUserDecisionAdapter(core, req);
+    const decision = await resolvePlatformDecisionAdapter(core, req);
     if (authorizedScope(core, req).scopeKey !== scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     return { scope, store, article: loaded.article, industries, decision, context: contextOf(scope.scopeKey, loaded.article, connectionOf(core, decision)) };
   }
@@ -98,7 +89,7 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     const body = parsed.data;
     const current = await load(req, body);
     if (body.content_digest !== current.context.contentDigest) throw failure(409, 'stale_content', '稿件内容或标题已变化，请重新读取当前版本。');
-    if (body.connection_revision !== current.context.connection.revision) throw failure(409, 'connection_changed', 'AI 连接已变化，请重新读取后识别。');
+    if (body.connection_revision !== current.context.connection.revision) throw failure(409, 'connection_changed', '平台模型配置已变化，请重新读取后识别。');
     if (!current.context.connection.available || !current.decision.adapter?.identify) throw failure(503, 'not_configured', unconfiguredMessage);
     if (!current.article.body.trim()) throw failure(422, 'empty_article', '当前冻结版本正文为空，请先确认稿件内容。');
     if (current.article.body.length > IDENTIFICATION_MAX_CHARACTERS || current.article.title.length > 2000) throw failure(413, 'article_too_large', '稿件超出本次全文识别的 60,000 字符限制，尚未分析；请手动填写。');
@@ -114,8 +105,8 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (authorizedScope(core, req).scopeKey !== current.scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     const latest = await current.store.loadIdentificationArticle({ articleVersionId: body.article_version_id, draftId: body.draft_id });
     if (!latest.article || latest.article.articleId !== current.article.articleId || latest.article.articleVersionId !== current.article.articleVersionId || latest.article.versionNumber !== current.article.versionNumber || identificationDigest(latest.article) !== current.context.contentDigest || latest.article.contentHash !== current.article.contentHash) throw failure(409, 'stale_content', '稿件或版本权限已变化，本次结果未采用，请重新读取。');
-    const nextDecision = await resolveUserDecisionAdapter(core, req);
-    if (connectionOf(core, nextDecision).revision !== current.context.connection.revision || !nextDecision.adapter?.identify) throw failure(409, 'connection_changed', 'AI 连接已变化，本次结果未采用，请重新识别。');
+    const nextDecision = await resolvePlatformDecisionAdapter(core, req);
+    if (connectionOf(core, nextDecision).revision !== current.context.connection.revision || !nextDecision.adapter?.identify) throw failure(409, 'connection_changed', '平台模型配置已变化，本次结果未采用，请重新识别。');
     const latestIndustries = await new MatrixRepository(await core.database(), current.scope.tenantId).industries();
     if (fields.industry.value && !latestIndustries.some(item => item.id === fields.industry.value && current.industries.some(original => original.id === item.id && original.name === item.name))) fields.industry = { value: null, source: 'unidentified' };
     if (authorizedScope(core, req).scopeKey !== current.scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');

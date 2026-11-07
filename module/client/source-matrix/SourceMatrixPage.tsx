@@ -22,9 +22,7 @@ import {ContentPlanRecommendations,type QuantityChange} from './ContentPlanRecom
 import {pricingReason} from './PlanningDetails';
 import {ResearchImportDialog} from './ResearchImportDialog';
 import type {ResearchDatasetSummary} from './research-import-types';
-import {ApiConnectionDialog} from './ApiConnectionDialog';
-import {connectionDisplayName,type SafeConnection} from './api-connection-types';
-import {sourceMatrixApiHelpUrl,SOURCE_MATRIX_HELP_API_GUIDE_URL} from '../help-links';
+import type {IndustryCommonQuery} from '../../contracts/industry-source';
 import {ConfirmedArticleHeader,type ConfirmedArticleSelection} from '../components/ConfirmedArticleHeader';
 import {confirmedArticleSelectionHref,isIndependentArticleSelection} from '../confirmedArticleRoute';
 import {articleEditorHref} from '../articleEditorRoute';
@@ -43,12 +41,30 @@ function additionSummary(addition:ApplyPlanDiff['additions'][number]) {
  const amount=addition.totalPriceTenThousandths;
  return `${addition.replaceExisting?'更新数量':'新增'} · ${quantity} · ${amount!=null&&/^\d+$/.test(amount)?formatPublishingMoney(amount):'完整费用待确认'}`;
 }
+interface PlatformModelStatus {connection:null;mode:'environment'|'none';available:boolean;message?:string}
+function industryQueryKey(value:unknown):string|null {
+ const query=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
+ return query.scopeType==='CATEGORY'?JSON.stringify([query.periodType,query.date??null,query.scopeType,query.scopeId,query.modelCode]):null;
+}
+function generationBindingMatches(previous:string,current:string):boolean {
+ const [savedDraft,savedVersion,savedTask]=JSON.parse(previous) as string[],[draft,version,task]=JSON.parse(current) as string[];
+ return savedVersion===version&&savedTask===task&&(!savedDraft||savedDraft===draft);
+}
+function selectedIndustryQuery(params:URLSearchParams):{query?:IndustryCommonQuery;error?:string} {
+ const scopeId=params.get('siScope');
+ // An unscoped analysis view never supplies an ALL-industry recommendation query.
+ if(!scopeId)return {};
+ const periodType=params.get('siPeriod'),date=params.get('siDate')??undefined,modelCode=params.get('siModel')??'';
+ if(!/^[1-9]\d{0,18}$/.test(scopeId)||BigInt(scopeId)>9223372036854775807n||!['ALL','DAY','WEEK','MONTH'].includes(periodType??'')||!modelCode.trim()||(periodType!=='ALL'&&(!date||!/^\d{4}-\d{2}-\d{2}$/.test(date))))
+  return {error:'已选行业数据范围不完整，请在“行业信源分布”中重新选择行业、模型和日期后重试。'};
+ return {query:{periodType:periodType as IndustryCommonQuery['periodType'],...(periodType!=='ALL'?{date}:{}),scopeType:'CATEGORY',scopeId,modelCode}};
+}
 type MatrixView='matrix'|'analysis'|'report'|'industry';
 const matrixGatewayScopes=new WeakMap<object,number>();let nextMatrixGatewayScope=0;
 function matrixGatewayScope(gateway:object){let scope=matrixGatewayScopes.get(gateway);if(scope===undefined){scope=++nextMatrixGatewayScope;matrixGatewayScopes.set(gateway,scope);}return scope;}
 export default function SourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
- // Two data lanes share one page: the industry distribution always reads the
- // upstream industry service; brand samples feed only the recommendation lane.
+ // The analysis and recommendation views share the selected industry range;
+ // the server freezes the free upstream distributions into each generated task.
  const search=useSearch(),params=new URLSearchParams(search);
  const activeView=params.get('tab')==='matrix'?'matrix':params.get('tab')==='analysis'?'analysis':view==='matrix'||view==='report'?'matrix':'analysis';
  const hostFlow=usePublishingFlow(),gateway=usePublisherGateway(),workspace=usePublishingWorkspaceKey();
@@ -110,13 +126,13 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]);
  const [brandBatches,setBrandBatches]=useState<BrandDataBatchOption[]>([]);
  const [confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0),[showReport,setShowReport]=useState(false);
- const [importOpen,setImportOpen]=useState(false),[connectionOpen,setConnectionOpen]=useState(false);
+ const [importOpen,setImportOpen]=useState(false);
  const [importedDataIds,setImportedDataIds]=useState<string[]>(params.getAll('researchDataset'));
  const [importedDatasets,setImportedDatasets]=useState<ResearchDatasetSummary[]>([]);
- const [connectionState,setConnectionState]=useState<{connection:SafeConnection|null;mode:'host'|'user'|'environment'|'none';available:boolean;message?:string}|null>(null);
+ const [connectionState,setConnectionState]=useState<PlatformModelStatus|null>(null);
  const [connectionError,setConnectionError]=useState(''),[generationPhase,setGenerationPhase]=useState('');
- const [comparisonResult,setComparisonResult]=useState<MatrixResult|null>(null);
- const connectionKey=connectionState?connectionState.mode+':'+(connectionState.mode==='user'?connectionState.connection?.revision??'':''):'';
+ const [comparisonResult,setComparisonResult]=useState<MatrixResult|null>(null),[comparingPrevious,setComparingPrevious]=useState(false);
+ const industrySelection=selectedIndustryQuery(params),industrySelectionKey=industryQueryKey(industrySelection.query)??(industrySelection.error?JSON.stringify(['invalid',params.get('siScope'),params.get('siPeriod'),params.get('siDate'),params.get('siModel')]):null);
  const [receivedResult,setResult]=useState<MatrixResult|null>(null),[resultTask,setResultTask]=useState(''),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[industryUnavailable,setIndustryUnavailable]=useState(false),[industryAttempt,setIndustryAttempt]=useState(0),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
  const result=resultTask===`${workspace}:${taskId}`?receivedResult:null;
  const [matrixInput,setMatrixInput]=useState<string|null>(null),[matrixBinding,setMatrixBinding]=useState<string|null>(null),[serverStale,setServerStale]=useState(false),[budgetPending,setBudgetPending]=useState(false);
@@ -128,10 +144,12 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const reasonTrigger=useRef<HTMLElement|null>(null);
  const openReason=(candidate:MatrixResult['matrix']['candidates'][number])=>{reasonTrigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setReasonCandidate(candidate);};
  const latestInput=useRef(''),latestBudget=useRef(''),latestRecommendationContext=useRef(''),pendingBudget=useRef<{key:string;matrix:MatrixResult}|null>(null);
- const inputKey=JSON.stringify([industry,product.trim(),audience.trim(),regions.split('、').map(value=>value.trim()).filter(Boolean),questions.split('\n').map(value=>value.trim()).filter(Boolean),hours,assetKind,samplePlatform,brandData,[...importedDataIds].sort(),connectionKey]);latestInput.current=inputKey;
+ const inputKey=JSON.stringify([industry,product.trim(),audience.trim(),regions.split('、').map(value=>value.trim()).filter(Boolean),questions.split('\n').map(value=>value.trim()).filter(Boolean),hours,assetKind,samplePlatform,brandData,[...importedDataIds].sort(),industrySelectionKey]);latestInput.current=inputKey;
  // Saved samples are display data only. They never populate live task/cart state.
- const demoActive=showDemo&&!hasArticleContext&&!taskId&&!result,showingPrevious=!demoActive&&!!comparisonResult&&(!result||result.matrix.status!=='complete'),displayResult=demoActive?matrixDemo.result:showingPrevious?comparisonResult:result;
- const researchUsage=itemObject(displayResult?.scope.task.research_materials??null);
+ const demoActive=showDemo&&!hasArticleContext&&!taskId&&!result,showingPrevious=!demoActive&&!!comparisonResult&&(comparingPrevious||!result||result.matrix.status!=='complete'),displayResult=demoActive?matrixDemo.result:showingPrevious?comparisonResult:result;
+ const researchUsage=itemObject(displayResult?.scope.task.research_materials??null),industryContext=itemObject(displayResult?.scope.task.industry_context??null),industryContextQuery=itemObject(industryContext.query??null);
+ const industryContextLimited=!demoActive&&!!displayResult&&industryContext.status!=='ok';
+ const industryPeriodLabel=({ALL:'全部时间',DAY:'日',WEEK:'周',MONTH:'月'} as Record<string,string>)[String(industryContextQuery.periodType)]??'周期待确认';
  const demoSemanticStale=demoSemanticKey({industryLabel:industry?industries.find(item=>item.id===industry)?.name??industry:matrixDemo.form.industry,product,audience,regions,questions,hours,assetKind,samplePlatform,brandData})!==demoSemanticKey(initialDemoForm);
  const demoBudgetStale=demoSemanticStale||!demoBudgetMatches(matrixDemo,{currency,total,enabled,exploration,min,max});
  const selectedDemoCombination=matrixDemo.research_combinations[planIndex]??matrixDemo.research_combinations[0];
@@ -143,6 +161,8 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const submittedTask=useRef<{id:any;workspace:any;inputKey:any;bindingKey:any}|null>(null);
  // One-click chain: matrix first, then the budget stage follows automatically on the hydrated render.
  const followUpBudget=useRef(false);
+ const generationInputs=useRef(new Map<string,{inputKey:string;bindingKey:string}>()),latestBinding=useRef(''),latestGenerationReady=useRef(false);
+ latestGenerationReady.current=!hasArticleContext||Boolean(identification.context&&identification.context.articleVersionId===identificationVersion&&currentBinding&&!currentBinding.loading&&!currentBinding.error);
  const request=useRef<AbortController|null>(null),pollRequest=useRef<AbortController|null>(null),cancelRequest=useRef<AbortController|null>(null),sequence=useRef(0),formRef=useRef<HTMLFormElement>(null);
  useLayoutEffect(()=>{const node=formRef.current?.querySelector('textarea');if(node){node.style.height='auto';node.style.height=`${Math.min(320,Math.max(132,node.scrollHeight))}px`;}},[questions,view]);
  const formNeedsGuard=hasArticleContext?(identification.hasManualChanges&&!identification.persisted||formDraft.hasEdits&&!formDraft.persisted):formDraft.hasEdits;
@@ -152,19 +172,18 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   void matrixApi<{industries:Array<{id:string;name:string}>;brand_data_batches?:BrandDataBatchOption[];message?:string}>('/industries',abort.signal).then(r=>{if(!abort.signal.aborted){setIndustries(r.industries);setIndustryUnavailable(!r.industries.length);const batches=r.brand_data_batches??[];setBrandBatches(batches);}}).catch(()=>{if(!abort.signal.aborted)setIndustryUnavailable(true);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>{abort.abort();};
  },[workspace,industryAttempt]);
  useEffect(()=>{const abort=new AbortController();setConnectionError('');
-  void matrixApi<{connection:SafeConnection|null;mode:'host'|'user'|'environment'|'none';available:boolean;message?:string}>('/matrix/connection',abort.signal)
+  void matrixApi<PlatformModelStatus>('/matrix/connection',abort.signal)
    .then(value=>{if(!abort.signal.aborted)setConnectionState(value);})
-   .catch(()=>{if(!abort.signal.aborted){setConnectionState(null);setConnectionError('无法读取模型连接，请打开连接设置重试。');}});
+   .catch(()=>{if(!abort.signal.aborted){setConnectionState(null);setConnectionError('无法读取推荐服务状态，请重试或稍后联系运营。');}});
   return()=>abort.abort();
  },[workspace,connectionEpoch]);
- useEffect(()=>{setImportOpen(false);setConnectionOpen(false);setImportedDatasets([]);setImportedDataIds(params.getAll('researchDataset'));setComparisonResult(null);setConnectionState(null);},[workspace]);
+ useEffect(()=>{setImportOpen(false);setImportedDatasets([]);setImportedDataIds(params.getAll('researchDataset'));setComparisonResult(null);setConnectionState(null);},[workspace]);
  const updateImports=(ids:string[],datasets:ResearchDatasetSummary[])=>{
   setImportedDataIds(ids);setImportedDatasets(datasets);setShowDemo(false);followUpBudget.current=false;
   const next=new URLSearchParams(search);next.delete('researchDataset');ids.forEach(id=>next.append('researchDataset',id));next.set('researchSelection','custom');
   navigate(projectWorkspaceUrl(`/publishing/source-matrix?${next.toString()}`)+(typeof window!=='undefined'?window.location.hash:''));
  };
- const updateConnection=(_connection:SafeConnection|null)=>{setConnectionState(null);setConnectionError('');setConnectionEpoch(value=>value+1);followUpBudget.current=false;};
- useEffect(()=>{const created=submittedTask.current;if(!created||created.id!==taskId||created.workspace!==workspace){followUpBudget.current=false;setComparisonResult(null);}setResult(null);setResultTask('');setMatrixInput(null);setMatrixBinding(null);setServerStale(false);setBudgetNeedsRecompute(false);setSelected([]);setBusy(!!taskId);setError(null);setNotice('');setConfirmBudget(null);setConfirmLayer(null);setReasonCandidate(null);setShowReport(false);setBudgetPending(false);setResourceSelections([]);if(!created||created.id!==taskId||created.workspace!==workspace)setQuantityMode('new_articles');setPreferFormal(false);submissionLock.current=false;pendingBudget.current=null;appliedBudget.current='';return()=>{request.current?.abort();cancelRequest.current?.abort();sequence.current++;};},[taskId,workspace]);
+ useEffect(()=>{const created=submittedTask.current;if(!created||created.id!==taskId||created.workspace!==workspace){followUpBudget.current=false;setComparisonResult(null);setComparingPrevious(false);}setResult(null);setResultTask('');setMatrixInput(null);setMatrixBinding(null);setServerStale(false);setBudgetNeedsRecompute(false);setSelected([]);setBusy(!!taskId);setError(null);setNotice('');setConfirmBudget(null);setConfirmLayer(null);setReasonCandidate(null);setShowReport(false);setBudgetPending(false);setResourceSelections([]);if(!created||created.id!==taskId||created.workspace!==workspace)setQuantityMode('new_articles');setPreferFormal(false);submissionLock.current=false;pendingBudget.current=null;appliedBudget.current='';return()=>{request.current?.abort();cancelRequest.current?.abort();sequence.current++;};},[taskId,workspace]);
  const serviceMessage=(value:string)=>/迁移|migration|ER_NO_SUCH_TABLE|凭据|PUBLISHER_/.test(value)?'推荐服务暂不可用，请稍后重试或联系运营。':value;
  const receiveTask=(response:TaskResponse)=>{
   const next=response.result,pending=pendingBudget.current,resultOwner=`${workspace}:${response.task_id??taskId}`;
@@ -190,42 +209,64 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    } else if(next)setNotice(serviceMessage(next.errors?.map(issue=>issue.message).join('；')||label(next.status)));
    if(response.state!=='running'){pendingBudget.current=null;setBudgetPending(false);}return;
   }
-  if(next?.matrix){setResultTask(resultOwner);setResult(next);if(next.retryable_budget){appliedBudget.current='';setBudgetNeedsRecompute(true);setShowReport(false);setNotice('组合生成未通过复核，可调整预算后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else if(response.state!=='running')setNotice('');}
+  if(response.state!=='running'&&(!next?.matrix||next.matrix.status!=='complete'||next.errors.length>0))followUpBudget.current=false;
+  if(next?.matrix){if(response.state!=='running'&&next.matrix.status==='complete'&&!next.errors.length)setComparingPrevious(false);setResultTask(resultOwner);setResult(next);if(next.retryable_budget){appliedBudget.current='';setBudgetNeedsRecompute(true);setShowReport(false);setNotice('组合生成未通过复核，可调整预算后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else if(response.state!=='running')setNotice('');}
   else if(next){if(next.status==='stale_matrix')setServerStale(true);setNotice(serviceMessage(next.errors?.map(issue=>issue.message).join('；')||label(next.status)));}
  };
  useEffect(()=>{
-  if(!taskId){setResult(null);setTaskState('');return;}const abort=new AbortController();pollRequest.current=abort;let timer:ReturnType<typeof setTimeout>|undefined,attempt=0;
-  const poll=async()=>{try{const r=await matrixApi<TaskResponse>('/classify/'+encodeURIComponent(taskId),abort.signal);if(abort.signal.aborted)return;receiveTask(r);
+  if(!taskId){setResult(null);setTaskState('');return;}const abort=new AbortController();pollRequest.current=abort;const seq=sequence.current;let timer:ReturnType<typeof setTimeout>|undefined,attempt=0;
+  const current=()=>!abort.signal.aborted&&seq===sequence.current;
+  const poll=async()=>{try{const r=await matrixApi<TaskResponse>('/classify/'+encodeURIComponent(taskId),abort.signal);if(!current())return;
+    const owner=generationInputs.current.get(taskId);
+    if(owner&&!generationBindingMatches(owner.bindingKey,latestBinding.current)){followUpBudget.current=false;setBusy(false);setBudgetPending(false);pendingBudget.current=null;setNotice('投放需求、行业范围或稿件已变化，先前生成结果未应用。请重新生成。');return;}
+    // A new task scope must re-authorize before its transferred fields are restored.
+    // Temporary empty identification fields are not a user edit.
+    if(owner&&!latestGenerationReady.current){setBusy(true);setGenerationPhase('正在核验当前稿件…');if(++attempt<150)timer=setTimeout(()=>void poll(),2000);else{setBusy(false);setNotice('当前稿件尚未核验完成，请重试读取稿件信息后刷新结果。');}return;}
+    if(owner&&owner.inputKey!==latestInput.current){followUpBudget.current=false;setBusy(false);setBudgetPending(false);pendingBudget.current=null;setNotice('投放需求、行业范围或稿件已变化，先前生成结果未应用。请重新生成。');return;}
+    if(owner)owner.bindingKey=latestBinding.current;
+    receiveTask(r);
     if(r.state==='running'){if(++attempt<150)timer=setTimeout(()=>void poll(),2000);else{setBusy(false);setNotice('任务仍在处理中，可点击刷新结果继续查询。');}}
-   }catch(e){if(!abort.signal.aborted){setFailedOperation('load');setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);}}};void poll();return()=>{abort.abort();if(timer)clearTimeout(timer);};
+   }catch(e){if(current()){followUpBudget.current=false;setFailedOperation('load');setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);}}};void poll();return()=>{abort.abort();if(timer)clearTimeout(timer);};
  },[taskId,workspace,pollEpoch]);
- async function refresh(){if(!taskId)return;setError(null);setFailedOperation('load');const abort=new AbortController();request.current?.abort();request.current=abort;try{const r=await matrixApi<TaskResponse>('/classify/'+encodeURIComponent(taskId),abort.signal);if(!abort.signal.aborted){receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);}}catch(e){if(!abort.signal.aborted)setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));}}
+ async function refresh(){if(!taskId)return;setError(null);setFailedOperation('load');const abort=new AbortController(),seq=++sequence.current,context=latestRecommendationContext.current;request.current?.abort();pollRequest.current?.abort();request.current=abort;
+  const current=()=>!abort.signal.aborted&&seq===sequence.current&&context===latestRecommendationContext.current;
+  try{const r=await matrixApi<TaskResponse>('/classify/'+encodeURIComponent(taskId),abort.signal);if(current()){
+   const owner=generationInputs.current.get(taskId);
+   if(owner&&!generationBindingMatches(owner.bindingKey,latestBinding.current)){followUpBudget.current=false;setBusy(false);setNotice('投放需求、行业范围或稿件已变化，先前生成结果未应用。请重新生成。');return;}
+   if(owner&&!latestGenerationReady.current){setBusy(true);setGenerationPhase('正在核验当前稿件…');setPollEpoch(n=>n+1);return;}
+   if(owner&&owner.inputKey!==latestInput.current){followUpBudget.current=false;setBusy(false);setNotice('投放需求、行业范围或稿件已变化，先前生成结果未应用。请重新生成。');return;}
+   if(owner)owner.bindingKey=latestBinding.current;
+   receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);
+  }}catch(e){if(current())setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));}}
+
  async function submit(stage:'matrix'|'budget',e?:FormEvent){e?.preventDefault();if(busy||submissionLock.current||e&&(e.nativeEvent as Event&{isComposing?:boolean}).isComposing)return;setFieldError('');setErrorStage(stage);
   const qs=questions.split('\n').map(q=>q.trim()).filter(Boolean);
-  if(stage==='matrix'&&connectionState===null&&!connectionError){setFieldError('正在读取模型连接，请稍候。');return;}
-  if(stage==='matrix'&&(connectionError||!connectionState?.available)){setFieldError(connectionError||connectionState?.message||'请先连接并测试可用的 AI 模型。');return;}
+  if(stage==='matrix'&&connectionState===null&&!connectionError){setFieldError('正在读取推荐服务状态，请稍候。');return;}
+  if(stage==='matrix'&&(connectionError||!connectionState?.available)){setFieldError(connectionError||connectionState?.message||'推荐服务暂不可用，请稍后重试或联系运营。');return;}
+  if(stage==='matrix'&&industrySelection.error){setFieldError(industrySelection.error);return;}
   if(stage==='matrix'&&(!industry||!qs.length)){setFieldError('请选择已配置行业，并填写至少一个问题（每行一个）。');formRef.current?.querySelector<HTMLElement>(!industry?'select':'textarea')?.focus();return;}
   if(stage==='matrix'&&hours&&(!/^\d{1,6}$/.test(hours)||Number(hours)<=0)){setFieldError('期望发布时效应为正整数小时，或留空表示不限定。');return;}
   if(stage==='matrix'&&brandData&&!brandBatches.some(batch=>batch.id===brandData)){setFieldError('当前品牌样本尚未接入在线推荐服务。保存样本仍可查看；请接入该批次或选择可用数据后再在线生成。');return;}
   if(stage==='budget'&&(!total||!/^\d+(?:\.\d+)?$/.test(total))){setFieldError('请输入非负十进制总预算，勿使用科学计数法。');document.getElementById('z-budget-total')?.focus();return;}
   if(stage==='budget'&&(!result||matrixStale)){setFieldError('请先更新当前需求与稿件对应的矩阵。');return;}
   if(stage==='budget'){pendingBudget.current={key:latestBudget.current,matrix:result!};setBudgetPending(true);appliedBudget.current='';}
-  else {if(result?.matrix.status==='complete')setComparisonResult(result);pendingBudget.current=null;setBudgetPending(false);followUpBudget.current=true;setShowDemo(false);setShowReport(false);setReasonCandidate(null);setPlanIndex(0);}
+  else {if(result?.matrix.status==='complete'){setComparisonResult(result);setComparingPrevious(true);}pendingBudget.current=null;setBudgetPending(false);followUpBudget.current=true;setShowDemo(false);setShowReport(false);setReasonCandidate(null);setPlanIndex(0);}
   const submittedInput=inputKey,submittedContext=latestRecommendationContext.current;submissionLock.current=true;
   const abort=new AbortController(),seq=++sequence.current;request.current?.abort();pollRequest.current?.abort();request.current=abort;setBusy(true);setGenerationPhase('正在读取数据…');setError(null);setNotice('');
   try{
-   const body=stage==='matrix'?{industry_id:industry,questions:qs,dataset_ids:importedDataIds,connection_mode:connectionState?.mode,...(connectionState?.mode==='user'&&connectionState.connection?{connection_revision:connectionState.connection.revision}:{}),...(product?{product}:{}),...(audience?{audience}:{}),...(regions.trim()?{regions:regions.split('、').map(x=>x.trim()).filter(Boolean)}:{}),...(hours?{hours}:{}),...(assetKind?{requirements:[assetKind]}:{}),...(brandData?{brand_data:brandData}:{}),...(brandData&&samplePlatform?{sample_platforms:[samplePlatform]}:{}),as_of:new Date().toISOString(),
+   const body=stage==='matrix'?{industry_id:industry,questions:qs,dataset_ids:importedDataIds,...(industrySelection.query?{industry_query:industrySelection.query}:{}),...(product?{product}:{}),...(audience?{audience}:{}),...(regions.trim()?{regions:regions.split('、').map(x=>x.trim()).filter(Boolean)}:{}),...(hours?{hours}:{}),...(assetKind?{requirements:[assetKind]}:{}),...(brandData?{brand_data:brandData}:{}),...(brandData&&samplePlatform?{sample_platforms:[samplePlatform]}:{}),as_of:new Date().toISOString(),
      // Name the real draft/version; the server re-reads and verifies them.
      ...(serverDraft?{draft_id:serverDraft.id,article_version_id:serverDraft.articleVersionId}:contextDraftId||articleVersionId?{...(contextDraftId?{draft_id:contextDraftId}:{}),...(articleVersionId?{article_version_id:articleVersionId}:{})}:{})}
     :{plan_id:result?.plan_id,plan_version:result?.plan_version,budget:{currency,total_cap:total,exploration_enabled:enabled,...(enabled&&exploration!==''?{exploration_cap:exploration}:{}),...(min!==''?{unit_price_min:min}:{}),...(max!==''?{unit_price_max:max}:{})},selected_candidate_ids:selected,resource_selections:resourceSelections,quantity_mode:quantityMode,as_of:new Date().toISOString()};
    const r=await matrixApi<TaskResponse>(stage==='matrix'?'/matrix/generate':'/classify/'+encodeURIComponent(taskId)+'/budget',abort.signal,body);
    if(seq!==sequence.current||abort.signal.aborted)return;
-   if(latestRecommendationContext.current!==submittedContext){setBusy(false);setBudgetPending(false);pendingBudget.current=null;setNotice('稿件或任务上下文已变化，先前请求未应用。');return;}
-   if(stage==='matrix'&&submittedInput!==latestInput.current){setBusy(false);setNotice('投放需求已变化，先前生成结果未应用。请按当前需求重新生成。');return;}
+   if(latestRecommendationContext.current!==submittedContext){followUpBudget.current=false;setBusy(false);setBudgetPending(false);pendingBudget.current=null;setNotice('稿件或任务上下文已变化，先前请求未应用。');return;}
+   if(stage==='matrix'&&submittedInput!==latestInput.current){followUpBudget.current=false;setBusy(false);setNotice('投放需求已变化，先前生成结果未应用。请按当前需求重新生成。');return;}
+   if(stage==='matrix'&&r.task_id)generationInputs.current.set(r.task_id,{inputKey:submittedInput,bindingKey});
    receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);
    if(stage==='matrix'&&r.task_id){identification.adoptFormScope(r.task_id);const nextFormScope=JSON.stringify([verifiedFormScope??pendingFormIdentity,r.task_id]);formDraft.adoptScope(nextFormScope,verifiedFormScope?nextFormScope:undefined);submittedTask.current={id:r.task_id,workspace,inputKey:submittedInput,bindingKey};setSelected([]);navigate(href('matrix',r.task_id));}
    if(stage==='budget'&&r.state==='running')setNotice('预算组合正在校验，请稍后刷新结果。');
-  }catch(e){if(!abort.signal.aborted&&seq===sequence.current){setFailedOperation(stage);setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);pendingBudget.current=null;}}finally{if(seq===sequence.current)submissionLock.current=false;}
+  }catch(e){if(!abort.signal.aborted&&seq===sequence.current){if(stage==='matrix')followUpBudget.current=false;setFailedOperation(stage);setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);pendingBudget.current=null;}}finally{if(seq===sequence.current)submissionLock.current=false;}
  }
  async function cancel(){
   if(!taskId||cancelRequest.current&&!cancelRequest.current.signal.aborted)return;
@@ -332,7 +373,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    let saved:PublicationDraft,savedTaskId=workbenchTask;
    if(serverDraft)saved=await gateway.updateDraftMedia(serverDraft.id,mediaIds,serverDraft.revision);
    else{
-    const ownerTask=await selectionTask.ensureTask();if(ownerTask)savedTaskId=ownerTask;
+    const ownerTask=await selectionTask.ensureTask();if(ownerTask)savedTaskId=ownerTask;adoptFirstWorkbenchTask(ownerTask);
     const requestKey=ownerTask?await publishingDraftRequestKey(ownerTask,articleVersionId,mediaIds):undefined;
     if(!current())return false;
     const flowMode:FlowStageMode=['single','per_media','multi','batch'].includes(mode)?mode as FlowStageMode:'default';
@@ -367,7 +408,13 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  },[gateway,resourceKey,cartScope,mappingAttempt]);
  const mediaFor=(id:string|null)=>{const matches=mapped.filter(media=>!!id&&(media.id===id||media.externalResourceId===id));const unique=new Map(matches.map(media=>[media.id,media]));return unique.size===1?[...unique.values()][0]:undefined;};
  const rules=useMarketRules(mapped.map(m=>m.id),result?.matrix_version??'');
- const bindingKey=JSON.stringify([contextDraftId,articleVersionId,workbenchTask]);
+ const bindingKey=JSON.stringify([contextDraftId,articleVersionId,workbenchTask]);latestBinding.current=bindingKey;
+ const adoptFirstWorkbenchTask=(verifiedTaskId:string|undefined)=>{
+  // Only the ID returned by this scope's ensureTask may extend an unbound owner.
+  if(!verifiedTaskId||workbenchTask||latestScope.current!==cartScope)return;
+  const owner=generationInputs.current.get(taskId);
+  if(owner?.bindingKey===bindingKey)owner.bindingKey=JSON.stringify([contextDraftId,articleVersionId,verifiedTaskId]);
+ };
  // This client-context snapshot only invalidates comparison after navigation;
  // it is not proof that dataset.manuscripts matches the current frozen version.
  latestRecommendationContext.current=JSON.stringify([workspace,taskId,bindingKey]);
@@ -387,7 +434,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   await persistCart([...next]);
  };
  useEffect(()=>{setSelected(candidates.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&cart.has(media.id);}).map(candidate=>candidate.candidate_id));},[result,mapped,cart]);
- useEffect(()=>{if(!result||!taskId||loading||hasArticleContext&&!identification.context||connectionState===null&&!connectionError||hydratedTask.current===taskHydrationKey)return;hydratedTask.current=taskHydrationKey;
+ useEffect(()=>{if(!result||!taskId||loading||hasArticleContext&&!identification.context||hydratedTask.current===taskHydrationKey)return;hydratedTask.current=taskHydrationKey;
   const savedBinding=itemObject(result.scope.task.binding??null);
   if(hasArticleContext&&(savedBinding.article_version_id!==identification.context?.articleVersionId||savedBinding.article_id!==identification.context?.articleId)){
    setServerStale(true);setMatrixBinding('mismatched');setNotice('已保存矩阵与当前稿件或版本不一致。已保留当前输入，请重新生成矩阵。');setTaskHydratedKey(taskHydrationKey);return;
@@ -403,14 +450,18 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const requirements=itemObject(t.requirements??null),brand=itemObject(t.brand??null),platforms=Array.isArray(brand.platforms)?brand.platforms.filter((value):value is string=>typeof value==='string'):[];
   const nextHours=typeof t.hours==='string'?t.hours:'',nextAsset=requirements.images===true?'图片':requirements.tables===true?'表格':requirements.links===true?'链接':'',nextPlatform=platforms.length===1?platforms[0]??'':'',nextBrand=typeof brand.batch_id==='string'?brand.batch_id:'';
   const nextImportIds=Array.isArray(t.research_dataset_ids)?t.research_dataset_ids.filter((id):id is string=>typeof id==='string'):[];
-  const modelConnection=itemObject(t.model_connection??null),nextConnectionKey=typeof t.model_source==='string'?t.model_source+':'+(t.model_source==='user'&&typeof modelConnection.revision==='string'?modelConnection.revision:''):connectionKey;
+  const savedIndustryQueryKey=industryQueryKey(t.industry_query);
+  const platformRegeneration=t.model_source==='user'||t.model_source==='host'||typeof itemObject(t.industry_context??null).status!=='string';
   const submitted=submittedTask.current?.id===taskId&&submittedTask.current.workspace===workspace?submittedTask.current:null;
   if(submitted)submittedTask.current=null;
-  setMatrixInput(submitted?.inputKey??JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions,nextHours,nextAsset,nextPlatform,nextBrand,[...nextImportIds].sort(),nextConnectionKey]));setMatrixBinding(draftBindingChanged?'mismatched':submitted?.bindingKey??bindingKey);
+  setMatrixInput(submitted?.inputKey??JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions,nextHours,nextAsset,nextPlatform,nextBrand,[...nextImportIds].sort(),savedIndustryQueryKey]));setMatrixBinding(draftBindingChanged?'mismatched':submitted?.bindingKey??bindingKey);
+  if(platformRegeneration){setServerStale(true);setNotice('此历史矩阵需要使用平台推荐服务与当前行业依据重新生成，当前结果仅供对照。');}
   if(draftBindingChanged){setServerStale(true);setNotice('当前稿件的投放草稿已变化，已恢复投放要求；请重新生成矩阵后采用推荐组合。');}
   // Hydrate another saved task exactly once. A task just created here keeps any
   // edits made while it was running; its submitted key marks those edits stale.
-  if(!submitted){setImportedDatasets(Array.isArray(t.research_dataset_refs)?t.research_dataset_refs.flatMap(value=>{const row=itemObject(value);return typeof row.id==='string'&&typeof row.name==='string'?[{id:row.id,name:row.name,version:typeof row.version==='string'?row.version:'',recordCount:typeof row.recordCount==='number'?row.recordCount:0,createdAt:typeof row.createdAt==='string'?row.createdAt:'',status:'confirmed' as const}]:[];}):[]);setImportedDataIds(params.get('researchSelection')==='custom'?params.getAll('researchDataset'):nextImportIds);if(hasArticleContext)identification.hydrate({industry:nextIndustry,product:nextProduct,audience:nextAudience,questions:nextQuestions.join('\n')},`${workspace}:${taskId}`);
+  if(!submitted){
+   if(savedIndustryQueryKey&&!['siScope','siPeriod','siDate','siModel'].some(key=>params.has(key))){const savedQuery=itemObject(t.industry_query);const next=new URLSearchParams(search);next.set('siScope',String(savedQuery.scopeId));next.set('siPeriod',String(savedQuery.periodType));next.set('siModel',String(savedQuery.modelCode));if(typeof savedQuery.date==='string')next.set('siDate',savedQuery.date);navigate(projectWorkspaceUrl(path+'?'+next.toString())+(typeof window!=='undefined'?window.location.hash:''),{replace:true});}
+   setImportedDatasets(Array.isArray(t.research_dataset_refs)?t.research_dataset_refs.flatMap(value=>{const row=itemObject(value);return typeof row.id==='string'&&typeof row.name==='string'?[{id:row.id,name:row.name,version:typeof row.version==='string'?row.version:'',recordCount:typeof row.recordCount==='number'?row.recordCount:0,createdAt:typeof row.createdAt==='string'?row.createdAt:'',status:'confirmed' as const}]:[];}):[]);setImportedDataIds(params.get('researchSelection')==='custom'?params.getAll('researchDataset'):nextImportIds);if(hasArticleContext)identification.hydrate({industry:nextIndustry,product:nextProduct,audience:nextAudience,questions:nextQuestions.join('\n')},`${workspace}:${taskId}`);
     formDraft.hydrate({industry:nextIndustry,product:nextProduct,audience:nextAudience,questions:nextQuestions.join('\n'),regions:nextRegions.join('、'),hours:nextHours,assetKind:nextAsset,samplePlatform:nextPlatform,brandData:nextBrand});setShowDemo(false);
    setResourceSelections(result.resource_selections??[]);setQuantityMode(result.quantity_mode??'new_articles');
    const p=result.budget_plans[0]??result.content_plans?.[0];formDraft.hydrate({total:p?.total_cap??'',currency:p?.currency??'CNY',enabled:!!p?.exploration_cap&&Number(p.exploration_cap)>0,exploration:p?.exploration_cap??'',min:'',max:''});
@@ -418,11 +469,11 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   setTaskHydratedKey(taskHydrationKey);
    // A restored plan has no verified current-cart preference snapshot; compare it,
   // then regenerate before applying rather than treating it as freshly checked.
- },[taskId,result,workspace,industries,loading,connectionState,connectionError,identification.context,hasArticleContext,taskHydrationKey,contextDraftId]);
+ },[taskId,result,workspace,industries,loading,identification.context,hasArticleContext,taskHydrationKey,contextDraftId]);
  useEffect(()=>{
   if(!followUpBudget.current||busy||budgetPending||!result||matrixInput===null||matrixStale)return;
   followUpBudget.current=false;
-  if(result.matrix.status!=='complete'){setNotice(label(result.status)+'：矩阵候选已生成；'+(result.status==='needs_ai_decisions'?'尚未得到有效模型决定，请检查 API 连接或联系运营后重试。':'模型决定未通过校验，可重试。'));return;}
+  if(result.matrix.status!=='complete'){setNotice(label(result.status)+'：矩阵候选已生成；'+(result.status==='needs_ai_decisions'?'尚未得到有效模型决定，请稍后重试或联系运营。':'模型决定未通过校验，可重试。'));return;}
   if(!/^\d+(?:\.\d+)?$/.test(total)){setNotice('矩阵已生成。请在右侧填写总预算后点击“更新组合”。');return;}
   setNotice('矩阵已生成，正在按当前预算生成组合…');
   void submit('budget');
@@ -459,7 +510,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   if(cartMutation.current)return null;
   cartMutation.current=true;setCartBusy(true);
   try{
-   const ownerTask=await selectionTask.ensureTask();
+   const ownerTask=await selectionTask.ensureTask();adoptFirstWorkbenchTask(ownerTask);
    const requestKey=ownerTask?await publishingDraftRequestKey(ownerTask,articleVersionId,[]):undefined;
    const flowMode:FlowStageMode=['single','per_media','multi','batch'].includes(mode)?mode as FlowStageMode:'default';
    const saved=await gateway.createDraft(articleVersionId,[],requestKey,titleModeForFlowMode(flowMode));
@@ -547,12 +598,11 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const taskbar=<div className="sm-article-context"><ConfirmedArticleHeader rows={headerRows} selectedVersionId={identificationVersion||undefined} batch={mode==='batch'}
   loading={hasArticleContext&&(!currentBinding||currentBinding.loading)} error={currentBinding?.error||undefined} onRetry={()=>setBindingAttempt(value=>value+1)}
   disabled={cartBusy||busy||registrationPending} onSelect={selectArticle} editHref={editHref} onNavigate={navigateFromHeader}/>
-  <div className="sm-article-context-tools"><select aria-label="当前投放任务"><option value="research">独立浏览 / 研究</option>{hasArticleContext&&<option value="current">当前稿件 · {selectedArticleTitle??'正在读取'}</option>}</select>
+  <div className="sm-article-context-tools">
    {registrationPending&&<button className="link small" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button>}
-   <Link className="button secondary" href={cartHref}>购物车 {cart.size} · {pendingPrices||moneyTotal===undefined?'待确认':formatPublishingMoney(moneyTotal)}</Link>
   </div></div>;
  return <MediaShell title="信源矩阵" actions={<Link className="button secondary" href={mediaHref('third')} onClick={event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigateFromHeader(mediaHref('third'));}}}>进入媒体库自选</Link>} taskbar={taskbar}
- dialogs={<><ResearchImportDialog key={workspace+':imports'} open={importOpen} selectedIds={importedDataIds} onChange={updateImports} onClose={()=>setImportOpen(false)}/><ApiConnectionDialog key={workspace+':connection'} open={connectionOpen} onChange={updateConnection} onClose={()=>{setConnectionOpen(false);updateConnection(null);}}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy||applyBusy} preview={budgetPreview} onClose={()=>{setConfirmBudget(null);setConfirmLayer(null);setApplyPreview(null);}} onConfirm={()=>void confirmBudgetMedia()}/><RecommendationReason candidate={reasonCandidate} result={displayResult} returnFocus={reasonTrigger.current} resourceSelection={resourceSelections.find(value=>value.candidate_id===reasonCandidate?.candidate_id)} disabled={busy||matrixStale} onResourceSelection={!demoActive&&!showingPrevious&&reasonCandidate?value=>{setResourceSelections(current=>[...current.filter(item=>item.candidate_id!==reasonCandidate.candidate_id),...(value?[value]:[])]);}:undefined} onClose={()=>setReasonCandidate(null)}/></>}>
+ dialogs={<><ResearchImportDialog key={workspace+':imports'} open={importOpen} selectedIds={importedDataIds} onChange={updateImports} onClose={()=>setImportOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy||applyBusy} preview={budgetPreview} onClose={()=>{setConfirmBudget(null);setConfirmLayer(null);setApplyPreview(null);}} onConfirm={()=>void confirmBudgetMedia()}/><RecommendationReason candidate={reasonCandidate} result={displayResult} returnFocus={reasonTrigger.current} resourceSelection={resourceSelections.find(value=>value.candidate_id===reasonCandidate?.candidate_id)} disabled={busy||matrixStale} onResourceSelection={!demoActive&&!showingPrevious&&reasonCandidate?value=>{setResourceSelections(current=>[...current.filter(item=>item.candidate_id!==reasonCandidate.candidate_id),...(value?[value]:[])]);}:undefined} onClose={()=>setReasonCandidate(null)}/></>}>
   <div className={'sm-workspace'+(view==='matrix'?' sm-recommendation-workspace':'')}>
    <nav className="x-matrix-nav" aria-label="信源矩阵子板块"><Link className={view==='analysis'?'active':''} aria-current={view==='analysis'?'page':undefined} href={href('analysis')}>行业信源分布</Link><Link className={view==='matrix'?'active':''} aria-current={view==='matrix'?'page':undefined} href={href('matrix')}>信源矩阵推荐</Link></nav>
    {view==='analysis'?<LiveIndustryDistribution/>:<>
@@ -560,9 +610,9 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
      {identificationLoading?<p role="status">{currentBinding?.error||'正在读取稿件上下文…'}</p>:<ArticleIdentificationStatus identification={identification}/>}
      
      <div className="sm-demand-fields"><label>品牌 / 产品<input className="field" aria-label="品牌 / 产品" disabled={identificationLoading} value={product} placeholder="输入品牌或产品" onChange={e=>setProduct(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="product" identification={identification}/>}</label><label>目标行业 *<select aria-label="目标行业 *" disabled={identificationLoading} value={industry} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!industry} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} onChange={e=>setIndustry(e.target.value)}><option value="">{demoActive?matrixDemo.form.industry+' · 演示':loading?'正在读取行业…':industries.length?'选择行业':'暂无已接入行业'}</option>{industries.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="industry" identification={identification} industryName={id=>industries.find(item=>item.id===id)?.name??id}/>}</label><label>覆盖地区<input className="field" value={regions} placeholder="多个地区用顿号分隔" onChange={e=>setRegions(e.target.value)}/></label><label>目标受众<input className="field" aria-label="目标受众" disabled={identificationLoading} value={audience} placeholder="描述内容面向的人群" onChange={e=>setAudience(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="audience" identification={identification}/>}</label><label>期望发布时效（小时）<input className="field" inputMode="numeric" value={hours} placeholder="不限定" onChange={e=>setHours(e.target.value)}/></label><label>素材能力要求<select value={assetKind} onChange={e=>setAssetKind(e.target.value)}><option value="">不限定</option><option value="图片">图片</option><option value="表格">表格</option><option value="链接">链接</option></select></label><label>品牌引用数据<select value={brandData} onChange={e=>{setBrandData(e.target.value);setSamplePlatform('');}}><option value="">不使用品牌样本</option>{brandData===matrixDemo.form.brandDataBatchId&&!brandBatches.some(batch=>batch.id===brandData)&&<option value={brandData}>一航软件 · 保存样本</option>}{brandBatches.map(batch=><option key={batch.id} value={batch.id}>{batch.label} · {batch.recordCount} 条</option>)}{!brandBatches.length&&brandData!==matrixDemo.form.brandDataBatchId&&<option value="">暂无可用品牌数据批次</option>}</select></label><label>引用样本平台<select value={samplePlatform} onChange={e=>setSamplePlatform(e.target.value)}><option value="">全部已输入平台</option>{[...new Set(sampleModels)].map(model=><option key={model} value={model}>{model}</option>)}</select></label><label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-label="目标问题 / 内容需求 *" disabled={identificationLoading} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!questions.trim()} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} value={questions} placeholder="输入目标问题" onChange={e=>setQuestions(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="questions" identification={identification}/>}</label></div>
-     <div className="sm-demand-actions"><div>{industryUnavailable&&<p className="small" role="status">在线推荐行业暂不可用，{demoActive?'保存样本可继续查看；':''}请重试或联系运营接入。<button type="button" className="link small" disabled={loading} onClick={()=>setIndustryAttempt(value=>value+1)}>重试读取行业</button></p>}</div><div className="actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setImportOpen(true)}>导入数据</button><div className="sm-api-action"><button type="button" className="button secondary" disabled={busy} onClick={()=>setConnectionOpen(true)}>连接 API</button></div><button className="button primary" disabled={busy||loading} type="submit">{busy&&!budgetPending?generationPhase||'正在生成…':result?'重新生成矩阵并组合':'生成推荐矩阵'}</button></div></div>
+     <div className="sm-demand-actions"><div>{industryUnavailable&&<p className="small" role="status">在线推荐行业暂不可用，{demoActive?'保存样本可继续查看；':''}请重试或联系运营接入。<button type="button" className="link small" disabled={loading} onClick={()=>setIndustryAttempt(value=>value+1)}>重试读取行业</button></p>}</div><div className="actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setImportOpen(true)}>导入数据</button><button className="button primary" disabled={busy||loading} type="submit">{busy&&!budgetPending?generationPhase||'正在生成…':result?'重新生成矩阵并组合':'生成推荐矩阵'}</button></div></div>
      
-     <div className="sm-input-status" aria-live="polite"><span>{importedDataIds.length?`已选择 ${importedDataIds.length} 份导入数据`:'未选择导入数据'}{importedDatasets.filter(item=>importedDataIds.includes(item.id)).map(item=><span key={item.id}> · {item.name}（{item.recordCount} 条）</span>)}</span><span>{connectionState?.mode==='user'&&connectionState.connection?`${connectionState.available?'当前模型':'已保存连接'}：${connectionDisplayName(connectionState.connection)}`:connectionState?.mode==='host'?'当前使用平台统一模型':connectionState?.mode==='environment'?'当前使用平台配置的模型':connectionError||(connectionState?'尚未连接 AI':'正在读取模型连接…')}</span></div>
+     <div className="sm-input-status" aria-live="polite"><span>{importedDataIds.length?`已选择 ${importedDataIds.length} 份导入数据`:'未选择导入数据'}{importedDatasets.filter(item=>importedDataIds.includes(item.id)).map(item=><span key={item.id}> · {item.name}（{item.recordCount} 条）</span>)}</span><span>{connectionError||(connectionState?.available?'当前使用平台配置的模型':connectionState?'推荐服务暂不可用，请稍后重试或联系运营。':'正在读取推荐服务状态…')}{(connectionError||connectionState&&!connectionState.available)&&<button type="button" className="link small" onClick={()=>{setConnectionState(null);setConnectionEpoch(value=>value+1);}}>重试读取服务状态</button>}</span></div>
      {connectionState?.message&&<p className="small muted">{connectionState.message}</p>}
      {errorStage==='matrix'&&fieldError&&<p id="sm-demand-error" className="block-error" role="alert">{fieldError}</p>}
     </form>
@@ -570,6 +620,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
     {matrixStale&&<p className="notice warn" role="status">需求、任务或稿件版本已变化，当前矩阵仅供对照。请更新矩阵后生成组合或新增媒体。</p>}
     {error&&<p className="block-error" role="alert">{error.message}<button className="link small" disabled={busy} onClick={e=>{if(failedOperation==='budget')void submit('budget',e);else if(failedOperation==='matrix'||!taskId)generate(e);else void refresh();}}>重试</button></p>}
     {notice&&<p className="notice" role="status">{notice}</p>}
+    {!demoActive&&displayResult&&<p className={'notice sm-industry-context'+(industryContextLimited?' warn':'')} role="status"><strong>行业依据：{industryContext.status==='ok'?'已结合真实行业分布':industryContext.status==='empty'?'当前范围无行业数据':industryContext.status==='partial'?'行业数据不完整':typeof industryContext.status==='string'?'暂不可用':'历史任务需重新生成'}</strong>{typeof industryContext.message==='string'?' · '+industryContext.message:''}{industryContextQuery.scopeId?` · 行业 ${String(industryContextQuery.scopeId)} · ${industryPeriodLabel}${typeof industryContextQuery.date==='string'?' '+industryContextQuery.date:''} · 模型 ${String(industryContextQuery.modelCode??'待确认')}`:''}{typeof industryContext.fetched_at==='string'?' · 获取于 '+industryContext.fetched_at:''}{typeof industryContext.data_version==='string'?' · 数据版本 '+industryContext.data_version:''}{industryContextLimited?'；当前建议未完整结合行业依据，请结合限制说明核对。':''}{Array.isArray(industryContext.limitations)&&industryContext.limitations.filter((value):value is string=>typeof value==='string').length?' '+industryContext.limitations.filter((value):value is string=>typeof value==='string').join('；'):''}</p>}
     {typeof researchUsage.omitted_records==='number'&&researchUsage.omitted_records>0&&<p className="notice warn" role="status">{showingPrevious?'上次结果':'本次结果'}的导入资料共 {String(researchUsage.available_records??0)} 条，已纳入模型输入 {String(researchUsage.included_records??0)} 条；{researchUsage.omitted_records} 条超出输入预算，已保留快照但未发送。可拆分资料后重新生成。</p>}
     <div className="sm-recommendation-layout"><section className="sm-matrix" aria-labelledby="sm-matrix-title"><header className="sm-matrix-heading"><div><h2 id="sm-matrix-title">完整信源矩阵</h2><p title={displayResult?.matrix_version}>{displayResult?`${displayResult.matrix.candidates.length} 个候选 · ${demoActive?'已保存的样本矩阵':showingPrevious?'上次有效结果 · 仅供对照':'在线任务结果'}`:''}</p></div>{taskId&&<div className="actions"><button className="link small" disabled={busy} onClick={()=>void refresh()}>刷新结果</button>{busy&&<button className="link small" onClick={()=>void cancel()}>取消生成</button>}{result&&(reportReady?<a className="link small" href={downloadUrl(taskId,result.plan_id,result.plan_version)}>导出当前版本</a>:<button className="link small" disabled title="请等待当前有效矩阵完成后导出">导出当前版本</button>)}{result&&!showingPrevious&&<button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起报告':'查看报告'}</button>}</div>}{demoActive&&<div className="actions"><button className="link small" onClick={()=>downloadMatrixData('一航软件-已生成研究样本.json',JSON.stringify(matrixDemo,null,2),'application/json')}>导出保存样本</button><button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起样本报告':'查看样本报告'}</button></div>}</header>
      {!demoActive&&mappedState?.scope===cartScope&&mappedState.error&&<p className="block-error" role="alert">{mappedState.error}<button className="link" onClick={()=>setMappingAttempt(value=>value+1)}>重试读取媒体映射</button></p>}

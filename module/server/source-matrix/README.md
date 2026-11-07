@@ -1,10 +1,12 @@
-# 2026.10.26-web.1 当前运行说明
+# 2026.11.07-web.2 当前运行说明
 
 本节描述本轮改动；下方日期较早的接入记录仅保留历史，冲突以本节与 skill/references/website-integration.md 为准。
 
+本轮统一使用服务端配置的XTY平台AI生成矩阵、预算方案及稿件四字段识别，个人连接和宿主注入不再参与选择。生成同时使用授权冻结稿件正文片段、真实媒体库与同源molizhishu免费filters/distributions行业快照；正文截断、查询口径、真实状态和限制均保留。完整行业背景仅在task中共享一份，统计桶不冒充媒体身份、品牌命中或逐条证据。未配置或调用失败如实报错，不回退模拟结果。源码入口可达不代表Dashboard集成、部署或真实API验收已完成。
+
 网站运行入口仍是本目录 TypeScript（http/decisions/planner/matrix/budget），没有新增 Python 子进程或 npm 依赖。完整上游 Skill 位于 skill/，新增 content-planning/1.0 独立契约和 Python 离线校验入口。独立 Skill ZIP 同时附网站实际 TypeScript 源码及散列映射，避免分发未被网站使用的单独实现。
 
-新增 export-research.ts 将可信原表 JSON 转成研究候选，保留文件SHA、原行与 locator_key；不把品牌导出行伪装成精确引用 evidence。全部品牌分组与真实媒体库候选送入真实模型，第一阶段不提供价格/预算；media_intro/content_direction/layer_rank/ranking_reason 随同决定校验。默认保存的一航演示仍保留原生成版本，不伪造本轮生成时间。
+新增 export-research.ts 将可信原表 JSON 转成研究候选，保留文件SHA、原行与 locator_key；不把品牌导出行伪装成精确引用 evidence。品牌分组与真实媒体库候选形成最多120个的确定性交替窗口送入模型，窗口外候选留在快照但本轮未做语义决定；第一阶段不提供价格/预算，media_intro/content_direction/layer_rank/ranking_reason 随同决定校验。默认保存的一航演示仍保留原生成版本，不伪造本轮生成时间。
 
 真实目录来自 publisher-source-matrix-catalog.ts；不是独立 dataset 静态刊价。型号、账号、内部resource、外部供应商ID、offer和规格分开；目录原价可显示，缺少有效期/附加费/规格时仍未知。多账号/多报价通过catalog_matches与resource_selections显式选择，名称/域名不自动确认账号。其他团队样本可由受控导入写入行业dataset.brand_exports（与现有一航JSON同结构），无需按品牌名写推荐名单。本轮不新增浏览器xlsx上传入口。
 
@@ -23,7 +25,7 @@
 
 ## 入口
 
-createModuleHttpApi 会加载本路由，因此 Dashboard 与独立子域名都使用：
+createModuleHttpApi 在源码中加载本路由，独立壳复用同一module入口；宿主使用该入口时以下路径可达。此处仅说明源码复用，不证明Dashboard已导入本版、完成集成或已部署到独立子域名：
 
 - GET /api/modules/publish/industries
 - GET /api/modules/publish/source-distribution
@@ -41,7 +43,7 @@ POST 同源 JSON，身份只来自 core.context。industry_id 只是授权范围
 1. 由主仓迁移流程审核并应用 module/schema/source-matrix.sql；导出的 Drizzle 表位于 source-matrix.ts，HTTP 直接引用，不依赖自动扫描 createPublishSchema 返回值。缺表时返回 configuration_required，不自动建表。
 2. 在 publisher_source_matrix_industries 按上述可信 tenantId 写入授权行业 id/name/brandId 与 dataset。没有内置真实或示例行业。dataset 仅允许由运营/已有可信同步通道维护，浏览器无写接口。
 3. dataset 可含 catalog、citations、identity_config、industry_recommendations、scope、manuscripts、requirements、selected_items。其字段语义对应参考内核契约；pricing 包含完整日期、单币种和 mandatory_fees（空数组才表示无附加费）。上游探索报价必须显式映射 allowed_purposes。manuscripts/预检/锁定项必须由现有授权业务数据提供，不能从模型或普通表单回填。
-4. 真实模型在服务端 core.sourceMatrixDecisions 注入 SourceMatrixDecisionAdapter；接口接收 skill 与 instructions 和可信输入，matrix 只返回 matrix_decisions，budget 只返回 budget_plans。HTTP 不接受前端 decisions。未注入会返回 needs_ai_decisions / needs_budget_plans；调用失败保留候选并显示 decision_adapter_unavailable，不回退假结果。模型应只用已声明稿件版本与数量生成组合。用户的 selected_candidate_ids 只作为 selection_preferences 传给模型，不产生可信锁或购物车。
+4. 真实模型仅由服务端core.environment提供XTY配置并经resolvePlatformDecisionAdapter选择；必须显式模型、密钥与匹配白名单，详见下方平台配置说明及skill/references/platform-industry-context.md。core.sourceMatrixDecisions与旧个人连接不能覆盖或阻塞该路径。接口接收skill/instructions及可信输入，matrix只返回matrix_decisions，budget返回budget_plans/content_plans（合计最多三套）；HTTP不接受前端decisions。配置缺失如实不可用，调用失败保留候选并显示decision_adapter_unavailable，不回退假结果。模型只用已声明稿件版本与数量生成组合；selected_candidate_ids仅作为selection_preferences，不产生可信锁或购物车。
 5. 下单仍须走现有业务的实时重报价、预检和确认，本功能没有发布副作用。
 
 ## 独立行业分布：运营导入与只读服务
@@ -113,9 +115,12 @@ matrix 阶段按用户显式时间处理，不自动填充证据时间；预算�
 
 ## 2026-10-25 修订：两类数据链与真实模型适配器
 
+其中旧/source-distribution与品牌样本描述记录历史链路；本轮真实行业分布输入改为下述task.industry_context的molizhishu免费filters/distributions快照，不能用历史dataset/样本冒充。
+
 - **行业分布链**：GET /source-distribution 保持唯一上游（运营维护 dataset.source_distribution.batches），前端图2三筛选（行业/模型/日期复合下拉，弹层按日/按周/按月，周期由数据引用日期归纳、按周为周一至周日本地规则），三张总量卡删除；失败/空不回退任何样本。
 - **品牌样本链（推荐输入）**：module/server/source-matrix/brand-data.ts 从 module/shared? 否——从 module/client/.../yihang-data.json（离线转换产物，含指纹/行号）读取批次；generate 接受 brand_data（批次 id）+ sample_platforms（模型过滤，保留原值四项）+ hours + requirements（图片/表格/链接 → task.requirements.images/tables/links），映射为 planner citations（data_kind=detail、缺 answer_record_id → 契约记 incomplete 观察，不冒充有效 detail/回答ID）；task.brand 持久化批次与平台，budget 阶段重建同一 citations。/industries 响应新增 brand_data_batches（id/label/version/sourceFile/recordCount/period/models）。
-- **真实模型适配器**：decisions.ts 的 createEnvDecisionAdapter(core.environment) —— 服务端环境变量 FRONTMIND_SOURCE_MATRIX_LLM_API_KEY（必需）、_BASE_URL（默认 bigmodel chat completions）、_MODEL（默认 glm-4.6），OpenAI 兼容 json_object 输出；宿主注入 core.sourceMatrixDecisions 优先。无密钥→needs_ai_decisions（不模拟）。模型输出一律经内核 validateDecisions/verifyPlan 复核。
+- **真实模型适配器**：resolvePlatformDecisionAdapter 仅选择 decisions.ts 的 createEnvDecisionAdapter(core.environment)，matrix/budget/四字段识别统一平台XTY。FRONTMIND_SOURCE_MATRIX_LLM_API_KEY 和 FRONTMIND_SOURCE_MATRIX_LLM_MODEL 必须明确配置，模型没有默认值；_BASE_URL 只接受 https://api.xty.app 根、/v1 或完整 /v1/chat/completions（尾斜杠可选），缺失时采用指定平台完整端点，路径只规范一次。FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS 必须匹配，保留 endpointFor 白名单；旧数据库个人连接和 core.sourceMatrixDecisions 不读取/不选择，不阻塞生成。GET /matrix/connection 仅返回安全平台状态，个人models/test/save/remove端点移除。配置无效如实不可用，不模拟；HTTP失败/240s超时/refusal/不完整/空或无效JSON/超2MB响应不伪装成功。输出仍经内核 validateDecisions/verifyPlan 复核，识别保留原45s/全文授权/HMAC revision。
+- **真实行业与正文输入**：source-matrix-planner/2026.11.07-web.2 在模型请求携带授权冻结稿件 content_excerpt/content_excerpt_truncated/content_source 及服务端保存的 task.industry_context。后者使用同源molizhishu免费filters/distributions，保留行业scopeId、周期、日期、模型、取数时间、版本、状态、完整统计与limitations，预算复用快照不再取数。每媒体aggregate_matches按候选保留完整原record；全行业快照仅在task中保留一份，全部候选共享其中已核验ID，prompt不重复全局记录或全量ID，结果候选industry_aggregate_ids仅保存该候选实际引用的ID。全行业类型/发布时间只作宏观背景，真实0可说明缺口，不证明表现；统计桶不是媒体、品牌命中或逐条citation。引用只用aggregate契约，不能用task.industry_context attribute绕过，身份/预算/购物车规则不放宽。该网站增补与实际instructions/decisionRules/budgetRules及skill文档同步，Python离线和旧样本不冒充本轮运行结果。
 - 客户端：删除模拟模式开关与“尚未分层的样本来源”区（未决定候选不再渲染，追溯在推荐理由内）；投放要求恢复时效/素材/平台/品牌批次字段并实际入 schema；一次点击“生成推荐矩阵”串两阶段（水合渲染后自动按当前预算生成组合）；演示预算默认 CNY 3000（标注示例、可改）。
 
 ## 当前 UI 与业务交接边界（2026-10-24，ZCode 合并轮更新）
