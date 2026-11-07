@@ -1037,7 +1037,9 @@ describe("shared confirmed article navigation", () => {
     fixture.getArticle.mockRejectedValue(new Error('稿件读取暂时失败'));
     harness(fixture.gateway, '/publishing/media/third?articleId=article-1&articleVersion=version-1');
     await screen.findByText('已确认稿件 · v1');
-    await screen.findByText(/稿件读取暂时失败/);
+    // The read issue is also shown per media row as its disabled reason;
+    // assert it surfaced at least once instead of a single ambiguous match.
+    expect((await screen.findAllByText(/稿件读取暂时失败/)).length).toBeGreaterThan(0);
     expect((screen.getByRole('button', { name: '配置标题' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fixture.createDraft).not.toHaveBeenCalled();
   });
@@ -1066,7 +1068,8 @@ describe("shared confirmed article navigation", () => {
     const fixture = gatewayFixture();
     fixture.getDraft.mockRejectedValue(new Error('旧投放草稿已失效'));
     const view = harness(fixture.gateway, '/publishing/drafts/missing/media/third?articleId=article-1&articleVersion=version-1');
-    await screen.findByText(/旧投放草稿已失效/);
+    // The draft error is also shown per media row as its disabled reason.
+    expect((await screen.findAllByText(/旧投放草稿已失效/)).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
     fireEvent.click(await screen.findByRole('radio', { name: /ID：article-1/ }));
     fireEvent.click(screen.getByRole('button', { name: '使用此稿件' }));

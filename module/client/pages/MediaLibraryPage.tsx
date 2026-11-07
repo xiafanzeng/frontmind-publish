@@ -116,8 +116,9 @@ function MediaLibraryContent({
   const draftId =
     isBatch ? undefined : routeDraftId ?? batchParams.get('draftId') ??
     // Explicit editor/selection identity takes precedence over inherited tasks.
-    // Only an actual draft route may restore a draft beside an explicit version.
-    (!routeArticleId && !batchParams.get('articleVersion')
+    // A version-only URL (historical matrix links, standalone home) still restores
+    // this flow's own draft; the draft read below rejects any version mismatch.
+    (!routeArticleId
       ? flow?.resources?.find((resource) => resource.kind === "publication_draft")?.id : undefined);
   // Carry each identifier under its own name across home/list/cart and filters.
   // In particular, a frozen version must not disappear at the home -> list link.
