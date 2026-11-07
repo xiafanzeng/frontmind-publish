@@ -112,7 +112,10 @@ function MediaLibraryContent({
   const batchDraftKey = JSON.stringify(batchDraftIds);
   const draftId =
     isBatch ? undefined : routeDraftId ?? batchParams.get('draftId') ??
-    (!batchParams.has('articleVersion') && !routeArticleId ? flow?.resources?.find((resource) => resource.kind === "publication_draft")?.id : undefined);
+    // A freshly chosen article (articleId in URL) must not inherit the host's
+    // old draft. A version-only URL still restores this flow's own draft; a
+    // version mismatch is rejected by the draft read below.
+    (!routeArticleId ? flow?.resources?.find((resource) => resource.kind === "publication_draft")?.id : undefined);
   // Carry each identifier under its own name across home/list/cart and filters.
   // In particular, a frozen version must not disappear at the home -> list link.
   const matrixTask = new URLSearchParams(search).get('matrixTask') ?? '';
@@ -534,7 +537,16 @@ function MediaLibraryContent({
     const current = search
       ? `${pathname}?${search.replace(/^\?/u, "")}`
       : pathname;
-    if (canonical !== current) navigate(canonical, { replace: true });
+    if (canonical === current) return;
+    // An independent article selection deliberately drops the host task param;
+    // normalization must not resurrect it from the browser address bar.
+    let target = canonical;
+    if (!new URLSearchParams(search).has("workbenchTask")) {
+      const url = new URL(canonical, window.location.origin);
+      url.searchParams.delete("workbenchTask");
+      target = url.pathname + (url.searchParams.size ? `?${url.searchParams.toString()}` : "") + url.hash;
+    }
+    if (target !== current) navigate(target, { replace: true });
   }, [
     articleVersionId,
     filters,

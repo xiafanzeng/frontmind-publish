@@ -392,7 +392,13 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   if(hasArticleContext&&(savedBinding.article_version_id!==identification.context?.articleVersionId||savedBinding.article_id!==identification.context?.articleId)){
    setServerStale(true);setMatrixBinding('mismatched');setNotice('已保存矩阵与当前稿件或版本不一致。已保留当前输入，请重新生成矩阵。');setTaskHydratedKey(taskHydrationKey);return;
   }
-  const draftBindingChanged=hasArticleContext&&(savedBinding.draft_id??'')!==contextDraftId;
+  // A saved task bound to a DIFFERENT draft is a real context change. A missing
+  // draft on either side is the idempotent first-selection flow (createDraft
+  // re-resolves the same draft for the same task/version/media), so it must not
+  // block selection or budget application.
+  const contextDraftIdValue=typeof contextDraftId==='string'?contextDraftId:'';
+  const savedDraftId=typeof savedBinding.draft_id==='string'?savedBinding.draft_id:'';
+  const draftBindingChanged=hasArticleContext&&!!savedDraftId&&!!contextDraftIdValue&&savedDraftId!==contextDraftIdValue;
   const t=result.scope.task,nextIndustry=industries.find(i=>i.name===t.industry)?.id??'',nextProduct=typeof t.product==='string'?t.product:'',nextAudience=typeof t.audience==='string'?t.audience:'',nextRegions=Array.isArray(t.regions)?t.regions.filter((x):x is string=>typeof x==='string'):[],nextQuestions=Array.isArray(t.questions)?t.questions.map(q=>q&&typeof q==='object'&&!Array.isArray(q)?typeof q.text==='string'?q.text:'':typeof q==='string'?q:'').filter(Boolean):[];
   const requirements=itemObject(t.requirements??null),brand=itemObject(t.brand??null),platforms=Array.isArray(brand.platforms)?brand.platforms.filter((value):value is string=>typeof value==='string'):[];
   const nextHours=typeof t.hours==='string'?t.hours:'',nextAsset=requirements.images===true?'图片':requirements.tables===true?'表格':requirements.links===true?'链接':'',nextPlatform=platforms.length===1?platforms[0]??'':'',nextBrand=typeof brand.batch_id==='string'?brand.batch_id:'';
@@ -432,7 +438,8 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const row=itemObject(item),candidate=candidateForItem(item,candidates),media=candidate?mediaFor(candidate.resource_id):undefined;
   if(!candidate||!media)return '尚未映射到唯一可投资源';
   if(row.resource_id&&row.resource_id!==candidate.resource_id)return '候选与发布资源不一致';
-  const boundArticleId=serverBinding?.article_id??serverDraft?.articleId,boundVersions=serverBinding?['v'+serverBinding.version_number]:serverDraft?[serverDraft.articleVersionId,serverDraft.articleVersionHash,String(serverDraft.articleVersion)]:[];
+  // Plan items carry the plain version number; historical bindings may render "vN". Accept both spellings so a verified plan of the SAME frozen version is never blocked by formatting alone.
+  const boundArticleId=serverBinding?.article_id??serverDraft?.articleId,boundVersions=serverBinding?(serverBinding.version_number===undefined?[]:[String(serverBinding.version_number),'v'+serverBinding.version_number]):serverDraft?[serverDraft.articleVersionId,serverDraft.articleVersionHash,String(serverDraft.articleVersion)]:[];
   if(!boundArticleId)return '请先在稿件页确认冻结版本并保存选媒，再应用组合';
   if(row.article_id!==boundArticleId||!boundVersions.includes(String(row.version??'')))return '组合发布项与当前绑定稿件或版本不一致，不能按媒体名称合并';
   if(!/^\d+$/.test(String(row.quantity))||!Number.isSafeInteger(Number(row.quantity))||Number(row.quantity)<1)return '篇数必须为正整数，且符合资源限制';
