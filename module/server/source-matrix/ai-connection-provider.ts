@@ -1,21 +1,37 @@
-/** Fixed provider routing. Browser input never becomes a request destination. */
-export type AiProvider = 'openai'|'deepseek'|'dashscope'|'glm'|'claude'|'gemini';
-export interface AiSettings { name:string;provider:AiProvider;model:string;apiKey:string;region?:string;workspace?:string;baseUrl?:string }
+/** Fixed provider routing, with strictly scoped Azure resource endpoints. */
+export type AiProvider = 'openai'|'deepseek'|'dashscope'|'glm'|'claude'|'gemini'|'siliconflow'|'azure-openai'|'azure-foundry';
+export interface AiSettings { name:string;provider:AiProvider;model:string;apiKey:string;region?:string;workspace?:string;azureEndpoint?:string;baseUrl?:string }
 export interface ModelMessage {role:'system'|'user';content:string}
 
-const CHAT_HOSTS:Record<Exclude<AiProvider,'dashscope'>,string>={
+type AzureProvider='azure-openai'|'azure-foundry';
+type EndpointSettings=Pick<AiSettings,'provider'|'region'|'workspace'|'azureEndpoint'|'baseUrl'>;
+const CHAT_HOSTS:Record<Exclude<AiProvider,'dashscope'|AzureProvider>,string>={
  openai:'https://api.openai.com/v1/responses',
  deepseek:'https://api.deepseek.com/chat/completions',
  glm:'https://open.bigmodel.cn/api/paas/v4/chat/completions',
  claude:'https://api.anthropic.com/v1/messages',
  gemini:'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+ siliconflow:'https://api.siliconflow.cn/v1/chat/completions',
 };
 const DASH_REGIONS:Record<string,string>={
  'cn-beijing':'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
  'ap-southeast-1':'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
  'us-east-1':'https://dashscope-us.aliyuncs.com/compatible-mode/v1/chat/completions',
 };
-const END_PATH:Record<AiProvider,string>={openai:'responses',deepseek:'chat/completions',dashscope:'chat/completions',glm:'chat/completions',claude:'messages',gemini:'chat/completions'};
+const END_PATH:Record<AiProvider,string>={openai:'responses',deepseek:'chat/completions',dashscope:'chat/completions',glm:'chat/completions',claude:'messages',gemini:'chat/completions',siliconflow:'chat/completions','azure-openai':'chat/completions','azure-foundry':'chat/completions'};
+function isAzure(provider:AiProvider):provider is AzureProvider {return provider==='azure-openai'||provider==='azure-foundry';}
+/** Only the public resource root and documented OpenAI v1 base path are accepted.
+ * Match the original text before URL normalization can hide dot segments or credentials.
+ * This does not accept project endpoints, Azure AI Inference, or management APIs.
+ */
+function azureV1Base(config:EndpointSettings):string {
+ if(!isAzure(config.provider)||config.baseUrl)throw new Error('endpoint_not_allowed');
+ const raw=config.azureEndpoint?.trim()||'';
+ const match=/^https:\/\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.(openai\.azure\.com|services\.ai\.azure\.com)(?::443)?(\/[^?#]*)?$/i.exec(raw);
+ const suffix=config.provider==='azure-openai'?'openai.azure.com':'services.ai.azure.com';
+ if(!match||match[2]!.toLowerCase()!==suffix||!['','/','/openai/v1','/openai/v1/'].includes(match[3]||''))throw new Error('endpoint_not_allowed');
+ return `https://${match[1]!.toLowerCase()}.${suffix}/openai/v1`;
+}
 function safePublicHttps(raw:string):string {
  const url=new URL(raw);
  if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search||url.port&&url.port!=='443')throw new Error('endpoint_not_allowed');
@@ -28,7 +44,8 @@ function fullEndpoint(raw:string,provider:AiProvider):string {
  if(value.endsWith('/'+path))return value;
  return value.replace(/\/+$/,'')+'/'+path;
 }
-export function endpointFor(config:AiSettings,env:Readonly<Record<string,string|undefined>>):string {
+export function endpointFor(config:EndpointSettings,env:Readonly<Record<string,string|undefined>>):string {
+ if(isAzure(config.provider))return azureV1Base(config)+'/chat/completions';
  let official=config.provider==='dashscope'?(DASH_REGIONS[config.region||'cn-beijing']||''):CHAT_HOSTS[config.provider];
  if(config.provider==='dashscope'&&config.workspace){
   if(!/^[a-z0-9-]{1,120}$/.test(config.workspace)||!DASH_REGIONS[config.region||'cn-beijing'])throw new Error('unsupported_region');
@@ -92,17 +109,22 @@ async function checkedProviderResponse(response:Response):Promise<void> {
  try{code=errorCode(JSON.parse(await readBounded(response,64_000)));}catch{/** Status is authoritative when the error body is absent or malformed. */}
  throw new Error(classifiedFailure(response.status,code));
 }
-export interface ModelListResult {mode:'listed'|'manual';models:string[];truncated:boolean;message:string}
+export interface ModelListResult {mode:'listed'|'manual'|'catalog';models:string[];truncated:boolean;message:string}
 /** Official list APIs only. Never derive an arbitrary list URL from a custom chat endpoint. */
-export async function listProviderModels(config:Pick<AiSettings,'provider'|'apiKey'|'baseUrl'>):Promise<ModelListResult> {
+export async function listProviderModels(config:Pick<AiSettings,'provider'|'apiKey'|'region'|'workspace'|'azureEndpoint'|'baseUrl'>,env:Readonly<Record<string,string|undefined>>={}):Promise<ModelListResult> {
+ // Directory and inference validate the same scoped settings before any Key is sent.
+ endpointFor(config,env);
  if(config.baseUrl||config.provider==='dashscope'||config.provider==='glm')return {mode:'manual',models:[],truncated:false,message:'此配置没有已确认的模型列表接口；请从服务商控制台复制模型 ID，再测试连接。'};
- const url={
+ const azure=isAzure(config.provider);
+ const url=azure?azureV1Base(config)+'/models':{
   openai:'https://api.openai.com/v1/models',deepseek:'https://api.deepseek.com/models',
   claude:'https://api.anthropic.com/v1/models?limit=100',
   gemini:'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',
- }[config.provider];
+  siliconflow:'https://api.siliconflow.cn/v1/models?sub_type=chat',
+ }[config.provider as Exclude<AiProvider,'dashscope'|'glm'|AzureProvider>];
  const headers:Record<string,string>={};
- if(config.provider==='claude'){headers['x-api-key']=config.apiKey;headers['anthropic-version']='2023-06-01';}
+ if(azure)headers['api-key']=config.apiKey;
+ else if(config.provider==='claude'){headers['x-api-key']=config.apiKey;headers['anthropic-version']='2023-06-01';}
  else if(config.provider==='gemini')headers['x-goog-api-key']=config.apiKey;
  else headers.Authorization=`Bearer ${config.apiKey}`;
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000);
@@ -113,12 +135,16 @@ export async function listProviderModels(config:Pick<AiSettings,'provider'|'apiK
   const source=config.provider==='gemini'?value.models:value.data;
   if(!Array.isArray(source))throw new Error('provider_invalid_response');
   const rows:unknown[]=source;
-  const ids=rows.filter((row):row is Record<string,unknown>=>!!row&&typeof row==='object'&&!Array.isArray(row))
+  const records=rows.filter((row):row is Record<string,unknown>=>!!row&&typeof row==='object'&&!Array.isArray(row));
+  if(records.length!==rows.length)throw new Error('provider_invalid_response');
+  const candidates=records
    .filter(row=>config.provider!=='gemini'||Array.isArray(row.supportedGenerationMethods)&&row.supportedGenerationMethods.includes('generateContent'))
-   .map(row=>{const id=config.provider==='gemini'?row.name:row.id;return config.provider==='gemini'&&typeof id==='string'?id.replace(/^models\//,''):id;})
-   .filter((id:unknown):id is string=>typeof id==='string'&&/^[\w.\-:/]{1,160}$/.test(id));
+   .map(row=>{const id=config.provider==='gemini'?row.name:row.id;return config.provider==='gemini'&&typeof id==='string'?id.replace(/^models\//,''):id;});
+  const ids=candidates.filter((id:unknown):id is string=>typeof id==='string'&&/^[\w.\-:/]{1,160}$/.test(id));
+  if(ids.length!==candidates.length)throw new Error('provider_invalid_response');
   const unique=[...new Set(ids)].slice(0,100);
-  const truncated=ids.length>100||value.has_more===true||typeof value.nextPageToken==='string'&&!!value.nextPageToken;
+  const truncated=ids.length>100||value.has_more===true||[value.nextPageToken,value.nextLink,value['@odata.nextLink'],value.next].some(x=>typeof x==='string'&&!!x);
+  if(azure)return {mode:'catalog',models:unique,truncated,message:unique.length?'这是资源返回的模型目录，不是已部署清单。请从 Azure 控制台复制部署名称，并测试该部署的调用权限。':'资源返回的模型目录为空；这不能说明没有部署。请从 Azure 控制台复制部署名称并测试。'};
   return {mode:'listed',models:unique,truncated,message:unique.length?'这是服务商当前返回的模型目录；仍需测试该 Key 对所选模型的调用权限。':'服务商未返回可用于生成的模型；请手填模型 ID 并测试。'};
  }catch(error){
   if(error instanceof Error&&['provider_credential_invalid','provider_permission_denied','provider_quota_exhausted','provider_rate_limited','provider_model_unavailable','provider_parameters_invalid','provider_unavailable','provider_response_too_large','provider_invalid_response'].includes(error.message))throw error;
@@ -137,6 +163,10 @@ export async function invokeAi(config:AiSettings,env:Readonly<Record<string,stri
  }else if(config.provider==='claude'){
   headers['x-api-key']=config.apiKey;headers['anthropic-version']='2023-06-01';
   body={model:config.model,system:messages.filter(m=>m.role==='system').map(m=>m.content).join('\n'),messages:messages.filter(m=>m.role==='user'),max_tokens:test?16:8192};
+ }else if(isAzure(config.provider)){
+  headers['api-key']=config.apiKey;
+  // Azure v1 uses the deployment name as model. The v1 budget includes reasoning.
+  body={model:config.model,messages,max_completion_tokens:test?256:8192};
  }else{
   headers.Authorization=`Bearer ${config.apiKey}`;
   if(config.provider==='dashscope'&&config.workspace)headers['X-DashScope-WorkSpace']=config.workspace;
