@@ -72,6 +72,6 @@ assemble_matrix 输出 schema_version、matrix_version、status、source_analysi
 
 ## 行业汇总与执行建议接口补充
 
-references新增 `{type:"aggregate",aggregate_id:"ag1",usage:"industry_context"}`，必须恰好这三个字段。aggregate_id必须位于当前候选aggregate_ids；缺适用性、身份、原scope/单位/来源/版本、非正值、重复ID或供应商声明均不可引用。完整契约见evidence-rules.md。理由应沿原单位原scope说明“汇总来源，暂无逐条证据”；不得把行业统计写成matched_questions中的当前品牌观察。可用原统计辅助语义适配，不改变evidence_relation或明细分母。
+references新增 `{type:"aggregate",aggregate_id:"ag1",usage:"industry_context"}`，必须恰好这三个字段。每媒体aggregate_id必须位于当前候选aggregate_ids；缺适用性、身份、原scope/单位/来源/版本、非正值、重复ID或供应商声明均不可引用。网站2026.11.07-web.2另允许全部候选引用共享task.industry_context.aggregates中的已核验全行业ID，内核全局允许集合仅保存一次；prepared候选industry_aggregate_ids为空，结果该字段只存候选实际引用的全行业ID。prompt只在task保留一份完整行业快照，候选不重复全局记录或全量ID。全行业记录不要求单媒体身份；真实count=0仅说明宏观缺口，不能证明正向表现。完整契约见evidence-rules.md与platform-industry-context.md。禁止用task.industry_context任何attribute路径绕过aggregate校验。理由应读完整记录并沿原单位原scope说明“汇总来源，暂无逐条证据”；不得把行业类型/时间桶变媒体，不得把行业统计写成matched_questions中的当前品牌观察。可用原统计辅助宏观组合与语义理由，不改变evidence_relation、身份或明细分母。
 
 `semantic_decision_validated` 为脚本输出，不能由AI提交。仅当整组matrix_decisions通过校验，且候选有合法决定时为true。未判断候选保持undecided与false。预算项可显式选用recommended或alternative；execution_recommended还需该标记、非空matched_questions及发布预检就绪。锁定未判断项保留全部原发布信息、已知费用及预检状态，semantic_pending提示补齐矩阵，不自动删除或制造未知价格。

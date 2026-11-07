@@ -33,4 +33,10 @@ content_age.pending 为 {reason,evidence_ids,published_at_values} 列表。缺�
 
 候选 `aggregate_matches=[{aggregate_id,identity_relation:"exact",applicability:"industry_context",record:原汇总记录,detail_status:"汇总来源，暂无逐条证据"}]` 及 `aggregate_ids` 独立于 evidence_relation/evidence_ids/identity_matches。只在既有身份规则可确认该媒体，且没有目录身份冲突时关联；域名、账号、名称/source_identity冲突规则不放宽。明细 matcher 对aggregate仍返回none，内部只使用其已提供身份字段作独立身份映射，不把汇总送入计数。
 
-当前aggregate引用仅支持行业背景；不支持把它直接声明为当前q1/品牌测试观察。matched_questions仍是AI的语义适配判断，不能表示统计命中。如要表达品牌/问题的逐条观察，需真实detail及其范围。未做行业统计有效性、来源真实性或线上接入验证。
+当前aggregate引用仅支持行业背景；不支持把它直接声明为当前q1/品牌测试观察。matched_questions仍是AI的语义适配判断，不能表示统计命中。如要表达品牌/问题的逐条观察，需真实detail及其范围。未做线上接入运行验证。
+
+## 网站全行业分布补充（2026.11.07-web.2）
+
+上文每媒体aggregate的正count与exact身份要求继续保留。网站另从molizhishu免费filters/distributions保存task.industry_context（含status/message、行业映射、query、fetched_at/data_version、完整分布和limitations），其aggregates为aggregate_scope=industry_distribution的全行业类型/发布时间桶。count为十进制整数字符串，保留原unit/scope/applicability/source_id/data_version/dimension/bucket；真实0可引用说明宏观缺口，不能证明正向表现。类型桶与时间桶不同单位不混加，不推算未提供比例，不制造媒体身份。
+
+合法全行业记录由服务器独立校验，全部候选均可引用共享task.industry_context.aggregates中的已核验ID；完整快照在prompt的task中仅出现一次，候选不重复全局记录或全量ID。全局允许集合保存一次，prepared候选industry_aggregate_ids为空；结果该字段只存该候选实际引用的全行业ID，不证明exact媒体身份或某媒体观察。每媒体aggregate_matches继续按候选保留完整原记录。两种引用均只用{type:aggregate,aggregate_id,usage:industry_context}；task.industry_context所有attribute路径均禁止引用。解释须读完整记录，不能只凭ID猜意义；不改变evidence_relation/identity_matches或明细分母，不创造品牌命中或逐条citation。状态失败/映射失败/未知不当0或空成功，不用旧品牌样本冒充真实分布。此扩展仅由网站TypeScript执行，详见platform-industry-context.md。

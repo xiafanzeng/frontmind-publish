@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash,randomUUID } from 'node:crypto';
 import { Router,json,type Request,type Response,type NextFunction } from 'express';
 import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
@@ -8,7 +8,8 @@ import { runPlanner } from './planner.js';
 import { SOURCE_MATRIX_SKILL,SOURCE_MATRIX_INSTRUCTIONS } from './instructions.js';
 import { MatrixRepository } from './repository.js';
 import { loadConfirmedResearch,augmentResearchRequest } from './research-import-core.js';
-import { resolveUserDecisionAdapter } from './ai-connection-http.js';
+import { resolvePlatformDecisionAdapter } from './ai-connection-http.js';
+import { loadMatrixIndustryContext } from './matrix-industry-context.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
 import { prepareExportResearch,researchCatalog } from './export-research.js';
@@ -16,7 +17,8 @@ import { loadPlannerCatalog } from '../publisher-source-matrix-catalog.js';
 import { publisherImageCompatibilityBlocker } from '../publisher-capability.js';
 import { mediaRulesImageBlocker } from '../providers/kol/media-rules.js';
 import { mountArticleIdentificationRoutes } from './article-identification-http.js';
-const start=z.object({dataset_ids:z.array(z.string().uuid()).max(10).optional(),connection_revision:z.string().uuid().optional(),connection_mode:z.enum(['host','user','environment']).optional(),industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),hours:z.string().regex(/^\d{1,6}$/).optional(),requirements:z.array(z.enum(['图片','表格','链接'])).max(3).optional(),sample_platforms:z.array(z.string().min(1).max(80)).max(10).optional(),brand_data:z.string().min(1).max(80).optional(),as_of:z.string(),draft_id:z.string().uuid().optional(),article_version_id:z.string().uuid().optional()}).strict();
+const industryQuery=z.object({periodType:z.enum(['ALL','DAY','WEEK','MONTH']),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),scopeType:z.literal('CATEGORY'),scopeId:z.string().regex(/^[1-9]\d{0,18}$/),modelCode:z.string().trim().min(1).max(128)}).strict();
+const start=z.object({dataset_ids:z.array(z.string().uuid()).max(10).optional(),industry_query:industryQuery.optional(),industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),hours:z.string().regex(/^\d{1,6}$/).optional(),requirements:z.array(z.enum(['图片','表格','链接'])).max(3).optional(),sample_platforms:z.array(z.string().min(1).max(80)).max(10).optional(),brand_data:z.string().min(1).max(80).optional(),as_of:z.string(),draft_id:z.string().uuid().optional(),article_version_id:z.string().uuid().optional()}).strict();
 const resourceChoice=z.object({candidate_id:z.string().min(1).max(300),resource_id:z.string().min(1).max(300),offer_id:z.string().min(1).max(300),publication_spec:z.union([z.string().min(1),z.record(z.string(),z.unknown())])}).strict();
 const budget=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),budget:z.record(z.string(),z.unknown()),selected_candidate_ids:z.array(z.string().max(300)).max(500).optional(),resource_selections:z.array(resourceChoice).max(500).optional(),quantity_mode:z.enum(['new_articles','repeat_article']).optional(),as_of:z.string()}).strict();
 const editContent=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),plan_index:z.number().int().min(0).max(2),quantities:z.array(z.object({item_index:z.number().int().nonnegative(),candidate_id:z.string().min(1),quantity:z.number().int().min(1).max(100)}).strict()).min(1).max(100),as_of:z.string()}).strict();
@@ -28,6 +30,11 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
  // the server-verified frozen version and the current draft cart; a selected
  // brand batch supplies the observation records for the recommendation lane.
  const bound=!!binding;
+ const manuscripts=bound?bindingManuscripts(binding!).map(manuscript=>{
+  const saved=(task.manuscripts??[]).find((row:Row)=>row.article_id===manuscript.article_id&&row.version===manuscript.version&&row.content_hash===manuscript.content_hash);
+  // Only server-persisted, verified content travels across budget/apply replays.
+  return {...manuscript,...(saved?.content_source==='authorized_frozen_plain_text'&&typeof saved.content_excerpt==='string'?{content_excerpt:saved.content_excerpt,content_excerpt_truncated:saved.content_excerpt_truncated===true,content_source:saved.content_source}:{})};
+ }):undefined;
  const {private_actor: _actor,research_datasets: researchDatasets,progress: _progress,...publicTask}=task;
  const selectedBatch=task.brand?.batch_id?(brandExportBatch(task.brand.batch_id)??(dataset.brand_exports??[]).find((row:Row)=>row.id===task.brand.batch_id)):undefined;
  const observation=selectedBatch?prepareExportResearch(selectedBatch,publicTask,task.brand?.platforms??[]):undefined;
@@ -38,7 +45,7 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
  const catalog=directory.map(row=>({...semantic(configured.find(c=>c.resource_id===row.resource_id)??{}),...clone(row)}));
  catalog.push(...configured.filter(c=>!c.resource_id).map(clone));
  if(observation)catalog.push(...researchCatalog(observation,catalog));
- return augmentResearchRequest({tenant_id:tenantId,task_id:taskId,brand_id:brandId,task:{...clone(publicTask),...(bound?{manuscripts:bindingManuscripts(binding!)}:dataset.manuscripts?{manuscripts:clone(dataset.manuscripts)}:{}),...(dataset.requirements&&!bound?{requirements:{...clone(dataset.requirements),...clone(task.requirements??{})}}:{})},catalog,citations,...(observation?{research_observation:observation}:{}),source_mappings:clone(dataset.source_mappings??[]),scope:{...clone(dataset.scope??{}),tenant_id:tenantId},identity_config:clone(dataset.identity_config??{}),industry_recommendations:clone(dataset.industry_recommendations??[]),selected_items:bound?bindingSelectedItems(binding!):clone(dataset.selected_items??[])},researchDatasets??[]);
+ return augmentResearchRequest({tenant_id:tenantId,task_id:taskId,brand_id:brandId,task:{...clone(publicTask),...(bound?{manuscripts}:dataset.manuscripts?{manuscripts:clone(dataset.manuscripts)}:{}),...(dataset.requirements&&!bound?{requirements:{...clone(dataset.requirements),...clone(task.requirements??{})}}:{})},catalog,citations,...(observation?{research_observation:observation}:{}),source_mappings:clone(dataset.source_mappings??[]),scope:{...clone(dataset.scope??{}),tenant_id:tenantId},identity_config:clone(dataset.identity_config??{}),industry_recommendations:clone(dataset.industry_recommendations??[]),selected_items:bound?bindingSelectedItems(binding!):clone(dataset.selected_items??[])},researchDatasets??[]);
 }
 export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  const router=Router();router.use(json({limit:'256kb'}));
@@ -71,7 +78,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(!industry){res.status(409).json({status:'configuration_required',message:'所选行业未配置或无权访问'});return;}
   // A browser can only name the draft/version; the server re-reads and verifies
   // both inside the authenticated owner and project scope before trusting them.
-  let binding:TrustedArticleBinding|null=null;
+  let binding:TrustedArticleBinding|null=null,manuscripts:Row[]|undefined;
   if(body.draft_id||body.article_version_id){
    const context=core.context(req),store=new BindingStore(await core.database(),{ownerId:String(context.businessOwnerId),enterpriseProjectId:String(context.enterpriseProjectId)});
    const loaded=await store.loadBinding({draftId:body.draft_id,articleVersionId:body.article_version_id});
@@ -79,17 +86,24 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
    if(loaded.failure==='version_not_found'){res.status(404).json({status:'binding_not_found',message:'未找到当前稿件冻结版本，请返回稿件页面确认版本'});return;}
    if(loaded.failure==='draft_version_mismatch'){res.status(409).json({status:'binding_not_found',message:'投放草稿与指定稿件版本不一致，请返回稿件页面核对'});return;}
    binding=loaded.binding!;
+   const content=await store.loadIdentificationArticle({articleVersionId:binding.articleVersionId,...(binding.draftId?{draftId:binding.draftId}:{})});
+   if(!content.article||content.article.articleId!==binding.articleId||content.article.contentHash!==binding.contentHash||content.article.versionNumber!==binding.versionNumber){res.status(409).json({status:'stale_binding',message:'当前冻结稿件正文不可读取或版本已变化，请返回稿件页面确认后重试'});return;}
+   manuscripts=bindingManuscripts(binding,content.article);
   }
   const researchDatasets=await loadConfirmedResearch(core,req,body.dataset_ids??[]);
-  const decision=await resolveUserDecisionAdapter(core,req,body.connection_revision);
-  if(body.connection_mode&&body.connection_mode!==decision.mode){res.status(409).json({status:'connection_changed',message:'模型连接已变化，请打开连接设置刷新后重新生成'});return;}
-  if(!decision.adapter){res.status(409).json({status:'connection_required',message:'请先连接可用的 AI 模型，再生成推荐矩阵'});return;}
-  const taskId=randomUUID(),task:Row={industry:industry.name,questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
-  task.private_actor=actor(req);task.research_datasets=researchDatasets;task.research_dataset_ids=(body.dataset_ids??[]);task.research_dataset_refs=researchDatasets.map(d=>({id:d.id,name:d.name,version:d.version,recordCount:d.records?.length??0,createdAt:d.createdAt,status:'confirmed'}));task.model_connection=decision.connection??null;task.model_source=decision.mode;task.progress='analyzing';
+  const decision=await resolvePlatformDecisionAdapter(core,req);
+  if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
+  const taskId=randomUUID(),task:Row={industry_id:industry.industryId,industry:industry.name,...(manuscripts?{manuscripts}:{}),...(body.industry_query?{industry_query:clone(body.industry_query)}:{}),questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
+  task.private_actor=actor(req);task.research_datasets=researchDatasets;task.research_dataset_ids=(body.dataset_ids??[]);task.research_dataset_refs=researchDatasets.map(d=>({id:d.id,name:d.name,version:d.version,recordCount:d.records?.length??0,createdAt:d.createdAt,status:'confirmed'}));task.model_connection=null;task.model_source=decision.mode;task.progress='analyzing';
   if(binding)task.binding={draft_id:binding.draftId,article_version_id:binding.articleVersionId,article_id:binding.articleId,version_number:binding.versionNumber,content_hash:binding.contentHash,article_title:binding.articleTitle,fingerprint:binding.fingerprint,bound_at:body.as_of};
   // Brand sample rows are real recommendation input (never an industry-page fallback).
   const brandCitations=body.brand_data?brandCitationRecords(body.brand_data,body.sample_platforms):undefined;
   if(body.brand_data&&!brandExportBatch(body.brand_data)&&!(industry.dataset.brand_exports??[]).some((row:Row)=>row.id===body.brand_data)){res.status(400).json({status:'invalid_input',message:'所选品牌样本不存在或无权访问'});return;}
+  const context=core.context(req);
+  const identity=createHash('sha256').update(JSON.stringify({account:context.accountUserId,actor:context.actorUserId,owner:context.businessOwnerId,project:context.enterpriseProjectId,businessActor:context.businessActorId})).digest('hex');
+  // Only the free supplier filters/distributions are used; no billed ranking queries.
+  task.industry_context=await loadMatrixIndustryContext({industryId:industry.industryId,industryName:industry.name,selection:body.industry_query,configuredScopeId:typeof industry.dataset.industry_source_scope_id==='string'?industry.dataset.industry_source_scope_id:undefined,identity,environment:core.environment});
+  task.industry_assignment={kind:'user_confirmed',industry_id:industry.industryId,article_version_id:binding?.articleVersionId??null,content_hash:binding?.contentHash??null};
   const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await directory(req)),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
   if(prepared.status==='invalid_input'){res.status(400).json(prepared);return;}
   await repo.create(taskId,industry.industryId,industry.brandId,task);
@@ -131,8 +145,9 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(ids.some(id=>!previous.matrix.candidates.some((c:Row)=>c.candidate_id===id))){res.status(400).json({status:'invalid_input',message:'所选来源不属于原矩阵'});return;}
   const precheck=runPlanner(request,undefined,'budget',previous,asOf);
   if(['stale_matrix','invalid_input','needs_matrix'].includes(precheck.status)){res.status(409).json({result:precheck});return;}
-  const decision=await resolveUserDecisionAdapter(core,req,typeof task.task.model_connection?.revision==='string'?task.task.model_connection.revision:undefined);
-  if(task.task.model_source&&task.task.model_source!==decision.mode){res.status(409).json({status:'connection_changed',message:'生成模型已变化，请重新生成矩阵'});return;}
+  if(!task.task.industry_context||task.task.model_source!=='environment'){res.status(409).json({status:'platform_regenerate_required',message:'此历史矩阵尚未使用平台模型与行业依据，请重新生成矩阵'});return;}
+  const decision=await resolvePlatformDecisionAdapter(core,req);
+  if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
   if(!await repo.begin(task.taskId,body.plan_version)){res.status(409).json({status:'task_busy_or_cancelled',message:'任务版本已更新、正在处理或已取消'});return;}
   await repo.progress(task.taskId,'analyzing');
   res.status(202).json({task_id:task.taskId,state:'running',progress:'analyzing',result:precheck});
@@ -149,6 +164,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const parsed=editContent.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
   const body=parsed.data,repo=await repository(req),task=await repo.get(String(req.params.taskId));
   if(!task){res.status(404).json({status:'not_found'});return;}
+  if(!task.task?.industry_context||task.task.model_source!=='environment'){res.status(409).json({status:'platform_regenerate_required',message:'此历史矩阵尚未使用平台模型与行业依据，请重新生成矩阵'});return;}
   const previous=await repo.snapshot(task.taskId,body.plan_id,body.plan_version);
   if(!previous||task.latest?.plan_version!==body.plan_version){res.status(409).json({status:'stale_plan',message:'方案已更新，请刷新后编辑当前版本'});return;}
   const formalEdit=req.path.endsWith('/formal-plan'),plans:Row[]=clone(previous.content_plans??[]);
@@ -171,6 +187,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const parsed=applyPlan.safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
   const body=parsed.data,repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}
   if(task.state!=='complete'||task.latest?.status!=='complete'||task.latest?.plan_version!==body.plan_version){res.status(409).json({status:'stale_plan',message:'任务正在更新、已取消、上次组合校验失败或组合不是当前版本，请刷新后重试'});return;}
+  if(!task.task?.industry_context||task.task.model_source!=='environment'){res.status(409).json({status:'platform_regenerate_required',message:'此历史矩阵尚未使用平台模型与行业依据，请重新生成矩阵'});return;}
   const snapshot=await repo.snapshot(task.taskId,body.plan_id,body.plan_version);if(!snapshot){res.status(409).json({status:'needs_matrix',message:'请先生成并校验信源矩阵'});return;}
   const plans=Array.isArray(snapshot.budget_plans)?snapshot.budget_plans as Row[]:[],plan=plans[body.plan_index];
   if(!plan){res.status(404).json({status:'plan_not_found',message:'指定组合不存在，请重新生成组合'});return;}

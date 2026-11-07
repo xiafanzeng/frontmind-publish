@@ -1,8 +1,8 @@
 .fm-media .sm-article-context { margin-bottom: 22px; }
 .fm-media .sm-article-context-tools { display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }
-.fm-media .sm-article-context-tools select { width: auto; max-width: 100%; }
 .fm-media .sm-demand .sm-demand-questions textarea { resize: none; }
 @media (max-width: 700px) {
   .fm-media .sm-article-context-tools { justify-content: flex-start; }
-  .fm-media .sm-article-context-tools select { flex: 1 1 220px; }
 }
+
+.fm-media .sm-article-context-tools:empty { display: none; }

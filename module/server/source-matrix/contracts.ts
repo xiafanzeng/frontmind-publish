@@ -1,4 +1,5 @@
 import { issue, object, rows, text, type Issue, type Row, timestamp } from './common.js';
+import { validateIndustryContext } from './industry-context-evidence.js';
 export const precision:Record<string,number>=Object.assign(Object.create(null),{CNY:2,USD:2,EUR:2,JPY:0});
 export function parseMoney(value:unknown,currency:string):bigint {
   const p=precision[currency];
@@ -53,6 +54,7 @@ export function validateRequest(r:unknown,stage:string,asOf:string):Issue[] {
 /** Validate known nested structures; unknown keys remain data and never become defaults. */
 export function validateNested(r:Row):Issue[] {
  const out:Issue[]=[],check=(ok:boolean,path:string)=>{if(!ok)out.push(issue('invalid_type',path));};
+ out.push(...validateIndustryContext(r.task));
  const arrayRows=(v:unknown,path:string)=>check(rows(v),path);
  for(const [i,c] of (r.catalog??[]).entries()){
   const p=`catalog[${i}]`;

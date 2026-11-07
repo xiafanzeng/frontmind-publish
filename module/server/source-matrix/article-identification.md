@@ -6,37 +6,37 @@ This is source-only delivery. No dependency install, server launch, typecheck, t
 
 The module does not load `.env` files. The authenticated host constructs `ModuleHttpCore.environment`; the administrator must place settings in the actual host service environment and pass them through that object, then reload the service. A standalone environment file that is not read and injected by that host does not enable the feature.
 
-The existing precedence remains: `core.sourceMatrixDecisions` → authenticated actor's encrypted saved connection → environment adapter. Identification uses the same chosen connection. A selected host without `identify` reports `not_configured`; it does not silently fall through to another provider. An invalid saved connection is surfaced as an error; it does not fall through either.
+Identification, matrix and budget now use only `resolvePlatformDecisionAdapter` and the server environment adapter. Neither `core.sourceMatrixDecisions` nor an authenticated actor's old saved connection is selected, read or decrypted. Missing or invalid platform configuration reports `not_configured`; there is no fallback to host/personal models or a request for the user to configure an API key.
 
 For the user-selected AiCore service, configure the existing server-only keys:
 
 ```text
 FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL=https://api.xty.app/v1/chat/completions
-FRONTMIND_SOURCE_MATRIX_LLM_MODEL=gpt-4o
+FRONTMIND_SOURCE_MATRIX_LLM_MODEL=<administrator-confirmed-model-id>
 FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS=https://api.xty.app/v1
 ```
 
-Set `FRONTMIND_SOURCE_MATRIX_LLM_API_KEY` through the host's secure secret injection. The source package contains no real credential and no credential file. `gpt-4o` is a configuration example selected for subsequent acceptance; ZCode must confirm that this account can invoke that exact model. Do not infer model availability from this document.
+Set `FRONTMIND_SOURCE_MATRIX_LLM_API_KEY` through the host's secure secret injection and replace the model placeholder with an explicitly configured model. The source package contains no real credential or credential file. No model default or live model availability is inferred from this document; ZCode must confirm the configured model with the securely injected account during subsequent acceptance.
 
-`https://api.xty.app/v1` is also accepted as the configured base and normalizes to `/v1/chat/completions`. The explicit complete endpoint works as shown above. Add this origin/base to the existing comma-separated allowlist rather than replacing unrelated required entries. Custom destinations must be HTTPS with no credentials, query, fragment, nonstandard port or local/IP host; redirects are refused. No browser request can supply a destination.
+Only the XTY platform endpoint is accepted. `https://api.xty.app`, `/v1` on that origin and the explicit complete endpoint (optional trailing slash) normalize once to `https://api.xty.app/v1/chat/completions`. The server comma-separated allowlist must contain a matching XTY root, v1 base or complete endpoint; unrelated entries do not authorize it. No credentials, query, fragment or nonstandard port is accepted, and redirects are refused. No browser request can supply a destination.
 
-Protocol is the existing environment gateway's OpenAI-compatible Chat Completions: POST JSON with `model`, `messages`, `response_format:{type:"json_object"}` and a bounded output limit; Bearer authentication. Successful identification requires a completed response with `finish_reason:"stop"` and strict JSON content. User-level provider adapters retain their existing native protocol (OpenAI Responses, Claude Messages or compatible Chat Completions), adding strict identification parsing and limits. This does not add a new ordinary-user credential page or change the provider choices.
+Protocol is the environment gateway's OpenAI-compatible Chat Completions: POST JSON with `model`, `messages`, `response_format:{type:"json_object"}` and a bounded output limit; server-side Bearer authentication. Identification retains the `provider:'glm'` compatible transport seam and `endpointFor` allowlist check, without selecting a separate provider or a BigModel destination. Successful identification requires `finish_reason:"stop"` and strict JSON content. The personal connection UI and models/test/save/remove management endpoints are removed; old provider utilities and stored rows do not enable another model path.
 
-The previous defaults remain unchanged: absent base/model uses the existing BigModel chat endpoint / `glm-4.6`; absent key leaves the environment adapter disabled. A custom identification endpoint that is not allowlisted, or an invalid model identifier, leaves identification unavailable. Existing matrix/budget calls keep their existing flow; the only normalization they gain is a terminal `/v1` base to `/v1/chat/completions`.
+An absent base uses the user-specified XTY full endpoint. The model must be explicit: missing key/model, invalid model, disallowed destination or missing/mismatched allowlist disables the platform adapter for all three stages. No BigModel or model-name fallback remains. GET `/matrix/connection` returns only `{connection:null,mode:'environment'|'none',available,message}`; `available` means locally valid configuration, not a successful connectivity test.
 
-## Host seam and revision ownership
+## Platform seam and revision ownership
 
-`SourceMatrixDecisionAdapter.identify?(input)` receives `{article:{title,body}, industries:[{id,name}], signal}` and returns unknown data shaped as `{fields:{product,industry,audience,questions}}`. It must perform a real read-only extraction. The module validates its output like all provider output. `signal` is aborted at 45 seconds; the route also discards late output if a host ignores it.
+`SourceMatrixDecisionAdapter.identify?(input)` receives `{article:{title,body}, industries:[{id,name}], signal}` and returns unknown data shaped as `{fields:{product,industry,audience,questions}}`. The selected platform adapter performs read-only extraction and the module validates its output. `signal` is aborted at 45 seconds and late output is discarded.
 
-Hosts implementing identification should set `identificationRevision` to an opaque server configuration revision, identical across equivalent workers and changed whenever the host model/credential/configuration changes. Do not use credentials themselves as the revision. If omitted, the module uses a conservative per-process adapter-instance revision: replacing the instance or identify function invalidates old contexts, and routing to a different worker may require a context refresh. In-place hidden host configuration changes cannot be detected without the supplied revision. This optional seam is new module code; the private host's implementation is outside the supplied repository and must be integrated there if the host override is active.
+Identification revision is an environment HMAC fingerprint keyed by the server API key over endpoint, model, allowlist and protocol version. It is stable for equivalent workers and notices configuration/key rotation without returning a key or an unkeyed key hash. The route checks it before invocation and after the response; changes return `connection_changed` and require fresh context/re-identification. Host instance revisions, host `identificationRevision` and personal stored revisions are no longer consulted.
 
-Personal connections use their stored revision. Environment revisions are keyed fingerprints that notice endpoint/model/key/allowlist changes without returning the credential. Authenticated account, actor, business actor, owner and project determine `scopeKey`. None of these come from the browser request.
+Authenticated account, actor, business actor, owner and project determine `scopeKey`. None of these come from the browser request. Matrix/budget generation does not use historical personal connection revision as a guard; incompatible old planner tasks require platform regeneration.
 
 ## API and data boundary
 
 Both endpoints are registered in `createSourceMatrixRouter`, after its existing same-origin mutation and private/no-store middleware, under the host's normal `/api/modules/publish` mount.
 
-- GET `/matrix/identify/context?article_version_id=<UUID>&draft_id=<optional UUID>` authorizes and reads the exact frozen version, actual tenant industries and chosen connection. It returns the shared `IdentificationContextResponse` with `ready` or `not_configured`, secret-free context, and unknown metadata fields. No full body is returned.
+- GET `/matrix/identify/context?article_version_id=<UUID>&draft_id=<optional UUID>` authorizes and reads the exact frozen version, actual tenant industries and platform configuration status. It returns the shared `IdentificationContextResponse` with `ready` or `not_configured`, secret-free context, and unknown metadata fields. No full body is returned.
 - POST `/matrix/identify` accepts only `article_version_id`, optional `draft_id`, `content_digest` and `connection_revision`, matching the shared `IdentifyArticleRequest`. It rereads authorized content and checks the digest and model revision before calling AI. It returns the shared `IdentifyArticleResponse`: `complete`, `partial` or `unidentified` with per-field provenance.
 - Errors use the existing sanitized `{status,message}` convention. Missing selection/invalid shape: 400; unauthorized scope: 403; missing binding: 404; stale content/scope/model or mismatched draft: 409; oversized article: 413; empty article/refusal/invalid result: 422; throttled: 429; unavailable model/configuration/timeout: 503.
 

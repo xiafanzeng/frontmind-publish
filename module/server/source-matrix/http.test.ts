@@ -8,6 +8,8 @@ import { BindingStore } from './binding.js';
 import { digest } from './common.js';
 import * as catalogBridge from '../publisher-source-matrix-catalog.js';
 import * as plannerKernel from './planner.js';
+import * as platformConnection from './ai-connection-http.js';
+import * as industryContext from './matrix-industry-context.js';
 const servers:Server[]=[];
 afterEach(async()=>{vi.restoreAllMocks();await Promise.all(servers.splice(0).map(s=>new Promise<void>((resolve,reject)=>s.close(e=>e?reject(e):resolve()))));});
 async function host(core:ModuleHttpCore){const app=express();app.use('/api/modules/publish',createModuleHttpApi(core));const server=createServer(app);servers.push(server);server.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();if(!address||typeof address==='string')throw new Error('No test address');return `http://127.0.0.1:${address.port}`;}
@@ -87,13 +89,16 @@ it('binds matrix generation to the server-verified frozen version and persists t
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  const loadBinding=vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({binding:{draftId:'3f0d1111-1111-4111-8111-111111111111',draftRevision:3,draftStatus:'draft',articleVersionId:'5aab2222-2222-4222-8222-222222222222',articleId:'article-1',versionNumber:1,contentHash:'hash-1',containsImages:false,articleTitle:'验收稿件',selections:[],fingerprint:'fp-1'}});
- const url=await host(core({database:async()=>({} as any),sourceMatrixDecisions:{matrix:async()=>undefined,budget:async()=>undefined}}));
+ vi.spyOn(BindingStore.prototype,'loadIdentificationArticle').mockResolvedValue({article:{articleVersionId:bindingRow.article_version_id,articleId:'article-1',versionNumber:1,contentHash:'hash-1',title:'验收稿件',body:'仅来自当前授权冻结版本的正文'}});
+ vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async()=>undefined,budget:async()=>undefined}});
+ vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ const url=await host(core({database:async()=>({} as any)}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-10-24T00:00:00Z',draft_id:'3f0d1111-1111-4111-8111-111111111111',article_version_id:'5aab2222-2222-4222-8222-222222222222'})});
  expect(response.status).toBe(202);
  const task=create.mock.calls[0]![3] as any;
  expect(task.binding).toEqual({...bindingRow,bound_at:'2026-10-24T00:00:00Z'});
  const body=await response.json();
- expect(body.result.scope.task.manuscripts).toEqual([{article_id:'article-1',version:'v1',title:'验收稿件',content_hash:'hash-1',contains_images:false,source:'trusted_article_version'}]);
+ expect(body.result.scope.task.manuscripts).toEqual([{article_id:'article-1',version:'v1',title:'验收稿件',content_hash:'hash-1',contains_images:false,source:'trusted_article_version',content_excerpt:'仅来自当前授权冻结版本的正文',content_excerpt_truncated:false,content_source:'authorized_frozen_plain_text'}]);
  expect(body.result.scope.task.binding).toEqual({...bindingRow,bound_at:'2026-10-24T00:00:00Z'});
  expect(loadBinding).toHaveBeenCalledWith({draftId:'3f0d1111-1111-4111-8111-111111111111',articleVersionId:'5aab2222-2222-4222-8222-222222222222'});
 });
@@ -116,7 +121,7 @@ it('blocks budget recomputation when the bound article content has changed',asyn
 });
 const applicablePlan={budget_feasible:true,is_estimate:false,unknown_items:[],errors:[],items:[{article_id:'article-1',version:'v1',resource_id:'media-1',offer_id:'offer-1',publication_spec:{channel:'news'},quantity:1,purpose:'standard'}]};
 function applyHost(){
- vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-1',state:'complete',latest:{status:'complete',plan_version:'plan-version-'+'b'.repeat(24)},task:{binding:{...bindingRow}},industryId:'industry-1'} as any);
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-1',state:'complete',latest:{status:'complete',plan_version:'plan-version-'+'b'.repeat(24)},task:{binding:{...bindingRow},model_source:'environment',industry_context:{status:'empty',source:'molizhishu-public-industry',industry_id:'industry-1',industry_name:'软件测试',aggregates:[],limitations:[]}},industryId:'industry-1'} as any);
  vi.spyOn(MatrixRepository.prototype,'snapshot').mockResolvedValue({budget_plans:[applicablePlan],scope:{input_snapshot:{budget:{currency:'CNY',total_cap:'3000'}}}} as any);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',brandId:'brand-1',dataset:{}} as any);
  // Route tests isolate the kernel; deterministic quote arithmetic and stale
@@ -183,7 +188,9 @@ it('refuses cancelled and superseded plans before loading publication items',asy
 it('feeds the selected brand batch and demand constraints into the planner request',async()=>{
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
- const url=await host(core({database:async()=>({} as any),sourceMatrixDecisions:{matrix:async()=>undefined,budget:async()=>undefined}}));
+ vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async()=>undefined,budget:async()=>undefined}});
+ vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ const url=await host(core({database:async()=>({} as any)}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-10-25T00:00:00Z',hours:'48',requirements:['链接'],brand_data:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',sample_platforms:['通义千问-手机版']})});
  expect(response.status).toBe(202);
  const task=create.mock.calls[0]![3] as any;
@@ -198,4 +205,80 @@ it('feeds the selected brand batch and demand constraints into the planner reque
  expect(body.result.scope.input_snapshot.citations).toEqual([]);
  expect(body.result.matrix.candidates.some((candidate:any)=>candidate.attributes.data_kind==='raw_brand_observation_context')).toBe(true);
  expect(body.result.scope.task.brand.batch_id).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');
+});
+
+
+it('passes verified industry context to the platform request and persists the same snapshot',async()=>{
+ const created=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
+ vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{industry_source_scope_id:'42'}} as any);
+ const query={periodType:'DAY',date:'2026-11-06',scopeType:'CATEGORY',scopeId:'42',modelCode:'model-a'};
+ const snapshot={status:'empty',message:'供应商成功返回空范围',source:'molizhishu-public-industry',industry_id:'industry-1',industry_name:'软件测试',query,fetched_at:'2026-11-07T00:00:00Z',data_version:'empty-range-1',aggregates:[],limitations:['当前行业无可用分布']};
+ const load=vi.spyOn(industryContext,'loadMatrixIndustryContext').mockResolvedValue(snapshot);
+ let received:any;
+ vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async input=>{received=input.request;return undefined;},budget:async()=>undefined}});
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],industry_query:query,as_of:'2026-11-07T00:00:00Z'})});
+ expect(response.status).toBe(202);await response.json();
+ expect(load.mock.calls[0]?.[0]).toMatchObject({industryId:'industry-1',industryName:'软件测试',selection:query,configuredScopeId:'42'});
+ expect(created.mock.calls[0]?.[3]).toMatchObject({industry_query:query,industry_context:snapshot,model_source:'environment'});
+ expect(received.task.industry_context).toEqual(snapshot);
+ expect(received.task.industry_assignment.kind).toBe('user_confirmed');
+});
+
+it('fails closed before generation when the authorized frozen text cannot be read',async()=>{
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
+ const created=vi.spyOn(MatrixRepository.prototype,'create');
+ vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({binding:{draftId:bindingRow.draft_id,draftRevision:1,draftStatus:'draft',articleVersionId:bindingRow.article_version_id,articleId:'article-1',versionNumber:1,contentHash:'hash-1',containsImages:false,articleTitle:'验收稿件',selections:[],fingerprint:'fp-1'}});
+ vi.spyOn(BindingStore.prototype,'loadIdentificationArticle').mockResolvedValue({failure:'version_not_found'});
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],draft_id:bindingRow.draft_id,article_version_id:bindingRow.article_version_id,as_of:'2026-11-07T00:00:00Z'})});
+ expect(response.status).toBe(409);expect((await response.json()).status).toBe('stale_binding');expect(created).not.toHaveBeenCalled();
+});
+
+it('rejects retired connection fields and browser-supplied statistics at the generation boundary',async()=>{
+ const url=await host(core());
+ for(const extra of [{connection_mode:'user'},{connection_revision:'5aab2222-2222-4222-8222-222222222222'},{industry_context:{status:'ok',aggregates:[]}},{industry_query:{periodType:'DAY',date:'2026-11-06',scopeType:'CATEGORY',scopeId:'42',modelCode:'model-a',citationCount:'999'}}]){
+  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-11-07T00:00:00Z',...extra})});
+  expect(response.status).toBe(400);
+ }
+});
+
+it('replays the saved industry snapshot during budget review without another supplier query',async()=>{
+ const planId='plan-'+'a'.repeat(24),revision='plan-version-'+'b'.repeat(24);
+ const contextSnapshot={status:'empty',source:'molizhishu-public-industry',industry_id:'industry-1',industry_name:'软件测试',aggregates:[],limitations:['供应商当前范围无数据']};
+ const task={industry_id:'industry-1',industry:'软件测试',questions:[{question_id:'q',text:'如何选型'}],model_source:'environment',industry_context:contextSnapshot};
+ const previous={plan_id:planId,plan_version:revision,matrix_version:'matrix-1',matrix:{status:'complete',candidates:[]},scope:{input_snapshot:{}},snapshot:{}};
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-1',industryId:'industry-1',state:'complete',latest:previous,task} as any);
+ vi.spyOn(MatrixRepository.prototype,'snapshot').mockResolvedValue(previous);
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
+ vi.spyOn(MatrixRepository.prototype,'begin').mockResolvedValue(true);
+ vi.spyOn(MatrixRepository.prototype,'progress').mockResolvedValue(undefined);
+ vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ const supplier=vi.spyOn(industryContext,'loadMatrixIndustryContext');
+ vi.spyOn(plannerKernel,'runPlanner').mockReturnValue({...previous,status:'needs_budget_plans',limitations:[]});
+ let received:any;
+ vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async()=>undefined,budget:async input=>{received=input.request;return undefined;}}});
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/classify/task-1/budget',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({plan_id:planId,plan_version:revision,budget:{currency:'CNY',total_cap:'100'},as_of:'2026-11-07T00:00:00Z'})});
+ expect(response.status).toBe(202);await response.json();
+ expect(received.task.industry_context).toEqual(contextSnapshot);
+ expect(supplier).not.toHaveBeenCalled();
+});
+
+
+it('requires legacy user or host tasks to regenerate before editing or applying saved plans',async()=>{
+ const taskRead=vi.spyOn(MatrixRepository.prototype,'get');
+ const snapshots=vi.spyOn(MatrixRepository.prototype,'snapshot');
+ const url=await host(core({database:async()=>({} as any)}));
+ for(const mode of ['user','host','environment']){
+  taskRead.mockResolvedValue({taskId:'task-1',state:'complete',latest:{status:'complete',plan_version:applyBody.plan_version},task:{model_source:mode},industryId:'industry-1'} as any);
+  expect((await postApply(url,applyBody)).status).toBe(409);
+  const body={plan_id:applyBody.plan_id,plan_version:applyBody.plan_version,plan_index:0,quantities:[{item_index:0,candidate_id:'resource:media-1',quantity:1}],as_of:'2026-11-07T00:00:00Z'};
+  for(const action of ['content-plan','formal-plan']){
+   const response=await fetch(url+'/api/modules/publish/classify/task-1/'+action,{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify(body)});
+   expect(response.status).toBe(409);expect((await response.json()).status).toBe('platform_regenerate_required');
+  }
+ }
+ expect(snapshots).not.toHaveBeenCalled();
 });

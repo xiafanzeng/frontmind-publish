@@ -7,7 +7,7 @@ import SourceMatrixPage from './SourceMatrixPage';
 import {downloadUrl} from './api';
 import { PublishingFlowProvider,type PublishingFlow } from '../PublishingFlowContext';
 import type { MediaResource,PublicationDraft } from '../types';
-import type { MatrixResult } from './types';
+import type { MatrixResult,Json } from './types';
 import {matrixDemo} from './demo';
 // jsdom does not implement <dialog>; the confirmation dialog needs these stubs.
 HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -36,30 +36,28 @@ it('keeps configuration details out of permanent layout and offers a local indus
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
  expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
 });
-it('shows an automatically named connection without repeating its model',async()=>{
+it('shows platform status without personal API settings or the removed top shortcuts',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}:{industries:[]}})));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:{industries:[]}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- expect(await screen.findByText('当前模型：硅基流动 · model-from-directory')).toBeTruthy();
- expect(screen.queryByText('当前模型：硅基流动 · model-from-directory · model-from-directory')).toBeNull();
+ expect(await screen.findByText('当前使用平台配置的模型')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'连接 API'})).toBeNull();
+ expect(screen.queryByLabelText('当前投放任务')).toBeNull();
+ expect(screen.queryByRole('link',{name:/^购物车 \d/})).toBeNull();
+ expect(screen.getByRole('link',{name:'进入媒体库自选'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/配置标题/})).toBeTruthy();
 });
-it('shows pending connection state without claiming there is no saved connection',async()=>{
+it('shows pending platform status and recovers an unavailable status through its own retry',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- let finish!:(value:unknown)=>void;
- const pending=new Promise(resolve=>{finish=resolve;});
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?pending:{industries:[]}})));
+ let finish!:(value:unknown)=>void,reads=0;const pending=new Promise(resolve=>{finish=resolve;});
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?(++reads===1?pending:{connection:null,mode:'environment',available:true}):{industries:[]}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- expect(await screen.findByText('正在读取模型连接…')).toBeTruthy();
- expect(screen.queryByText('尚未连接 AI')).toBeNull();
- await act(async()=>finish({connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}));
- expect(await screen.findByText('当前模型：硅基流动 · model-from-directory')).toBeTruthy();
-});
-it('labels an unavailable saved connection as saved instead of currently usable',async()=>{
- window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'研究专用',provider:'deepseek',model:'saved-model',maskedKey:'••••1234'},mode:'user',available:false,message:'已保存的个人连接地址或地域不可用，请检查设置或联系管理员。'}:{industries:[]}})));
- render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- expect(await screen.findByText('已保存连接：研究专用 · saved-model')).toBeTruthy();
- expect(screen.queryByText('当前模型：研究专用 · saved-model')).toBeNull();
+ expect(await screen.findByText('正在读取推荐服务状态…')).toBeTruthy();
+ await act(async()=>finish({connection:null,mode:'none',available:false}));
+ expect(await screen.findByText('推荐服务暂不可用，请稍后重试或联系运营。')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'重试读取服务状态'}));
+ expect(await screen.findByText('当前使用平台配置的模型')).toBeTruthy();
+ expect(screen.queryByText(/打开连接设置|尚未连接 AI|已保存连接/)).toBeNull();
 });
 it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?task=task&tab=matrix');
@@ -70,7 +68,7 @@ it('renders structured stale results without replacing or reading nonexistent ma
 
 const media:MediaResource={id:'media-1',externalResourceId:'external-1',name:'可投媒体',shortName:'可投',kind:'news',platform:'新闻',taxonomy:'',mediaType:'',channel:'',region:'',titleLimit:200,priceTenThousandths:'1000000',turnaround:'',active:true,capability:'image',catalogRevision:'catalog-1',logoSource:'generated_fallback',logoResolutionStatus:'missing'};
 function draft(id='draft-1',revision=1,items:MediaResource[]=[]):PublicationDraft{return {id,revision,articleId:'article-1',articleVersionId:'version-1',articleTitle:'当前稿件',articleVersion:1,articleVersionHash:'hash-1',articleContainsImages:false,titleMode:'per_media',items:items.map(media=>({media,title:'当前稿件'})),updatedAt:'2026-10-24T00:00:00Z'};}
-const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{binding:{draft_id:'draft-1',article_id:'article-1',article_version_id:'version-1',version_number:1,content_hash:'hash-1',article_title:'当前稿件',fingerprint:'fixture-binding-1'}},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:'industry',auxiliary_roles:[],selection:'recommended',matched_questions:[],reason_summary:'已核验行业相关',channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[{role:'industry',display_name:'行业核心',status:'populated',candidate_ids:['candidate-1'],auxiliary_candidate_ids:[]}],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
+const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan-version-1',matrix_version:'matrix-version-1',as_of:'2026-10-24T00:00:00Z',scope:{task:{model_source:'environment',industry_context:{status:'ok',message:'Synthetic verified industry context',limitations:[]},binding:{draft_id:'draft-1',article_id:'article-1',article_version_id:'version-1',version_number:1,content_hash:'hash-1',article_title:'当前稿件',fingerprint:'fixture-binding-1'}},evidence_scope:{}},matrix:{status:'complete',candidates:[{candidate_id:'candidate-1',resource_id:'external-1',attributes:{source_name:'可投媒体'},offers:[],primary_role:'industry',auxiliary_roles:[],selection:'recommended',matched_questions:[],reason_summary:'已核验行业相关',channel_status:'eligible',manuscript_status:'compatible',hard_failures:[],pending_conditions:[],evidence_relation:'',evidence_ids:[],aggregate_ids:[]}],layers:[{role:'industry',display_name:'行业核心',status:'populated',candidate_ids:['candidate-1'],auxiliary_candidate_ids:[]}],fit_order:['candidate-1']},source_analysis:{status:'complete',known_detail_count:0,total_citations:0,groups:[],actual_sources:[],domain_rollups:[],detail_citations:[],external_aggregates:[],supplier_claims:[],unknown_records:[],content_age:null},budget_plans:[],limitations:[],warnings:[],errors:[],minimum_known_cost:null};
 function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
@@ -101,7 +99,7 @@ it('creates the exact frozen-version draft only after an eligible matrix selecti
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('draftId')).toBe('draft-1'));
  expect(owner.record).toHaveBeenCalledWith(expect.objectContaining({id:'media-draft:draft-1',resources:[{kind:'article_version',id:'version-1'},{kind:'publication_draft',id:'draft-1'}]}));
  expect(window.location.pathname).toBe('/publishing/source-matrix');
- const cartLink=new URL((screen.getByRole('link',{name:/购物车 1/}) as HTMLAnchorElement).href);
+ const cartLink=new URL((screen.getByText('完整购物车 →',{selector:'a'}) as HTMLAnchorElement).href);
  expect(cartLink.pathname).toBe('/publishing/drafts/draft-1/media/cart');
  expect(Object.fromEntries(cartLink.searchParams)).toMatchObject({articleVersion:'version-1',mode:'multi',workbenchTask:'workbench-1',matrixTask:'matrix-1',enterpriseProjectId:'project-1',operatorOwnerId:'owner-1'});
  expect(cartLink.searchParams.has('task')).toBe(false);
@@ -192,7 +190,7 @@ it('ignores an old draft update after changing the bound draft',async()=>{
  await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(true));
  expect(screen.getByText('需求已变化，请更新矩阵。')).toBeTruthy();
  expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(false);
- expect((screen.getByRole('link',{name:/购物车 0/}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-2/media/cart');
+ expect((screen.getByText('完整购物车 →',{selector:'a'}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-2/media/cart');
 });
 
 it('keeps a rejected first selection unchecked and permits a real retry',async()=>{
@@ -281,7 +279,7 @@ it('retries the same failed media mapping without discarding the draft context',
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));
  expect(mediaGateway.listMedia).toHaveBeenCalledTimes(2);expect(mediaGateway.createDraft).not.toHaveBeenCalled();
- expect((screen.getByRole('link',{name:/购物车 0/}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-1/media/cart');
+ expect((screen.getByText('完整购物车 →',{selector:'a'}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-1/media/cart');
 });
 
 it('does not replace a draft belonging to a different frozen version',async()=>{
@@ -296,7 +294,8 @@ it('does not replace a draft belonging to a different frozen version',async()=>{
 it('shows the current independent research cart read-only and links back to its shared cart',async()=>{
  liveDirectory();const owner=flow();owner.resources=[];owner.selections={mediaSelection:[media,{...media,id:'media-2',priceTenThousandths:'2000000'},null,{id:'invalid',priceTenThousandths:7}]};
  openMatrix('workbenchTask=workbench-1',owner);
- const cartLink=await screen.findByRole('link',{name:'购物车 2 · ¥300.00'});
+ await screen.findByText(/购物车 2 家/);
+ const cartLink=screen.getByText('完整购物车 →',{selector:'a'});
  const url=new URL((cartLink as HTMLAnchorElement).href);
  expect(url.pathname).toBe('/publishing/media/cart');expect(url.searchParams.get('workbenchTask')).toBe('workbench-1');expect(url.searchParams.get('matrixTask')).toBe('matrix-1');
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
@@ -352,7 +351,7 @@ it('keeps the cart footer on the distribution tab without discarding selected me
  liveDirectory();mediaGateway.getDraft.mockResolvedValue(draft('draft-1',1,[media]));
  window.history.replaceState({},'', '/publishing/source-matrix?tab=analysis&task=matrix-1&draftId=draft-1&articleVersion=version-1');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByRole('link',{name:'购物车 1 · ¥100.00'});expect(screen.getByText('真实行业分布')).toBeTruthy();
+ await screen.findByText(/购物车 1 家/);expect(screen.getByText('真实行业分布')).toBeTruthy();
  expect(screen.getByRole('button',{name:/配置标题/})).toBeTruthy();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
@@ -634,6 +633,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  await screen.findByText('模型尚未配置，请稍后重试');
  expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
  expect(bodies[0]!.body).toMatchObject({industry_id:'configured-industry',brand_data:matrixDemo.form.brandDataBatchId});
+ expect(bodies[0]!.body).not.toHaveProperty('connection_mode');expect(bodies[0]!.body).not.toHaveProperty('connection_revision');
  expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
  expect(screen.queryByText('一航软件 · 已保存样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
@@ -641,7 +641,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
 
 it('hydrates a different task instead of mixing its result with the prefilled demo or previous task',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海'],hours:'24',requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
+ const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海'],hours:'24',requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?{industries:[{id:'configured-industry',name:'已接入行业'}]}:url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
@@ -663,7 +663,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
 
 it('does not send the automatic budget stage to another task after leaving a running generation',async()=>{
  liveDirectory();window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- const posts:string[]=[],taskResult=(name:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:matrixDemo.form.industry,product:name,questions:[{question_id:'q1',text:'当前问题'}]}}});
+ const posts:string[]=[],taskResult=(name:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:matrixDemo.form.industry,product:name,questions:[{question_id:'q1',text:'当前问题'}]}}});
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);if(init?.method==='POST')posts.push(url);
   if(url.includes('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
@@ -681,4 +681,113 @@ it('does not send the automatic budget stage to another task after leaving a run
  await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('已有任务B'));
  expect(posts.filter(url=>url.endsWith('/budget'))).toEqual([]);
  expect(posts.filter(url=>url.endsWith('/matrix/generate'))).toHaveLength(1);
+});
+
+// Source-only platform/industry regressions; do not execute in this handoff workspace.
+function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<string,unknown>)=>unknown|Promise<unknown>){
+ mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
+ const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:'真实行业'}]})};
+  if(url.endsWith('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
+  if(url.endsWith('/matrix/generate'))return {ok:true,json:async()=>await onGenerate?.(JSON.parse(String(init?.body)))??{state:'complete',task_id:'new-task',result:task}};
+  if(url.includes('/classify/'))return {ok:true,json:async()=>({state:'complete',task_id:'matrix-1',result:task})};
+  return {ok:true,json:async()=>({items:[]})};
+ });vi.stubGlobal('fetch',fetcher);return fetcher;
+}
+function platformTask(extra:Record<string,Json>={}):MatrixResult{return {...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'真实行业',questions:[{text:'真实问题'}],...extra}}};}
+it('sends the selected CATEGORY range with lossless scope identity and no personal connection fields',async()=>{
+ const bodies:Record<string,unknown>[]=[];
+ platformFixture(platformTask(),body=>{bodies.push(body);return {state:'complete',result:{status:'needs_ai_decisions',errors:[{message:'Synthetic generation stopped'}]}};});
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=9007199254740993&siPeriod=MONTH&siDate=2026-10-01&siModel=public-model');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(bodies).toHaveLength(1));
+ expect(bodies[0]).toMatchObject({industry_query:{scopeType:'CATEGORY',scopeId:'9007199254740993',periodType:'MONTH',date:'2026-10-01',modelCode:'public-model'}});
+ expect(bodies[0]).not.toHaveProperty('connection_mode');expect(bodies[0]).not.toHaveProperty('connection_revision');
+});
+it('leaves an unscoped query to the server industry mapping instead of sending ALL',async()=>{
+ const bodies:Record<string,unknown>[]=[];platformFixture(platformTask(),body=>{bodies.push(body);return {state:'complete',result:{status:'needs_ai_decisions',errors:[]}};});
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siPeriod=MONTH&siDate=2026-10-01&siModel=all');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
+});
+it('shows limited industry evidence honestly and invalidates the matrix when the selected range changes',async()=>{
+ const query={scopeType:'CATEGORY',scopeId:'42',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
+ platformFixture(platformTask({industry_query:query,industry_context:{status:'partial',message:'发布时间分布暂缺',query,fetched_at:'2026-11-07T00:00:00Z',data_version:'version-42',limitations:['仅有类型分布']}}));
+ openMatrix('siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
+ await screen.findByText(/行业数据不完整/);expect(screen.getByText(/仅有类型分布/)).toBeTruthy();
+ expect(screen.queryByText(/需求、任务或稿件版本已变化/)).toBeNull();
+ await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siScope=42','siScope=43'));window.dispatchEvent(new PopStateEvent('popstate'));});
+ expect(await screen.findByText(/需求、任务或稿件版本已变化/)).toBeTruthy();
+});
+it('requires historical personal-model tasks to regenerate without offering connection settings',async()=>{
+ platformFixture(platformTask({model_source:'user'}));openMatrix('');
+ expect(await screen.findByText(/此历史矩阵需要使用平台推荐服务/)).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'连接 API'})).toBeNull();expect(screen.queryByText(/请先连接|打开连接设置/)).toBeNull();
+ expect((screen.getByRole('button',{name:'生成组合'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('keeps the previous matrix and cart when a replacement generation fails',async()=>{
+ const fetcher=platformFixture(platformTask(),()=>{throw new Error('Synthetic platform failure');});openMatrix('');
+ await waitFor(()=>expect((screen.getByLabelText('目标行业 *') as HTMLSelectElement).value).toBe('industry-live'));
+ fireEvent.click(screen.getByRole('button',{name:'重新生成矩阵并组合'}));
+ expect(await screen.findByText(/Synthetic platform failure/)).toBeTruthy();
+ expect(screen.getByText(/下面保留上次有效矩阵/)).toBeTruthy();expect(screen.getByRole('heading',{name:'可投媒体'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/配置标题/})).toBeTruthy();
+ expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/budget'))).toHaveLength(0);
+ expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
+});
+
+it('ignores a delayed generation poll after the industry query has changed',async()=>{
+ let finish!:(value:unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});let polling=false;
+ const fetcher=platformFixture(platformTask(),()=>({state:'running',task_id:'new-task'}));
+ const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/classify/new-task')){polling=true;return {ok:true,json:async()=>await pending};}
+  return base(input,init);
+ });
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(polling).toBe(true));
+ await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siScope=42','siScope=43'));window.dispatchEvent(new PopStateEvent('popstate'));});
+ await act(async()=>finish({state:'complete',task_id:'new-task',result:platformTask()}));
+ expect(await screen.findByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeTruthy();
+ expect(screen.queryByRole('heading',{name:'可投媒体'})).toBeNull();
+ expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/budget'))).toHaveLength(0);
+});
+
+it('adopts only the verified first workbench assignment after generation and still rejects a later real task switch',async()=>{
+ liveDirectory();const base=vi.mocked(fetch).getMockImplementation()!,owner=flow();owner.taskId=undefined;owner.resources=[];
+ const generated={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'q1',text:'软件测试公司怎么选'}]}}};
+ vi.mocked(fetch).mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:'软件测试'}]})} as Response;
+  if(url.endsWith('/matrix/generate')||url.endsWith('/classify/generated-task'))return {ok:true,json:async()=>({state:'complete',task_id:'generated-task',result:generated})} as Response;
+  return base(input,init);
+ });
+ mediaGateway.createDraft.mockImplementation(async()=>{const saved=draft('draft-1',1,[media]);mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
+ function AssigningHost(){const [taskId,setTaskId]=useState<string>();const current:PublishingFlow={...owner,taskId,ensureTask:async()=>{setTaskId('created-task');await Promise.resolve();return 'created-task';}};return <PublishingFlowProvider value={current}><div className="monitoring-module"><SourceMatrixPage view="matrix"/></div></PublishingFlowProvider>;}
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&articleVersion=version-1&mode=multi');render(<AssigningHost/>);
+ await screen.findByRole('option',{name:'软件测试'});await screen.findByRole('button',{name:'重新检查配置'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('generated-task'));
+ const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'},{timeout:4000});
+ await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));fireEvent.click(checkbox);
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('workbenchTask')).toBe('created-task'));
+ await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(true));
+ fireEvent.click(screen.getByRole('button',{name:'刷新结果'}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:'刷新结果'}) as HTMLButtonElement).disabled).toBe(false),{timeout:4000});
+ expect(screen.queryByText(/先前生成结果未应用/)).toBeNull();expect(mediaGateway.createDraft).toHaveBeenCalledTimes(1);
+ await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('workbenchTask=created-task','workbenchTask=other-task'));window.dispatchEvent(new PopStateEvent('popstate'));});
+ fireEvent.click(screen.getByRole('button',{name:'刷新结果'}));
+ expect(await screen.findByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeTruthy();
 });

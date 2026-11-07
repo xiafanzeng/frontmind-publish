@@ -1,6 +1,7 @@
 import { clone,digest,equal,identityFields,issue,list,object,priceFields,roles,rows,semantic,stableJson,strings,text,unique,type Issue,type Row } from './common.js';
 import { domain,matchIdentity } from './evidence.js';
 import { candidateCatalogMatches } from './export-research.js';
+import { industryContextAggregates } from './industry-context-evidence.js';
 const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items media_intro content_direction layer_rank ranking_reason'.split(' '));
 function channel(r:Row,t:Row):Row {
   const fail:string[]=[],pending:string[]=[];
@@ -28,6 +29,8 @@ function manuscriptChecks(manuscripts:Row[],catalog:Row[]):Row {
 }
 export function prepareCandidates(request:Row,analysis:Row):Row {
   const task=request.task,manuscripts:Row[]=task.manuscripts?.length?task.manuscripts:object(task.manuscript)&&Object.keys(task.manuscript).length?[task.manuscript]:[];
+  // Frozen text belongs to the shared task, not to every catalogue candidate.
+  const manuscriptIdentities=manuscripts.map(({content_excerpt:_excerpt,content_excerpt_truncated:_truncated,content_source:_source,...metadata})=>metadata);
   const grouped=new Map<string,Array<{index:number;row:Row}>>(),candidates:Row[]=[],actual:Row[]=analysis.actual_sources,matched=new Set<number>();
   (request.catalog??[]).forEach((row:Row,index:number)=>{const cid=row.resource_id?'resource:'+row.resource_id:row.candidate_key?'research:'+row.candidate_key:'unverified_offer:'+index;if(!grouped.has(cid))grouped.set(cid,[]);grouped.get(cid)!.push({index,row});});
   for(const [cid,group] of grouped){
@@ -45,15 +48,16 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
           matches.push({relation,evidence_ids:record.evidence_id?[record.evidence_id]:record.evidence_ids??[],scope:clone(source.scope),source_index:j});}
       }
     });
-    candidates.push({candidate_id:cid,resource_id:common.resource_id??null,attributes:common,attribute_variants:variants,conflicting_attributes:conflicts,attribute_paths:group.map(g=>`catalog[${g.index}]`),offers:group.filter(g=>g.row.offer_id).map(g=>clone(g.row)),channel_status:!common.resource_id?'research_only':fail.length?'ineligible':pending.length?'pending':'eligible',hard_failures:fail,pending_conditions:pending,...manuscriptChecks(manuscripts,group.map(g=>g.row)),manuscripts:clone(manuscripts),evidence_relation:['exact','platform_related','unverified'].find(r=>matches.some(m=>m.relation===r))??'none',identity_matches:matches,evidence_ids:unique(matches.flatMap(m=>m.evidence_ids)),recommendation_basis:[]});
+    candidates.push({candidate_id:cid,resource_id:common.resource_id??null,attributes:common,attribute_variants:variants,conflicting_attributes:conflicts,attribute_paths:group.map(g=>`catalog[${g.index}]`),offers:group.filter(g=>g.row.offer_id).map(g=>clone(g.row)),channel_status:!common.resource_id?'research_only':fail.length?'ineligible':pending.length?'pending':'eligible',hard_failures:fail,pending_conditions:pending,...manuscriptChecks(manuscripts,group.map(g=>g.row)),manuscripts:clone(manuscriptIdentities),evidence_relation:['exact','platform_related','unverified'].find(r=>matches.some(m=>m.relation===r))??'none',identity_matches:matches,evidence_ids:unique(matches.flatMap(m=>m.evidence_ids)),recommendation_basis:[]});
   }
   (request.industry_recommendations??[]).forEach((rec:Row,i:number)=>{
     const c=candidates.find(c=>rec.resource_id&&c.resource_id===rec.resource_id);
     if(c){c.recommendation_basis.push(clone(rec));c.attribute_paths.push(`industry_recommendations[${i}]`);}
-    else candidates.push({candidate_id:'recommendation:'+(rec.recommendation_id??i),resource_id:null,attributes:clone(rec),attribute_paths:[`industry_recommendations[${i}]`],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['unverified_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscripts),evidence_relation:'none',identity_matches:[],evidence_ids:[],recommendation_basis:[clone(rec)]});
+    else candidates.push({candidate_id:'recommendation:'+(rec.recommendation_id??i),resource_id:null,attributes:clone(rec),attribute_paths:[`industry_recommendations[${i}]`],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['unverified_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscriptIdentities),evidence_relation:'none',identity_matches:[],evidence_ids:[],recommendation_basis:[clone(rec)]});
   });
-  actual.forEach((s,i)=>{if(matched.has(i))return;const relation=s.status==='identity_conflict'?'unverified':'exact';candidates.push({candidate_id:'observed:'+digest([s.scope,s.identity,s.evidence_ids]),resource_id:null,attributes:clone(s.identity),attribute_paths:[],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['no_confirmed_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscripts),evidence_relation:relation,identity_matches:[{relation,evidence_ids:clone(s.evidence_ids),scope:clone(s.scope)}],evidence_ids:clone(s.evidence_ids),recommendation_basis:[]});});
+  actual.forEach((s,i)=>{if(matched.has(i))return;const relation=s.status==='identity_conflict'?'unverified':'exact';candidates.push({candidate_id:'observed:'+digest([s.scope,s.identity,s.evidence_ids]),resource_id:null,attributes:clone(s.identity),attribute_paths:[],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['no_confirmed_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscriptIdentities),evidence_relation:relation,identity_matches:[{relation,evidence_ids:clone(s.evidence_ids),scope:clone(s.scope)}],evidence_ids:clone(s.evidence_ids),recommendation_basis:[]});});
   const aggregates:Row[]=analysis.external_aggregates;
+  const industryAggregates=industryContextAggregates(task);
   for(const c of candidates){
     c.catalog_matches=candidateCatalogMatches(c,request.catalog??[],request.source_mappings??[]);
     c.aggregate_matches=[];
@@ -64,9 +68,11 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
       if(matchIdentity(identity,c.attributes,request.identity_config??{}).relation==='exact')c.aggregate_matches.push({aggregate_id:a.aggregate_id,identity_relation:'exact',applicability:'industry_context',record:clone(a),detail_status:'汇总来源，暂无逐条证据'});
     }
     c.aggregate_ids=c.aggregate_matches.map((a:Row)=>a.aggregate_id);
+    // Shared sector buckets are not identity matches and do not create sources.
+    c.industry_aggregate_ids=[];
   }
   const version={task:semantic(task),analysis,catalog:unique<string>((request.catalog??[]).map((r:Row)=>stableJson(semantic(r)))).sort(),industry_recommendations:request.industry_recommendations??[],identity_config:request.identity_config??{},source_mappings:request.source_mappings??[]};
-  return {matrix_version:'matrix-'+digest(version),candidates,limitations:[...['product','audience','regions'].filter(k=>!task[k]).map(k=>'missing_'+k),...(!candidates.length?['no_source_data_configured']:[])]};
+  return {matrix_version:'matrix-'+digest(version),candidates,industry_aggregate_ids:industryAggregates.map(a=>a.aggregate_id),limitations:unique([...['product','audience','regions'].filter(k=>!task[k]).map(k=>'missing_'+k),...(!candidates.length?['no_source_data_configured']:[]),...(task.industry_context?.limitations??[]),...((task.manuscripts??[]).some((m:Row)=>m.content_excerpt_truncated)?['manuscript_content_excerpt_truncated']:[])])};
 }
 function paths(v:any,prefix='',out:Row={}):Row {
   if(object(v))for(const [k,x] of Object.entries(v))paths(x,prefix?prefix+'.'+k:k,out);
@@ -105,11 +111,12 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
         const a=ref.path,allow=typeof a==='string'&&(a.startsWith('task.')||c.attribute_paths.some((p:string)=>a===p||a.startsWith(p+'.'))),m=typeof a==='string'?/^catalog\[\d+\](?:\.([^.[\]]+))?/.exec(a):null;
         const conflict=m&&(c.conflicting_attributes??[]).length&&(!m[1]||c.conflicting_attributes.includes(m[1]));
         if(!allow||!Object.hasOwn(validPaths,a)||conflict)err('invalid_attribute_reference',rp);
+        if(typeof a==='string'&&(a==='task.industry_context'||a.startsWith('task.industry_context.')))err('industry_context_requires_aggregate_reference',rp);
         if(typeof a==='string'&&a.split(/[.\[\]]+/).some(x=>priceFields.has(x)))err('price_reference',rp);
       }else if(ref.type==='evidence'){
         if(!c.evidence_ids.includes(ref.evidence_id)||!c.identity_matches.some((m:Row)=>m.evidence_ids.includes(ref.evidence_id)&&matched.includes(m.scope?.question_id)))err('invalid_evidence_reference',rp);
       }else if(ref.type==='aggregate'){
-        if(ref.usage!=='industry_context'||!c.aggregate_ids.includes(ref.aggregate_id))err('invalid_aggregate_reference',rp);
+        if(ref.usage!=='industry_context'||![...c.aggregate_ids,...(p.industry_aggregate_ids??[])].includes(ref.aggregate_id))err('invalid_aggregate_reference',rp);
       }else err('invalid_reference_type',rp);
     });
     if(all.includes('regional')){
@@ -140,7 +147,7 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
 export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {
   const p=prepareCandidates(r,a),errors=validateDecisions(d,p,r),missing=!d.items?.length,status=errors.length?'invalid_decisions':missing?'needs_ai_decisions':'complete';
   let candidates:Row[]=p.candidates;const order:string[]=status==='complete'?d.fit_order:[];
-  candidates=candidates.map(c=>{const decision=status==='complete'?d.items.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),semantic_decision_validated:!!decision};});
+  candidates=candidates.map(c=>{const decision=status==='complete'?d.items.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),industry_aggregate_ids:decision?unique<string>((decision.references??[]).filter((ref:Row)=>ref.type==='aggregate'&&p.industry_aggregate_ids.includes(ref.aggregate_id)).map((ref:Row)=>ref.aggregate_id)):[],semantic_decision_validated:!!decision};});
   if(order.length)candidates.sort((a,b)=>(order.includes(a.candidate_id)?order.indexOf(a.candidate_id):order.length)-(order.includes(b.candidate_id)?order.indexOf(b.candidate_id):order.length));
   const layers=Object.entries(roles).map(([role,display_name])=>({role,display_name,status:candidates.some(c=>c.primary_role===role)?'populated':'empty',candidate_ids:candidates.filter(c=>c.primary_role===role).map(c=>c.candidate_id),auxiliary_candidate_ids:candidates.filter(c=>c.auxiliary_roles.includes(role)).map(c=>c.candidate_id)}));
   return {schema_version:'1.0',matrix_version:p.matrix_version,status,source_analysis:clone(a),data_quality:clone(a.data_quality),scope:{task:clone(r.task),evidence_scope:clone(a.scope)},matrix:{status,candidates,layers,fit_order:order,coverage_kind:'semantic_relevance'},research_only:candidates.filter(c=>c.channel_status==='research_only'),pending_items:candidates.filter(c=>c.pending_conditions.length||c.manuscript_status==='needs_manuscript_check').map(c=>({candidate_id:c.candidate_id,conditions:c.pending_conditions,manuscript_status:c.manuscript_status})),limitations:p.limitations,errors,budget_plans:[]};

@@ -69,12 +69,13 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     out.warnings=r.budget?.exploration_enabled===true&&!('exploration_cap' in r.budget)?[issue('exploration_cap_required','budget.exploration_cap','探索投放需要显式正子额度；普通方案仍可校验')]:[];
     out.minimum_known_cost=minimum(r,out);
     out.plan_id='plan-'+digest(r.task_id?binding(r):{...binding(r),task:semantic(r.task)});
-    out.skill_version='source-matrix-planner/2026.10.26-web.1';
+    out.skill_version='source-matrix-planner/2026.11.07-web.2';
     out.resource_selections=clone(r.resource_selections??[]);
     out.quantity_mode=r.publication_intent==='repeat_existing_article'?'repeat_article':'new_articles';
     out.research_observation=clone(r.research_observation??null);
+    out.industry_context=clone(r.task.industry_context??null);
     out.plan_version='plan-version-'+digest({request:r,decisions:md,plans:out.budget_plans,content_plans:out.content_plans??[],status:out.status,matrix_version:out.matrix_version});
-    out.report=Object.fromEntries(['status','plan_id','plan_version','matrix_version','skill_version','scope','source_analysis','research_observation','matrix','budget_plans','content_plans','limitations','warnings','minimum_known_cost','errors'].map(k=>[k,clone(out[k])]));
+    out.report=Object.fromEntries(['status','plan_id','plan_version','matrix_version','skill_version','scope','source_analysis','research_observation','industry_context','matrix','budget_plans','content_plans','limitations','warnings','minimum_known_cost','errors'].map(k=>[k,clone(out[k])]));
     return out;
   }catch{return fail('invalid_input',[issue('invalid_structure','request','嵌套字段不符合契约，未接纳部分结果')]);}
 }

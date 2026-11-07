@@ -37,7 +37,7 @@ function identified(ctx: IdentificationContext, suffix = ''): IdentifyArticleRes
 }
 function matrixResult(product: string, boundVersion = 'version-a', candidateName?: string): MatrixResult {
   return { status: 'complete', plan_id: 'plan-1', plan_version: 'plan-version-1', matrix_version: 'matrix-version-1', as_of: '2026-10-24T00:00:00Z',
-    scope: { task: { product, audience: '保存的受众', questions: [{ text: '保存的问题' }], binding: { article_id: boundVersion === 'version-b' ? 'article-b' : 'article-a', article_version_id: boundVersion, draft_id: null, version_number: 5, content_hash: 'hash-' + boundVersion, article_title: 'Synthetic saved article', fingerprint: 'binding-fingerprint' } }, evidence_scope: {} },
+    scope: { task: { model_source: 'environment', industry_context: { status: 'ok', message: 'Synthetic verified industry context', limitations: [] }, product, audience: '保存的受众', questions: [{ text: '保存的问题' }], binding: { article_id: boundVersion === 'version-b' ? 'article-b' : 'article-a', article_version_id: boundVersion, draft_id: null, version_number: 5, content_hash: 'hash-' + boundVersion, article_title: 'Synthetic saved article', fingerprint: 'binding-fingerprint' } }, evidence_scope: {} },
     matrix: { status: 'complete', candidates: candidateName ? [{ candidate_id: 'candidate-1', resource_id: null, attributes: { source_name: candidateName }, offers: [], primary_role: 'industry', auxiliary_roles: [], selection: 'recommended', matched_questions: [], reason_summary: 'Synthetic saved result', channel_status: 'eligible', manuscript_status: 'compatible', hard_failures: [], pending_conditions: [], evidence_relation: '', evidence_ids: [], aggregate_ids: [] }] : [], layers: [{ role: 'industry', display_name: '行业核心', status: candidateName ? 'populated' : 'empty', candidate_ids: candidateName ? ['candidate-1'] : [], auxiliary_candidate_ids: [] }], fit_order: candidateName ? ['candidate-1'] : [] },
     source_analysis: { status: 'complete', known_detail_count: 0, total_citations: 0, groups: [], actual_sources: [], domain_rollups: [], detail_citations: [], external_aggregates: [], supplier_claims: [], unknown_records: [], content_age: null },
     budget_plans: [], limitations: [], warnings: [], errors: [], minimum_known_cost: null };
@@ -46,6 +46,7 @@ function installApi(options: {
   readContext: (versionId: string) => IdentificationContextResponse | Promise<IdentificationContextResponse>;
   identify?: () => IdentifyArticleResponse | Promise<IdentifyArticleResponse>;
   readTask?: () => MatrixResult | Promise<MatrixResult>;
+  generate?: () => unknown | Promise<unknown>;
 }) {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'https://synthetic.invalid');
@@ -56,6 +57,7 @@ function installApi(options: {
       body = await options.identify();
     } else if (url.pathname.endsWith('/industries')) body = { industries: [{ id: 'industry-a', name: '真实行业' }] };
     else if (url.pathname.endsWith('/matrix/connection')) body = { connection: null, mode: 'environment', available: true };
+    else if (url.pathname.endsWith('/matrix/generate')) body = await options.generate?.();
     else if (url.pathname.includes('/classify/')) body = { task_id: 'task-a', state: 'complete', result: await options.readTask?.() };
     else if (url.pathname.includes('/matrix/imports')) body = { datasets: [] };
     else if (url.pathname.includes('/media-requirements')) body = { items: [] };
@@ -126,4 +128,24 @@ it('masks the old gateway task and fields before the replacement account context
   await act(async () => { nextContext.resolve(contextResponse(context('version-a', account, false))); nextTask.resolve(matrixResult('新账号保存品牌')); });
   await waitFor(() => expect(field('品牌 / 产品').value).toBe('新账号保存品牌'));
   expect(screen.queryByDisplayValue('旧账号保存品牌')).toBeNull();
+});
+
+it('waits for verified article context after adopting a new task before comparing transferred form fields', async () => {
+ const ctx=context(),nextContext=deferred<IdentificationContextResponse>();let contexts=0;
+ const fetcher=installApi({readContext:()=>++contexts===1?contextResponse(ctx):nextContext.promise,identify:()=>identified(ctx),
+  generate:()=>({state:'running',task_id:'task-a'}),readTask:()=>matrixResult('识别品牌','version-a','新任务矩阵媒体')});
+ open('tab=matrix&articleVersion=version-a');
+ await waitFor(()=>expect(field('品牌 / 产品').value).toBe('识别品牌'));
+ fireEvent.change(field('总预算（CNY）'),{target:{value:''}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(contexts).toBeGreaterThan(1));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([url])=>String(url).includes('/classify/task-a'))).toBe(true));
+ expect(screen.queryByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeNull();
+ expect(screen.queryByRole('heading',{name:'新任务矩阵媒体'})).toBeNull();
+ await act(async()=>nextContext.resolve(contextResponse(ctx)));
+ expect(await screen.findByRole('heading',{name:'新任务矩阵媒体'},{timeout:4000})).toBeTruthy();
+ expect(field('品牌 / 产品').value).toBe('识别品牌');
+ expect(fetcher.mock.calls.filter(([url])=>String(url).includes('/classify/task-a')).length).toBeGreaterThan(1);
+ expect(screen.queryByText(/先前生成结果未应用/)).toBeNull();
+ expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/budget'))).toHaveLength(0);
 });

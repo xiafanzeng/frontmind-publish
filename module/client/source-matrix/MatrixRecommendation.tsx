@@ -1,7 +1,7 @@
 ﻿import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@frontmind/module-ui/components/ui/popover';
 import { MediaDialog } from './MediaMarket';
-import { display, label, quote, roleNames } from './SourceMatrixPresentation';
+import { display, label, quote, roleNames,industryContextSnapshot,referencedIndustryAggregates } from './SourceMatrixPresentation';
 import { formatPublishingMoney, type MediaResource } from '../types';
 import type { BudgetPlan, Candidate, Json, MatrixResult,ResourceSelection } from './types';
 import {PlanExplanation,formalItemDetail,planMoney,plainValue,planQuantity,mandatoryFeeText,pricingReason,PlanUnknowns,samePublicationSpec} from './PlanningDetails';
@@ -49,6 +49,9 @@ export function CatalogResourceChoice({candidate,value,onChange,disabled}:{candi
 export function RecommendationReason({candidate,result,onClose,returnFocus,resourceSelection,onResourceSelection,disabled}: {candidate: Candidate | null;result: MatrixResult | null;onClose:()=>void;returnFocus?:HTMLElement|null;resourceSelection?:ResourceSelection;onResourceSelection?:(value:ResourceSelection|null)=>void;disabled?:boolean}) {
  useEffect(()=>{if(!candidate)return;const trigger=returnFocus;return()=>{trigger?.focus();};},[candidate,returnFocus]);
  if(!candidate)return null;
+ const industryAggregates=referencedIndustryAggregates(result,candidate),industryContext=industryContextSnapshot(result);
+ const globalIds=new Set([...(candidate.industry_aggregate_ids??[]),...(Array.isArray(industryContext.aggregates)?industryContext.aggregates.flatMap(entry=>{const row=itemObject(entry);return typeof row.aggregate_id==='string'?[row.aggregate_id]:[];}):[])]);
+ const otherReferences=candidate.references?.filter(reference=>{const row=itemObject(reference);return row.type!=='aggregate'||typeof row.aggregate_id!=='string'||!globalIds.has(row.aggregate_id);});
  const cited=result?.source_analysis.detail_citations.filter(detail=>detail.evidence_ids.some(id=>candidate.evidence_ids.includes(id)))??[];
  return <MediaDialog open title={'推荐理由 · '+candidateName(candidate)} confirmLabel="关闭" onCancel={onClose} onConfirm={onClose} footer={<button className="button primary" onClick={onClose}>关闭</button>}>
   <div className="sm-reason"><p>{candidate.reason_summary||'推荐理由待确认'}</p><dl><div><dt>主层与辅助角色</dt><dd>{candidate.primary_role?roleNames[candidate.primary_role]??candidate.primary_role:'尚未分层'}{candidate.auxiliary_roles.length?'；辅助：'+candidate.auxiliary_roles.map(role=>roleNames[role]??role).join('、'):''}</dd></div><div><dt>匹配目标问题</dt><dd>{candidate.matched_questions.length?candidate.matched_questions.map(id=>{const questions=result?.scope.task.questions;const question=Array.isArray(questions)?questions.find(item=>item&&typeof item==='object'&&!Array.isArray(item)&&item.question_id===id):null;return question&&typeof question==='object'&&!Array.isArray(question)?display(question.text):id;}).join('；'):'未提供逐问题匹配'}</dd></div><div><dt>证据与身份</dt><dd>{label(candidate.evidence_relation||'none')} · {label(candidate.channel_status)} · {label(candidate.manuscript_status)}</dd></div></dl>
@@ -57,12 +60,13 @@ export function RecommendationReason({candidate,result,onClose,returnFocus,resou
   <h3>本层排序依据</h3><p>{candidate.layer_rank?`本层第 ${candidate.layer_rank} 位。`:'沿用本次矩阵的适配顺序。'}{candidate.ranking_reason||'历史结果没有独立排序理由；不会按报价或引用次数重新排序。'}</p>
   {onResourceSelection&&<CatalogResourceChoice candidate={candidate} value={resourceSelection} onChange={onResourceSelection} disabled={disabled}/>}
   <h3>角色理由与覆盖价值</h3>{candidate.reason_details?.length?<ul>{candidate.reason_details.map((reason,index)=><li key={index}>{reason}</li>)}</ul>:<p>尚未提供更详细的角色理由。</p>}
-  <h3>依据来源与范围</h3><p>实际引用证据 {candidate.evidence_ids.length} 项 · 行业推荐依据 {candidate.aggregate_ids.length} 项。平台关联、行业推荐和供应商声明不等于该可售账号被引用。</p>
+  <h3>依据来源与范围</h3><p>实际引用证据 {candidate.evidence_ids.length} 项 · 媒体关联行业依据 {candidate.aggregate_ids.length} 项 · 实际引用行业整体分布 {industryAggregates.length} 项。平台关联、行业推荐和供应商声明不等于该可售账号被引用。</p>
   {cited.map((detail,index)=><section className="sm-evidence-record" key={index}><EvidenceValue value={detail.scope}/><EvidenceValue value={detail.record}/>{safeUrl(detail.normalized_url)&&<a className="link" href={safeUrl(detail.normalized_url)} target="_blank" rel="noopener noreferrer">查看被引用内容 ↗</a>}</section>)}
   {result?.source_analysis.external_aggregates.filter(entry=>{const row=itemObject(entry);return typeof row.aggregate_id==='string'&&candidate.aggregate_ids.includes(row.aggregate_id);}).map((entry,index)=><section className="sm-evidence-record" key={'aggregate-'+index}><h4>行业汇总依据 · 不代表逐条引用</h4><EvidenceValue value={entry}/></section>)}
-  {candidate.references?.map((reference,index)=><section className="sm-evidence-record" key={'reference-'+index}><EvidenceValue value={reference}/></section>)}
+  {industryAggregates.map((entry,index)=><section className="sm-evidence-record" key={'industry-aggregate-'+index}><h4>行业整体分布参考（非该媒体引用）</h4><EvidenceValue value={entry}/></section>)}
+  {otherReferences?.map((reference,index)=><section className="sm-evidence-record" key={'reference-'+index}><EvidenceValue value={reference}/></section>)}
   {candidate.attributes.observation_context&&<section className="sm-evidence-record"><h4>原始观察追溯</h4><p>以下为样本中的观察信息，仅支持本次语义判断，不等于完整引用证据或可售账号绑定。</p><EvidenceValue value={candidate.attributes.observation_context}/></section>}
-  {!cited.length&&!candidate.references?.length&&!candidate.attributes.observation_context&&<p>当前结果没有可展示的逐条内容链接、模型、引用日期或原始行追溯；不能据此声称当前稿件已被引用。</p>}
+  {!cited.length&&!otherReferences?.length&&!industryAggregates.length&&!candidate.attributes.observation_context&&<p>当前结果没有可展示的逐条内容链接、模型、引用日期或原始行追溯；不能据此声称当前稿件已被引用。</p>}
   <h3>限制与待确认</h3><ul>{[...candidate.hard_failures,...candidate.pending_conditions,...(candidate.unconfirmed_items??[]),...(result?.limitations??[])].map((item,index)=><li key={index}>{item}</li>)}</ul><p>{candidate.selection==='alternative'?'此候选为备选，未提供具体替代对象时不推断备选关系。':label(candidate.selection||'undecided')}</p>
   </div>
  </MediaDialog>;

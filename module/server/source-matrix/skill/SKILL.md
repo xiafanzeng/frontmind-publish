@@ -5,7 +5,9 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
-## 网站集成扩展 2026.10.26-web.1
+## 网站集成扩展 2026.11.07-web.2
+
+网站运行规则增加 [平台 AI 与真实行业快照](references/platform-industry-context.md)：统一服务端 XTY 平台模型，使用当前授权冻结稿件、当前真实媒体库和与行业分布板块同源的 molizhishu 免费分布快照。模型同时读取 task.industry_context 的真实状态、查询口径、来源/版本、完整统计记录及限制；类型/时间统计只用于宏观组合与理由，不是单媒体身份或品牌命中证据。正文 content_excerpt_truncated=true 时只能声称读了片段。个人连接及宿主适配器不再被选用于生成或四字段识别。
 
 本版保留原 matrix/budget 和 export_research 契约，新增独立 [content-planning/1.0](references/content-planning.md)，承载建议篇数、逐篇内容任务和待绑定报价规划。旧 research_drafts 仍不得填数量、价格或可执行状态。网站实际运行的是随包提供的同源 TypeScript 实现，入口和资源/报价边界见 [website-integration.md](references/website-integration.md)；Python 是可重用离线接口，网站不新增 Python 运行依赖。历史输出和原测试记录不代表本版已运行通过。
 
@@ -71,7 +73,7 @@ python scripts/render_preview.py --result research.json --output preview.html
 ## 读取与执行
 
 1. 先读 [contracts.md](references/contracts.md)，再读 [evidence-rules.md](references/evidence-rules.md) 与 [matrix-rules.md](references/matrix-rules.md)。核对可信任务、问题、范围、实际引用、行业推荐、目录、身份配置。缺失字段不补成事实；网站提供 tenant 绑定，模型只生成 decisions。
-2. 用 `--stage matrix` 获取候选，再提交 `matrix_decisions` 中的语义决定。理由引用当前候选的真实属性路径、对应问题的 evidence_id，或已验证 aggregate_ids 中的独立行业背景引用（type=aggregate、usage=industry_context；沿原scope/unit说明“汇总来源，暂无逐条证据”，不能称当前品牌/问题命中），说明覆盖、取舍和待确认项。没有充分属性/证据时保留 undecided 或研究候选，不编造推荐依据。适配顺序不使用报价或预算。
+2. 用 `--stage matrix` 获取候选，再提交 `matrix_decisions` 中的语义决定。理由引用当前候选的真实属性路径、对应问题的 evidence_id，或已验证 aggregate_ids 中的每媒体行业背景；网站全部候选另可引用共享task.industry_context.aggregates中的已核验全行业ID。完整行业快照仅在task出现一次，候选不重复全局记录或全量ID；结果候选industry_aggregate_ids只保存其实际引用的全行业ID。两者均为 type=aggregate、usage=industry_context，沿原scope/unit/source/version说明“汇总来源，暂无逐条证据”，不能称当前品牌/问题命中；统计桶不能变媒体。没有充分属性/证据时保留 undecided 或研究候选，不编造推荐依据。适配顺序不使用报价或预算。
 3. 五层是角色：authority 权威参考、industry 行业核心、regional 地域覆盖、supplement 覆盖补充、exploration 探索验证。每个资源只存一条记录、一个主角色；辅助角色引用同一候选。按规则补足补充价值/探索假设及验证事项；空层保持空，不用证据质量等级代替角色，不强凑五层。
 4. 读 [budget-rules.md](references/budget-rules.md)，再生成 `budget_plans` 显式发布选择。逐项只提交 article_id、version、resource_id、offer_id、publication_spec、quantity、purpose；不提交价格、锁定、状态或可行性。最多三种有实际差异的组合，数量不足就如实说明，不假设议价或新文章凑三套。
 5. 用完整矩阵快照执行 `--stage budget`；复发完整可信输入与当前报价。只变预算/报价时保留 matrix_version 和适配顺序；语义事实、预检或绑定变化时重新生成矩阵。逐方案检查 errors、unknown_items、budget_feasible、ready_to_publish、execution_recommended，不把顶层 complete 当发布许可。
