@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
-import React, { useState, type ReactNode } from "react";
+import React, { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MediaCatalogueFilters from "./MediaCatalogueFilters";
 import { DEFAULT_MEDIA_FILTERS } from "../queryState";
 import type { MediaFilters, MediaFacets } from "../types";
 
-vi.mock("../source-matrix/MediaMarket", () => ({
-  MediaDialog: ({ open, children, onCancel, onConfirm, confirmLabel }: { open: boolean; children: ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel: string }) => open ? <div role="dialog">{children}<button onClick={onCancel}>取消</button><button onClick={onConfirm}>{confirmLabel}</button></div> : null,
-}));
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const facets = {
@@ -83,10 +80,10 @@ describe("media catalogue filter interaction contract", () => {
     const changed = harness({ page: 3 });
     fireEvent.click(screen.getByRole("button", { name: "展开频道类型选项" }));
     fireEvent.click(screen.getByRole("button", { name: "财经商业" }));
-    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "全国覆盖" } });
-    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "财经商业", province: "全国覆盖", page: 1 }));
+    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "广东" } });
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "财经商业", province: "广东", page: 1 }));
     fireEvent.click(screen.getByRole("button", { name: "移除频道：财经商业" }));
-    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "", province: "全国覆盖" }));
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ taxonomy: "", province: "广东" }));
   });
 
   it("keeps supplier AI and recommendation dimensions independent without inventing choices", () => {
@@ -98,10 +95,10 @@ describe("media catalogue filter interaction contract", () => {
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ aiPlatform: "DeepSeek", recommendationGroup: "带视频", recommendationTag: "", recommended: "" }));
     expect(screen.queryByRole("button", { name: "包收录" })).toBeNull();
     expect(within(screen.getByRole("group", { name: "媒体推荐" })).queryByRole("button", { name: "DeepSeek" })).toBeNull();
-    expect(screen.getByText(/AI 按供应商平台标签筛选/)).toBeTruthy();
+    expect(screen.queryByText(/AI 按供应商平台标签筛选/)).toBeNull();
   });
 
-  it("clears a dependent city when province changes, while keeping nationwide distinct from no restriction", () => {
+  it("clears dependent cities and exposes only one unrestricted coverage option", () => {
     const changed = harness({ province: "广东", city: "深圳市" });
     expect(within(screen.getByLabelText("城市")).queryByRole("option", { name: "杭州市" })).toBeNull();
     fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "浙江" } });
@@ -109,10 +106,22 @@ describe("media catalogue filter interaction contract", () => {
     fireEvent.change(screen.getByLabelText("城市"), { target: { value: "杭州市" } });
     fireEvent.click(screen.getByRole("button", { name: "移除省份/地区：浙江" }));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ province: "", city: "" }));
-    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "全国覆盖" } });
+    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "广东" } });
+    fireEvent.change(screen.getByLabelText("城市"), { target: { value: "深圳市" } });
+    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "" } });
     expect((screen.getByLabelText("城市") as HTMLSelectElement).disabled).toBe(true);
-    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ province: "全国覆盖", city: "" }));
-    expect(within(screen.getByLabelText("省份/地区")).getByRole("option", { name: "综合全国（待确认）" })).toBeTruthy();
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ province: "", city: "", area: "", region: "" }));
+    expect(within(screen.getByLabelText("省份/地区")).getAllByRole("option").map(option => option.textContent)).toEqual(["不限地区", "广东", "浙江"]);
+  });
+
+  it.each(["province", "area", "region"] as const)("shows legacy unrestricted %s without stale city or active coverage chips", key => {
+    const changed = harness({ [key]: "综合全国（待确认）", city: "深圳市" });
+    expect((screen.getByLabelText("省份/地区") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("城市") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("城市") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByText("未设置筛选条件")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("省份/地区"), { target: { value: "广东" } });
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ province: "广东", city: "", area: "", region: "" }));
   });
 
   it("retains old exact constraints visibly until the user explicitly replaces or removes them", () => {
@@ -125,17 +134,12 @@ describe("media catalogue filter interaction contract", () => {
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ province: "广东", area: "", recommendationTag: "周末可发，高收录" }));
   });
 
-  it("keeps batch input uncommitted until confirmation and reports excessive names", () => {
-    const changed = harness();
-    fireEvent.click(screen.getByRole("button", { name: "查找多个媒体" }));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: Array.from({ length: 51 }, (_, i) => `媒体${i}`).join("\n") } });
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "查找媒体" }));
-    expect(within(dialog).getByRole("alert").textContent).toContain("50");
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "媒体甲，媒体乙\n媒体甲" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "查找媒体" }));
-    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ batchQuery: "媒体甲\n媒体乙" }));
+  it("removes bulk search and sorting controls while allowing old bulk conditions to be cleared", () => {
+    const changed = harness({ batchQuery: "媒体甲\n媒体乙", sort: "price_desc" });
+    expect(screen.queryByRole("button", { name: "查找多个媒体" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByLabelText("媒体排序")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "移除多个名称：2 个" }));
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ batchQuery: "", sort: "price_desc" }));
   });
 });

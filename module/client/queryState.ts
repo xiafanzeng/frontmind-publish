@@ -5,6 +5,7 @@ import type {
   PublisherMediaKind,
 } from "./types";
 import { projectWorkspaceUrl } from "./host";
+import { normalizeMediaCoverageFilters } from "./mediaCoverage";
 
 function scopedPublishingUrl(path: string) {
   if (typeof window === "undefined") return path;
@@ -121,9 +122,8 @@ export function readMediaRouteState(search: string): {
     taxonomy: one(params, "taxonomy"),
     mediaType: one(params, "mediaType"),
     area: one(params, "area"),
-    // Preserve old exact constraints alongside normalized dimensions. Choosing a
-    // new dimension in the UI explicitly clears its old constraint; restoration
-    // must never silently widen an old task or URL.
+    // Preserve specific legacy constraints alongside normalized dimensions.
+    // Nationwide/unrestricted aliases are normalized together below.
     region: one(params, "region"),
     channel: one(params, "channel"),
     price: listedValue(one(params, "price"), ["under_100", "100_300", "over_300"]) as MediaFilters["price"],
@@ -166,7 +166,7 @@ export function readMediaRouteState(search: string): {
     pageSize: positiveInteger(one(params, "pageSize"), 50, [10, 20, 50, 100]),
   };
   const articleVersionId = one(params, "articleVersion");
-  return { filters, ...(articleVersionId ? { articleVersionId } : {}) };
+  return { filters: normalizeMediaCoverageFilters(filters), ...(articleVersionId ? { articleVersionId } : {}) };
 }
 
 export function writeMediaRouteState(
@@ -178,7 +178,7 @@ export function writeMediaRouteState(
   // The explicit all marker survives refresh/task resume without changing the legacy news default.
   params.set("kind", filters.kind ?? "all");
   const defaults = DEFAULT_MEDIA_FILTERS as Record<string, unknown>;
-  for (const [key, raw] of Object.entries(filters)) {
+  for (const [key, raw] of Object.entries(normalizeMediaCoverageFilters(filters))) {
     if (key === "kind" || key === "mediaIds") continue;
     if (raw === undefined || raw === "" || raw === defaults[key]) continue;
     params.set(key, String(raw));

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaRules } from '../../server/providers/kol/media-rules';
 import type { MediaResource } from '../types';
-import { MarketRow, MediaCartFooter, useMarketRules } from './MediaMarket';
+import { MarketRow, MediaCartFooter, RowHead, useMarketRules } from './MediaMarket';
 import { mediaSelectionBlocker } from '../mediaShortlist';
 
 const workspace = vi.hoisted(() => ({ value: 1 }));
@@ -61,6 +61,41 @@ beforeEach(() => { workspace.value = 1; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('media selection controls', () => {
+  it('keeps selection separate from media actions and maps the six catalogue columns', () => {
+    const onToggle = vi.fn(), onDetails = vi.fn();
+    const resource = { ...media, taxonomy: 'IT科技', region: '全国', turnaround: '1小时' };
+    const view = render(<><RowHead /><MarketRow catalogueFields media={resource} onToggle={onToggle} onDetails={onDetails} reason="当前推荐依据" /></>);
+    const headings = Array.from(view.container.querySelectorAll('.y-row-head > span'), node => node.textContent);
+    expect(headings).toEqual(['选择', '媒体 / 账号', '价格信息', '平台与时效', '行业与地区', '其他要求']);
+    const cells = Array.from(screen.getByRole('article').children) as HTMLElement[];
+    expect(cells).toHaveLength(6);
+    const checkbox = within(cells[0]).getByRole('checkbox', { name: '选择 测试媒体 平台' });
+    expect(within(cells[1]).queryByRole('checkbox')).toBeNull();
+    expect(within(cells[1]).getByText('当前推荐依据')).toBeTruthy();
+    expect(within(cells[2]).getByText('发布报价')).toBeTruthy();
+    expect(within(cells[2]).getByText('¥1.00')).toBeTruthy();
+    expect(within(cells[3]).getByText('1小时')).toBeTruthy();
+    expect(within(cells[3]).queryByText('全国')).toBeNull();
+    expect(within(cells[4]).getByText('IT科技')).toBeTruthy();
+    expect(within(cells[4]).getByText('全国')).toBeTruthy();
+    expect(within(cells[5]).getByText('其他要求')).toBeTruthy();
+    expect(screen.queryByText(/目录报价|市场价：/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /资料详情|查看.*修改报价/ })).toBeNull();
+    fireEvent.click(within(cells[1]).getByRole('button', { name: '测试媒体' }));
+    expect(onDetails).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
+    fireEvent.click(checkbox);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(onDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a missing catalogue quote unknown after removing quote helper actions', () => {
+    render(<MarketRow catalogueFields media={{ ...media, priceTenThousandths: '' }} />);
+    expect(screen.getByText('待询价')).toBeTruthy();
+    expect(screen.queryByText('¥0.00')).toBeNull();
+    expect(screen.queryByRole('button', { name: /录入已确认报价/ })).toBeNull();
+  });
+
   it('does not describe an unread bound selection as an empty free cart', () => {
     render(<MediaCartFooter count={0} total="0" selectionPending nextDisabled nextHint="投放草稿读取失败，请重试。" />);
     expect(screen.getByText(/购物车 数量待确认/)).toBeTruthy();

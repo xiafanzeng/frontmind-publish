@@ -118,7 +118,7 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
  </div>
  </div>;
 }
-export function RowHead(){return <div className="y-row-head" aria-hidden="true">{['媒体 / 账号','价格信息','平台与属性','其他要求','资料详情'].map(x=><span key={x}>{x}</span>)}</div>;}
+export function RowHead(){return <div className="y-row-head" aria-hidden="true">{['选择','媒体 / 账号','价格信息','平台与时效','行业与地区','其他要求'].map(x=><span key={x}>{x}</span>)}</div>;}
 export function Property({name,value,extra=false,empty='未提供',claim=false}:{name:string;value?:ReactNode;extra?:boolean;empty?:string;claim?:boolean}){const missing=value==null||value==='';return <dl className={'y-prop '+(extra?'y-extra':'')}><dt>{name}</dt><dd title={!missing&&typeof value==='string'?(claim?'原备注摘录 · 待核验：':'')+value:undefined} className={missing?'y-missing':''}>{missing?empty:value}</dd></dl>;}
 export function ruleText(rules:MediaRules|undefined,field:RuleField) {
  const rule=rules?.rules.find(r=>r.field===field);
@@ -152,7 +152,7 @@ export function otherRequirements(rules:MediaRules|undefined,remark:string|undef
  const items=otherRequirementItems(rules,remark);
  return items.length?items.join('；'):'未注明特殊要求';
 }
-/** 直接展示的“其他要求”字段格：每条固定单行（超长省略号，悬停看全文），默认最多 3 行 + 原地展开。 */
+/** 直接展示的“其他要求”字段格：目录行内允许长文本换行，默认最多 3 条 + 原地展开。 */
 export function OtherRequirementsCell({items}:{items:string[]}) {
  const [expanded,setExpanded]=useState(false);
  if(!items.length)return <dl className="y-prop"><dt>其他要求</dt><dd className="y-missing">未注明</dd></dl>;
@@ -160,19 +160,20 @@ export function OtherRequirementsCell({items}:{items:string[]}) {
  return <dl className="y-prop y-prop-other"><dt>其他要求</dt><dd><ul className="y-other-list">{shown.map((item,index)=><li key={index} title={item}>{item}</li>)}</ul>{items.length>3&&<button type="button" className="link" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':`展开全部 ${items.length} 条`}</button>}</dd></dl>;
 }
 function remarkFact(text:string|undefined,kind:'speed'|'weekend'|'contact'|'shortTitle') {const patterns={speed:/当天可出|出稿快|发稿快|快速出稿/g,weekend:/周末可发|节假日可发/g,contact:/不带任何联系方式|不带联系方式|默认删除任何联系方式|联系方式默认去掉不通知/g,shortTitle:/自备短标题/g};return [...new Set((text??'').match(patterns[kind])??[])].join('；');}
-export function MarketRow({media:m,rules,checked=false,disabled=false,favorite=false,onToggle,onFavorite,onDetails,onQuote,reason,selectionDisabledReason,catalogueFields=false}:{media:MediaResource;catalogueFields?:boolean;rules?:MediaRules;checked?:boolean;disabled?:boolean;favorite?:boolean;onToggle?:()=>void;onFavorite?:()=>void;onDetails?:()=>void;onQuote?:()=>void;reason?:string;selectionDisabledReason?:string}) {
+export function MarketRow({media:m,rules,checked=false,disabled=false,favorite=false,onToggle,onFavorite,onDetails,reason,selectionDisabledReason,catalogueFields=false}:{media:MediaResource;catalogueFields?:boolean;rules?:MediaRules;checked?:boolean;disabled?:boolean;favorite?:boolean;onToggle?:()=>void;onFavorite?:()=>void;onDetails?:()=>void;reason?:string;selectionDisabledReason?:string}) {
  const selectionReasonId=useId(),disabledReason=disabled?selectionDisabledReason:undefined;
  const remark=rules?.rawRemark??m.remark,knownPrice=/^\d+$/.test(m.priceTenThousandths)&&BigInt(m.priceTenThousandths)>0n,link=m.caseUrl&&/^https?:\/\//i.test(m.caseUrl)?m.caseUrl:undefined;
  return <article className={'y-media-row '+(checked?'selected':'')} data-media-id={m.id}>
+ <div className="y-media-selection"><input type="checkbox" aria-label={'选择 '+m.name+' '+m.platform} aria-describedby={disabledReason?selectionReasonId:undefined} checked={checked} disabled={disabled} onChange={onToggle}/></div>
  <div className="y-media-identity"><div className="y-media-title"><h3><button className="y-media-name" onClick={onDetails}>{m.name}</button></h3></div>
- <div className="y-identity-controls"><input type="checkbox" aria-label={'选择 '+m.name+' '+m.platform} aria-describedby={disabledReason?selectionReasonId:undefined} checked={checked} disabled={disabled} onChange={onToggle}/><span className="y-platform-pill">{m.platform}</span><button className={'y-row-star '+(favorite?'active':'')} aria-label={(favorite?'取消收藏':'收藏')+' '+m.name} aria-pressed={favorite} onClick={onFavorite}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/></svg></button>{link&&<a className="y-external" href={link} target="_blank" rel="noopener noreferrer" aria-label={'查看 '+m.name+' 链接'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></a>}</div>
+ <div className="y-identity-controls"><span className="y-platform-pill">{m.platform}</span><button className={'y-row-star '+(favorite?'active':'')} aria-label={(favorite?'取消收藏':'收藏')+' '+m.name} aria-pressed={favorite} onClick={onFavorite}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/></svg></button>{link&&<a className="y-external" href={link} target="_blank" rel="noopener noreferrer" aria-label={'查看 '+m.name+' 链接'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></a>}</div>
  {disabledReason&&<p id={selectionReasonId} className="small muted">{disabledReason}</p>}
- <div className="y-row-origin"><span>{m.externalResourceId??m.id}</span><span>{checked?'已加入购物车':'目录记录'}</span></div></div>
- <div><span className="y-price-label">发布报价</span><div className={'y-price-value '+(!knownPrice?'is-pending':'')}><span className="y-price-amount">{knownPrice?formatPublishingMoney(m.priceTenThousandths):'待询价'}</span>{knownPrice&&<small className="y-price-unit">/ 篇</small>}</div><div className="y-price-detail"><span>{knownPrice?'目录报价 · 发布前复核':'目录未提供报价'}</span><span className="y-extra">市场价：<span className="y-missing">未提供</span></span><button className="link" onClick={onQuote??onDetails}>{knownPrice?'查看 / 修改报价':'录入已确认报价'} ↗</button></div></div>
- <div className="y-props"><Property name="媒体平台" value={m.platform}/><Property name="覆盖地区" value={m.region}/><Property name="所属行业" value={m.taxonomy}/><Property name="发布时效" value={catalogueFields?m.turnaround:remarkFact(remark,'speed')||m.turnaround} empty="未注明" claim={!catalogueFields}/></div>
+ <div className="y-row-origin"><span>{m.externalResourceId??m.id}</span><span>{checked?'已加入购物车':'目录记录'}</span></div>{reason&&<div className="y-source-context"><span><strong>{m.taxonomy}</strong>{reason}</span><button className="link" onClick={onDetails}>推荐依据 →</button></div>}</div>
+ <div><span className="y-price-label">发布报价</span><div className={'y-price-value '+(!knownPrice?'is-pending':'')}><span className="y-price-amount">{knownPrice?formatPublishingMoney(m.priceTenThousandths):'待询价'}</span>{knownPrice&&<small className="y-price-unit">/ 篇</small>}</div></div>
+ <div className="y-props"><Property name="媒体平台" value={m.platform}/><Property name="发布时效" value={catalogueFields?m.turnaround:remarkFact(remark,'speed')||m.turnaround} empty="未注明" claim={!catalogueFields}/></div>
+ <div className="y-props"><Property name="所属行业" value={m.taxonomy}/><Property name="覆盖地区" value={m.region}/></div>
  <div className="y-props y-props-requirements"><OtherRequirementsCell items={otherRequirementItems(rules,remark)}/></div>
- <div className="y-row-details"><button className="link" onClick={onDetails}>资料详情 →</button></div>
- {reason&&<div className="y-source-context"><span><strong>{m.taxonomy}</strong>{reason}</span><button className="link" onClick={onDetails}>推荐依据 →</button></div>}</article>;
+ </article>;
 }
 export function MediaRuleTable({rules,media}:{rules?:MediaRules;media:MediaResource}) {return <><table className="x-rule-table"><tbody><tr><td>标题字数</td><td>{ruleText(rules,'title_chars')}</td></tr><tr><td>正文字数</td><td>{ruleText(rules,'body_chars')}</td></tr><tr><td>图片要求</td><td>{ruleText(rules,'images')}</td></tr><tr><td>联系方式（源字段）</td><td>{remarkFact(rules?.rawRemark??media.remark,'contact')||<span className="muted">未注明</span>}</td></tr><tr><td>链接要求（源字段）</td><td>{ruleText(rules,'links')}</td></tr><tr><td>时效条目（源字段）</td><td>{media.turnaround||<span className="muted">未注明</span>}</td></tr><tr><td>结构化状态</td><td>{rules?.rules.some(r=>r.state==='constrained')?'已解析 · 需核对依据':'尚未启用为自动规则'}</td></tr></tbody></table></>;}
 export function MediaDetails({media,rules,onClose,onToggle,onQuote,checked=false,catalogueFields=false}:{media?:MediaResource;catalogueFields?:boolean;rules?:MediaRules;onClose:()=>void;onToggle?:()=>void;onQuote?:()=>void;checked?:boolean}) {
