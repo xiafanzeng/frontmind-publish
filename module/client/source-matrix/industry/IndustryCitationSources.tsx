@@ -113,7 +113,6 @@ export function IndustryCitationSources({ id, store, state, ready, panelMessage 
             {media.data!.items.length ? <ol ref={rankingScroll} className="sm-citation-ranking" tabIndex={0} aria-label="前50个媒体">{media.data!.items.slice(0, 50).map((item, index) => <li key={item.code}>
               <button type="button" disabled={blocked} aria-pressed={state.selection.media === item.code} onClick={() => selectMedia(state.selection.media === item.code ? '' : item.code)}>
                 <span className={`sm-industry-rank${index < 3 ? ' is-leading' : ''}`}>{index + 1}</span>
-                <MediaMark name={item.name}/>
                 <span className="sm-industry-media"><strong title={item.name}>{item.name}</strong></span>
                 <span className="sm-citation-rank-count"><strong>{integerText(item.citationCount)}<span className="sr"> 次引用</span></strong><span>{mediaPercent(item.citationCount, media.data!.totalCitations)}</span></span>
               </button>

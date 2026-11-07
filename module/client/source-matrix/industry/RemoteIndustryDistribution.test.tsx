@@ -295,6 +295,8 @@ describe('bounded citation presentation', () => {
     const citation = screen.getByRole('region', { name: '引用信源' });
     const ranking = within(citation).getByRole('list');
     expect(within(ranking).getAllByRole('listitem')).toHaveLength(50);
+    expect(ranking.querySelector('.sm-citation-media-mark')).toBeNull();
+    expect(within(citation).getByRole('table').querySelector('.sm-citation-media-mark')).not.toBeNull();
     expect(within(citation).getAllByRole('row')).toHaveLength(21);
     expect(citation.textContent).toContain('78,357'); expect(citation.textContent).toContain('1,205,290');
     expect(citation.textContent).not.toMatch(/已加载|每页|加载更多|已到末尾/);

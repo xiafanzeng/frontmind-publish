@@ -16,7 +16,9 @@
 .sm-export-dialog .sm-export-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 16px; margin-top:20px; padding:20px; border:1px solid #eef0f3; border-radius:20px; background:white; box-shadow:0 2px 2px #17253c08; }
 .sm-export-dialog .sm-export-fields > label,.sm-export-dialog .sm-export-field { display:flex; flex-direction:column; gap:7px; min-width:0; color:#747c8e; font-weight:600; }
 .sm-export-dialog :is(select,.sm-export-select-trigger) { box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; min-width:0; min-height:42px; padding:8px 13px; border:1px solid #cfd5e0; border-radius:8px; background:#fff; color:#3d475a; font:inherit; font-weight:400; }
-.sm-export-dialog .fm-industry-date-trigger { min-height:42px; padding:8px 13px; border-color:#cfd5e0; border-radius:8px; font-weight:400; }
+.sm-export-dialog .fm-industry-date-trigger { box-sizing:border-box; min-height:42px; padding:8px 13px; border-color:#cfd5e0; border-radius:8px; color:#3d475a; font-size:14px; font-weight:400; line-height:1.5; }
+.sm-export-dialog .fm-industry-date-trigger:hover:not(:disabled):not(:focus):not([data-state=open]) { border-color:#b4b7c7; }
+.sm-export-dialog .fm-industry-date-trigger[data-state=open] { border-color:#8b82ff; }
 .sm-export-dialog .sm-export-select-trigger { cursor:pointer; text-align:left; }
 .sm-export-dialog .sm-export-select-trigger span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sm-export-dialog .sm-export-select-trigger svg { flex-shrink:0; color:#9aa3b4; }
