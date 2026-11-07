@@ -566,12 +566,13 @@ it('one click generates the matrix then automatically the budget combination wit
  fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d'}});
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'3000'}});
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
- // 一次点击后自动串联：预算请求以同一矩阵快照和用户明确填写的预算 3000 发出
- await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1));
+ // 一次点击后自动串联：预算请求以同一矩阵快照和用户明确填写的预算 3000 发出。
+ // 任务轮询要等稿件授权状态就绪（2 秒周期），断言需覆盖至少一个轮询周期。
+ await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1),{timeout:30000});
  expect(budgetBodies[0]).toMatchObject({plan_id:'plan-1',plan_version:'plan-version-1',budget:{total_cap:'3000',currency:'CNY'}});
- await screen.findByRole('heading',{name:'保守覆盖'});
+ await screen.findByRole('heading',{name:'保守覆盖'},{timeout:30000});
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
-});
+},60000);
 
 it('shows the actual saved sample without configured services and never writes a sample into the cart',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
@@ -690,7 +691,7 @@ function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<strin
   const url=String(input);
   if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:'真实行业'}]})};
   if(url.endsWith('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
-  if(url.endsWith('/matrix/generate'))return {ok:true,json:async()=>await onGenerate?.(JSON.parse(String(init?.body)))??{state:'complete',task_id:'new-task',result:task}};
+  if(url.endsWith('/matrix/generate')){const generated=await onGenerate?.(JSON.parse(String(init?.body)));return {ok:true,json:async()=>generated??{state:'complete',task_id:'new-task',result:task}};}
   if(url.includes('/classify/'))return {ok:true,json:async()=>({state:'complete',task_id:'matrix-1',result:task})};
   return {ok:true,json:async()=>({items:[]})};
  });vi.stubGlobal('fetch',fetcher);return fetcher;
@@ -744,7 +745,7 @@ it('keeps the previous matrix and cart when a replacement generation fails',asyn
 });
 
 it('ignores a delayed generation poll after the industry query has changed',async()=>{
- let finish!:(value:unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});let polling=false;
+ let finish!:(value:{})=>void;const pending=new Promise<{}>(resolve=>{finish=resolve;});let polling=false;
  const fetcher=platformFixture(platformTask(),()=>({state:'running',task_id:'new-task'}));
  const base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
