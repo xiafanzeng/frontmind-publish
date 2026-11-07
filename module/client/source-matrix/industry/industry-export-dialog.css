@@ -1,0 +1,51 @@
+/* Portal-scoped business variants; do not change shared dialogs or page shells. */
+.sm-export-dialog[data-slot="dialog-content"] {
+  box-sizing:border-box; display:flex; flex-direction:column; gap:0; min-width:0; width:min(920px,calc(100vw - 32px));
+  max-width:calc(100vw - 32px); max-height:calc(100dvh - 40px); padding:0; overflow:hidden;
+  background:#fff; color:#202637; border:1px solid #e3e7f0; border-radius:18px;
+  font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; font-size:14px; line-height:1.5;
+}
+.sm-export-dialog .sm-export-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px; flex:0 0 auto; border-bottom:1px solid #eef0f5; }
+.sm-export-dialog .sm-export-title { margin:0; font-size:23px; font-weight:700; line-height:1.4; }
+.sm-export-dialog .sm-export-close { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border:0; border-radius:7px; color:#989faf; background:transparent; cursor:pointer; }
+.sm-export-dialog .sm-export-body { min-height:0; padding:22px 24px 18px; overflow:auto; overscroll-behavior:contain; background:#fafbfc; }
+.sm-export-dialog .sm-export-summary { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px 20px; border:1px solid #dfe5ef; border-radius:20px; background:white; box-shadow:0 1px 2px #15284b0a; }
+.sm-export-dialog .sm-export-summary strong { font-size:18px; font-weight:700; }
+.sm-export-dialog .sm-export-summary > div { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; min-width:0; }
+.sm-export-dialog .sm-export-summary span { padding:5px 13px; border:1px solid #dfe6f1; border-radius:30px; background:#f7f9fc; color:#536078; overflow-wrap:anywhere; }
+.sm-export-dialog .sm-export-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 16px; margin-top:20px; padding:20px; border:1px solid #eef0f3; border-radius:20px; background:white; box-shadow:0 2px 2px #17253c08; }
+.sm-export-dialog .sm-export-fields > label,.sm-export-dialog .sm-export-field { display:flex; flex-direction:column; gap:7px; min-width:0; color:#747c8e; font-weight:600; }
+.sm-export-dialog :is(select,.sm-export-select-trigger) { box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; min-width:0; min-height:42px; padding:8px 13px; border:1px solid #cfd5e0; border-radius:8px; background:#fff; color:#3d475a; font:inherit; font-weight:400; }
+.sm-export-dialog .fm-industry-date-trigger { min-height:42px; padding:8px 13px; border-color:#cfd5e0; border-radius:8px; font-weight:400; }
+.sm-export-dialog .sm-export-select-trigger { cursor:pointer; text-align:left; }
+.sm-export-dialog .sm-export-select-trigger span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sm-export-dialog .sm-export-select-trigger svg { flex-shrink:0; color:#9aa3b4; }
+.sm-export-dialog .sm-export-limit { display:flex; align-items:center; gap:10px; margin:20px 0 8px; color:#7a8191; }
+.sm-export-dialog .sm-export-limit svg { color:#f59e0b; }
+.sm-export-dialog .sm-export-quota { margin:0; color:#7a8191; font-size:12px; line-height:1.6; }
+.sm-export-dialog .sm-export-progress { margin:12px 0 0; color:#4a40e8; }
+.sm-export-dialog .sm-export-error { margin:12px 0 0; color:#974d5a; overflow-wrap:anywhere; }
+.sm-export-dialog .sm-export-footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:14px; padding:20px 24px; border-top:1px solid #edf0f5; flex:0 0 auto; }
+.sm-export-dialog .sm-export-button { min-width:86px; min-height:46px; padding:10px 22px; border:1px solid #dfe3ed; border-radius:15px; background:#fff; color:#414b60; font:inherit; font-weight:600; cursor:pointer; }
+.sm-export-dialog .sm-export-button.is-primary { border-color:#4033ec; background:#4033ec; color:white; }
+.sm-export-dialog :is(button,select,input):disabled { opacity:.5; cursor:not-allowed; }
+.sm-export-dialog :is(button,select,input):focus-visible,.sm-export-media-popover :is(button,input):focus-visible { outline:3px solid #b8b2ff; outline-offset:2px; }
+.sm-export-dialog .sm-export-sr { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.sm-export-media-popover[data-slot="popover-content"] { box-sizing:border-box; z-index:70; width:var(--radix-popover-trigger-width); min-width:240px; max-width:calc(100vw - 32px); max-height:var(--radix-popover-content-available-height); padding:12px; border:1px solid #e0e4ee; border-radius:12px; background:#fff; color:#374151; box-shadow:0 12px 32px #17253c1a; font:14px/1.5 Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; overflow:auto; }
+.sm-export-media-popover .sm-export-media-search { display:flex; align-items:center; gap:8px; border:1px solid #dfe3ed; border-radius:7px; padding:7px 9px; }
+.sm-export-media-popover input { min-width:0; width:100%; border:0; background:transparent; font:inherit; color:inherit; outline-offset:0; }
+.sm-export-media-popover .sm-export-media-range { margin:9px 0; color:#7a8191; font-size:12px; }
+.sm-export-media-popover .sm-export-media-options { max-height:240px; overflow:auto; overscroll-behavior:contain; }
+.sm-export-media-popover .sm-export-media-options button { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; padding:9px 10px; border:0; border-radius:6px; background:white; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.sm-export-media-popover .sm-export-media-options button[aria-selected="true"],.sm-export-media-popover .sm-export-media-options button:hover { background:#f0efff; color:#5042ef; }
+.sm-export-media-popover .sm-export-media-options span { overflow-wrap:anywhere; }
+.sm-export-media-popover .sm-export-media-options svg { flex-shrink:0; }
+@media(max-width:600px) {
+  .sm-export-dialog[data-slot="dialog-content"] { width:calc(100vw - 20px); max-width:calc(100vw - 20px); max-height:calc(100dvh - 20px); }
+  .sm-export-dialog :is(.sm-export-heading,.sm-export-footer) { padding:16px; }
+  .sm-export-dialog .sm-export-body { padding:16px; }
+  .sm-export-dialog .sm-export-fields { grid-template-columns:minmax(0,1fr); padding:16px; }
+  .sm-export-dialog .sm-export-summary { align-items:flex-start; flex-direction:column; padding:16px; }
+  .sm-export-dialog .sm-export-summary > div { justify-content:flex-start; }
+}
+@media(prefers-reduced-motion:reduce) { .sm-export-dialog[data-slot="dialog-content"],.sm-export-overlay[data-slot="dialog-overlay"] { animation:none; transition:none; } }

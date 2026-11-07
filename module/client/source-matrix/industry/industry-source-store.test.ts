@@ -5,7 +5,7 @@ import { IndustryRequestError, integerText, ratioText, totalOf, type industryReq
 import { defaultSelection, IndustrySourceStore, industryStoreFor } from './industry-source-store';
 
 const filters: IndustryFilters = { models: [{ value: 'all', label: '全部模型' }, { value: 'doubao_api', label: '豆包' }], minDate: '2026-09-01', maxDate: '2026-10-29', industryTree: [], sourceTypes: ['新闻资讯'] };
-const page = (endpoint: IndustryEndpoint, next: string | null = null) => ({ items: endpoint === 'media-ranking' ? [{ code: '媒体原名', name: '媒体原名', citationCount: '9' }] : [{ sequence: '1', linkId: 'content-1', title: '内容', url: null, icon: null, media: '媒体原名', sourceType: '新闻资讯', publishTime: null, citationCount: '6', citationRatio: '60.00' }], pageSize: endpoint === 'media-ranking' ? 10 : 20, total: '3', totalCitations: '10', snapshotToken: endpoint + '-session', nextCursor: next, expiresAt: String(Date.now() + 600_000) });
+const page = (endpoint: IndustryEndpoint, next: string | null = null) => ({ items: endpoint === 'media-ranking' ? [{ code: '媒体原名', name: '媒体原名', citationCount: '9' }] : [{ sequence: '1', linkId: 'content-1', title: '内容', url: null, icon: null, media: '媒体原名', sourceType: '新闻资讯', publishTime: null, citationCount: '6', citationRatio: '60.00' }], pageSize: endpoint === 'media-ranking' ? 50 : 20, total: '3', totalCitations: '10', snapshotToken: endpoint + '-session', nextCursor: next, expiresAt: String(Date.now() + 600_000) });
 const ok = (data: unknown) => ({ status: 'ok' as const, source: 'molizhishu-public-industry' as const, fetchedAt: '2026-11-06T12:00:00Z', data });
 function harness(override?: (endpoint: IndustryEndpoint, query: IndustryQuery) => unknown) {
   const calls: Array<{ endpoint: IndustryEndpoint; query: IndustryQuery }> = [];
@@ -25,9 +25,11 @@ describe('industry source request lifecycle', () => {
     const { calls, store } = harness(); store.start(); store.start(); await settled(store);
     expect(calls.map(call => call.endpoint)).toEqual(['filters', 'media-ranking', 'contents', 'distributions']);
     const media = calls.find(call => call.endpoint === 'media-ranking')!.query;
-    expect(media).toMatchObject({ periodType: 'MONTH', date: '2026-10-01', scopeType: 'ALL', modelCode: 'all', pageSize: 10 });
+    expect(media).toMatchObject({ periodType: 'MONTH', date: '2026-10-01', scopeType: 'ALL', modelCode: 'all', pageSize: 50 });
     expect(media.requestId).toMatch(/^[a-zA-Z0-9-]{16,64}$/);
-    expect(calls.find(call => call.endpoint === 'contents')!.query.requestId).not.toBe(media.requestId);
+    const contents = calls.find(call => call.endpoint === 'contents')!.query;
+    expect(contents).toMatchObject({ pageSize: 20, sortBy: 'citationCount', sortOrder: 'desc' });
+    expect(contents.requestId).not.toBe(media.requestId);
     expect(calls.find(call => call.endpoint === 'distributions')!.query).not.toHaveProperty('requestId');
   });
   it('does not query lists or distributions when maxDate is null', async () => {
@@ -80,6 +82,53 @@ describe('industry source request lifecycle', () => {
     store.start(same); await settled(store); expect(calls).toHaveLength(4);
     store.start(() => ({ common: { ...store.getSnapshot().common!, modelCode: 'doubao_api' }, selection: { ...defaultSelection } }));
     await settled(store); expect(calls).toHaveLength(7); expect(store.getSnapshot().common?.modelCode).toBe('doubao_api');
+  });
+  it('queries only contents when selection or sorting changes and ignores equivalent selections', async () => {
+    const { calls, store } = harness(); store.start(); await settled(store);
+    const selection = { ...defaultSelection, media: '媒体原名', sourceType: '新闻资讯', sortOrder: 'asc' as const };
+    store.selectContent(selection); await settled(store);
+    store.selectContent({ ...selection }); store.apply({ ...store.getSnapshot().common! }, { ...selection });
+    expect(calls).toHaveLength(5);
+    expect(calls.filter(call => call.endpoint === 'media-ranking')).toHaveLength(1);
+    expect(calls.filter(call => call.endpoint === 'distributions')).toHaveLength(1);
+    expect(calls[4]!.query).toMatchObject({ pageSize: 20, media: '媒体原名', sourceType: '新闻资讯', sortBy: 'citationCount', sortOrder: 'asc' });
+    expect(calls[4]!.query).not.toHaveProperty('cursor');
+    expect(store.getSnapshot().mediaSize).toBe(50);
+    expect(store.getSnapshot().contentSize).toBe(20);
+  });
+  it('discards a late content response after a newer media selection settles', async () => {
+    let releaseOld!: (result: unknown) => void;
+    const pending = new Promise(resolve => { releaseOld = resolve; });
+    const { calls, store } = harness((endpoint, query) => {
+      if (endpoint === 'contents' && query.media === 'old-media') return pending;
+      if (endpoint === 'contents' && query.media === 'new-media') return ok({ ...page(endpoint), items: [{ sequence: '1', linkId: 'new-link', title: '最新媒体内容', url: null, icon: null, media: '新媒体', sourceType: '新闻资讯', publishTime: null, citationCount: '2', citationRatio: '20.00' }] });
+      return undefined;
+    });
+    store.start(); await settled(store);
+    store.selectContent({ ...defaultSelection, media: 'old-media' });
+    store.selectContent({ ...defaultSelection, media: 'new-media' });
+    await settled(store);
+    releaseOld(ok({ ...page('contents'), items: [{ sequence: '1', linkId: 'old-link', title: '旧媒体内容', url: null, icon: null, media: '旧媒体', sourceType: '新闻资讯', publishTime: null, citationCount: '6', citationRatio: '60.00' }] }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(store.getSnapshot().selection.media).toBe('new-media');
+    expect(store.getSnapshot().contents.data?.items.map(item => item.linkId)).toEqual(['new-link']);
+    expect(calls.filter(call => call.endpoint === 'media-ranking')).toHaveLength(1);
+    expect(calls.filter(call => call.endpoint === 'contents')).toHaveLength(3);
+  });
+  it('discards a late common-query response after another model replaces the query', async () => {
+    let releaseOld!: (result: unknown) => void;
+    const pending = new Promise(resolve => { releaseOld = resolve; });
+    const { store } = harness((endpoint, query) => endpoint === 'media-ranking' && query.modelCode === 'all' ? pending : undefined);
+    store.start();
+    await vi.waitFor(() => expect(store.getSnapshot().common?.modelCode).toBe('all'));
+    store.apply({ ...store.getSnapshot().common!, modelCode: 'doubao_api' });
+    await settled(store);
+    const latest = store.getSnapshot().media.data;
+    releaseOld(ok({ ...page('media-ranking'), items: [{ code: 'stale', name: '旧模型媒体', citationCount: '999' }] }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(store.getSnapshot().common?.modelCode).toBe('doubao_api');
+    expect(store.getSnapshot().media.data).toBe(latest);
+    expect(store.getSnapshot().media.data?.items.some(item => item.code === 'stale')).toBe(false);
   });
   it('keeps quota suspension through a failed and then successful free connection check', async () => {
     let failFreeCheck = false;

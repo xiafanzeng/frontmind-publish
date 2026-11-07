@@ -1,8 +1,10 @@
-import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react';
-import type { IndustryCommonQuery, IndustryFailure, IndustryFilters, IndustryPeriod, IndustryScopeNode } from '../../../contracts/industry-source';
+import { useEffect, useId, useMemo, useSyncExternalStore } from 'react';
+import type { IndustryCommonQuery, IndustryFailure, IndustryFilters, IndustryScopeNode } from '../../../contracts/industry-source';
 import { usePublisherGateway } from '../../PublishingContext';
 import { usePublishingWorkspaceKey } from '../../host';
 import { IndustryCitationSources } from './IndustryCitationSources';
+import { IndustryDateSelect } from './IndustryDateSelect';
+import { formatIndustryDate, normalizeIndustryDateValue } from './industry-date';
 import { integerText, ratioText, totalOf } from './industry-source-client';
 import { defaultSelection, industryStoreFor, type ContentSelection, type IndustrySourceStore } from './industry-source-store';
 import './industry-distribution.css';
@@ -11,34 +13,28 @@ type ScopeOption = { value: string; label: string };
 function scopes(nodes: IndustryScopeNode[], depth = 0): ScopeOption[] {
   return nodes.flatMap(node => [{ value: node.scopeId, label: `${'　'.repeat(depth)}${node.label}` }, ...scopes(node.children, depth + 1)]);
 }
-const PERIODS: Array<{ value: IndustryPeriod; label: string }> = [{ value: 'MONTH', label: '按月' }, { value: 'WEEK', label: '按周' }, { value: 'DAY', label: '按日' }, { value: 'ALL', label: '全部时间' }];
-const validDate = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value + 'T00:00:00Z')) && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
-const normalizeDate = (period: IndustryPeriod, value: string): string => {
-  if (period === 'MONTH') return value.slice(0, 7) + '-01';
-  if (period !== 'WEEK') return value;
-  const day = new Date(value + 'T00:00:00Z'); day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
-  return day.toISOString().slice(0, 10);
-};
-
 export function readIndustryView(filters: IndustryFilters) {
   const params = new URLSearchParams(window.location.search), rawPeriod = params.get('siPeriod');
-  const periodType = PERIODS.find(period => period.value === rawPeriod)?.value ?? 'MONTH';
-  const savedDate = params.get('siDate') ?? '', fallbackDate = filters.maxDate?.slice(0, 7) + '-01';
-  const date = validDate(savedDate) ? normalizeDate(periodType, savedDate) : fallbackDate;
+  const selectedDate = normalizeIndustryDateValue(rawPeriod ?? 'MONTH', params.get('siDate') ?? undefined, filters.minDate, filters.maxDate);
+  // Called after filters resolve; a missing maxDate is gated by the store before any list query.
+  const { periodType, date } = selectedDate ?? { periodType: 'MONTH' as const, date: undefined };
   const scopeId = params.get('siScope') ?? '';
   const validScope = scopes(filters.industryTree).some(option => option.value === scopeId);
   const savedModel = params.get('siModel') ?? 'all';
   const modelCode = filters.models.some(model => model.value === savedModel) ? savedModel : 'all';
-  const common: IndustryCommonQuery = { periodType, ...(periodType !== 'ALL' ? { date } : {}), scopeType: validScope ? 'CATEGORY' : 'ALL', ...(validScope ? { scopeId } : {}), modelCode };
+  const common: IndustryCommonQuery = { periodType, ...(date ? { date } : {}), scopeType: validScope ? 'CATEGORY' : 'ALL', ...(validScope ? { scopeId } : {}), modelCode };
   const sourceType = params.get('siType') ?? '';
-  const selection: ContentSelection = { media: params.get('siMedia') ?? '', sourceType: filters.sourceTypes.includes(sourceType) ? sourceType : '', sortBy: params.get('siSort') === 'publishTime' ? 'publishTime' : 'citationCount', sortOrder: params.get('siOrder') === 'asc' ? 'asc' : 'desc' };
+  const selection: ContentSelection = { media: params.get('siMedia') ?? '', sourceType: filters.sourceTypes.includes(sourceType) ? sourceType : '', sortBy: 'citationCount', sortOrder: params.get('siOrder') === 'asc' ? 'asc' : 'desc' };
   return { common, selection };
 }
-function saveIndustryView(common: IndustryCommonQuery, selection: ContentSelection) {
+function saveIndustryView(common: IndustryCommonQuery, selection: ContentSelection, mode: 'replace' | 'push' = 'replace') {
   const url = new URL(window.location.href);
   const values = { siPeriod: common.periodType, siDate: common.date, siScope: common.scopeId, siModel: common.modelCode, siMedia: selection.media, siType: selection.sourceType, siSort: selection.sortBy, siOrder: selection.sortOrder };
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value); else url.searchParams.delete(key);
-  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  const target = url.pathname + url.search + url.hash;
+  if (target === window.location.pathname + window.location.search + window.location.hash) return;
+  if (mode === 'push') window.history.pushState(window.history.state, '', target);
+  else window.history.replaceState(window.history.state, '', target);
 }
 function when(value: string | null) { return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚未取得'; }
 const COLORS = ['var(--brand,#2563eb)', 'var(--plum,#3e3e3e)', 'var(--x-good,#20815b)', 'var(--x-warning,#aa7227)', 'var(--muted,#737991)', '#707070', '#bbc0ce'];
@@ -72,28 +68,45 @@ export function RemoteIndustryDistribution() {
 
 export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
   const id = useId(), state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const [draft, setDraft] = useState<IndustryCommonQuery>({ periodType: 'MONTH', scopeType: 'ALL', modelCode: 'all' });
-  const [formError, setFormError] = useState('');
   const filters = state.filters.data, options = useMemo(() => scopes(filters?.industryTree ?? []), [filters]);
   useEffect(() => { store.start(readIndustryView); }, [store]);
-  useEffect(() => { if (!state.common && filters?.maxDate) setDraft({ periodType: 'MONTH', date: filters.maxDate.slice(0, 7) + '-01', scopeType: 'ALL', modelCode: 'all' }); }, [store, filters, state.common]);
   useEffect(() => {
-    if (state.common && store.getSnapshot().common === state.common && store.getSnapshot().selection === state.selection) {
-      setDraft(state.common); saveIndustryView(state.common, state.selection);
-    }
+    const current = store.getSnapshot(), available = current.filters.data;
+    // A successful connection recheck may introduce the first usable date after an empty initial response.
+    // Read the live store so initial loading and StrictMode cannot start the same query twice.
+    if (current.common || current.blocked || current.filters.loading || !available
+      || !normalizeIndustryDateValue('MONTH', undefined, available.minDate, available.maxDate)) return;
+    const initial = readIndustryView(available); store.apply(initial.common, initial.selection);
+  }, [store, filters, state.common, state.blocked, state.filters.loading]);
+  useEffect(() => {
+    if (state.common && store.getSnapshot().common === state.common && store.getSnapshot().selection === state.selection) saveIndustryView(state.common, state.selection);
   }, [store, state.common, state.selection]);
   useEffect(() => {
-    const restore = () => { const currentFilters = store.getSnapshot().filters.data; if (currentFilters?.maxDate) { const restored = readIndustryView(currentFilters); store.apply(restored.common, restored.selection); } };
+    const restore = () => {
+      const current = store.getSnapshot(), currentFilters = current.filters.data;
+      if (!currentFilters?.maxDate) return;
+      if (current.blocked) { if (current.common) saveIndustryView(current.common, current.selection); return; }
+      const restored = readIndustryView(currentFilters);
+      // Normalize legacy URLs even when they resolve to the already-applied query.
+      saveIndustryView(restored.common, restored.selection);
+      store.apply(restored.common, restored.selection);
+    };
     window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore);
   }, [store]);
-  const ready = Boolean(filters?.maxDate), blocked = state.blocked !== null;
+  const selectedDate = normalizeIndustryDateValue(state.common?.periodType ?? 'MONTH', state.common?.date, filters?.minDate ?? null, filters?.maxDate ?? null);
+  const ready = Boolean(selectedDate), blocked = state.blocked !== null;
   const busy = state.media.loading || state.contents.loading;
-  const commonLabel = state.common ? `${options.find(option => option.value === state.common!.scopeId)?.label.trim() ?? '全部行业'} · ${filters?.models.find(model => model.value === state.common!.modelCode)?.label ?? state.common.modelCode} · ${PERIODS.find(period => period.value === state.common!.periodType)?.label}${state.common.date ? ' ' + state.common.date : ''}` : '查询条件尚未就绪';
-  const apply = () => {
-    if (!filters || !ready) return;
-    if (draft.periodType !== 'ALL' && (!draft.date || !validDate(draft.date))) { setFormError('请选择有效日期。'); return; }
-    setFormError('');
-    const common: IndustryCommonQuery = { periodType: draft.periodType, ...(draft.periodType !== 'ALL' ? { date: normalizeDate(draft.periodType, draft.date!) } : {}), scopeType: draft.scopeId ? 'CATEGORY' : 'ALL', ...(draft.scopeId ? { scopeId: draft.scopeId } : {}), modelCode: draft.modelCode };
+  const initializeAfterCheck = !state.common && state.blocked?.status !== 'quota_exhausted';
+  const commonLabel = state.common ? `${options.find(option => option.value === state.common!.scopeId)?.label.trim() ?? '全部行业'} · ${filters?.models.find(model => model.value === state.common!.modelCode)?.label ?? state.common.modelCode} · ${selectedDate ? formatIndustryDate(selectedDate) : '暂无可选周期'}` : '查询条件尚未就绪';
+  const apply = (patch: Partial<IndustryCommonQuery>) => {
+    const current = store.getSnapshot();
+    if (!ready || current.blocked || !current.common) return;
+    const merged = { ...current.common, ...patch };
+    const date = normalizeIndustryDateValue(merged.periodType, merged.date, filters!.minDate, filters!.maxDate);
+    if (!date) return;
+    const common: IndustryCommonQuery = { ...date, scopeType: merged.scopeId ? 'CATEGORY' : 'ALL', ...(merged.scopeId ? { scopeId: merged.scopeId } : {}), modelCode: merged.modelCode };
+    if (common.periodType === current.common.periodType && common.date === current.common.date && common.scopeId === current.common.scopeId && common.modelCode === current.common.modelCode) return;
+    saveIndustryView(common, defaultSelection, 'push');
     store.apply(common, defaultSelection);
   };
   const panelMessage = !ready ? state.filters.loading ? '正在读取筛选项…' : filters ? '暂无可选执行日期' : '行业信源尚未就绪' : '暂无匹配数据';
@@ -106,17 +119,12 @@ export function IndustrySourcePanel({ store }: { store: IndustrySourceStore }) {
   const chartMessage = state.distributions.loading ? '正在读取分布…' : state.distributions.error ? '分布读取失败' : panelMessage;
 
   return <div className="sm-industry sm-industry-remote" aria-busy={state.filters.loading}>
-    <form className="sm-industry-filters" noValidate onSubmit={event => { event.preventDefault(); apply(); }}>
-      <label htmlFor={`${id}-industry`}>行业<select id={`${id}-industry`} disabled={!ready || blocked} value={draft.scopeId ?? ''} onChange={event => setDraft({ ...draft, scopeType: event.target.value ? 'CATEGORY' : 'ALL', scopeId: event.target.value || undefined })}><option value="">全部行业</option>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label htmlFor={`${id}-model`}>模型<select id={`${id}-model`} disabled={!ready || blocked} value={draft.modelCode} onChange={event => setDraft({ ...draft, modelCode: event.target.value })}>{!filters?.models.some(model => model.value === 'all') && <option value="all">全部模型</option>}{filters?.models.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}</select></label>
-      <label htmlFor={`${id}-period`}>日期范围<select id={`${id}-period`} disabled={!ready || blocked} value={draft.periodType} onChange={event => setDraft({ ...draft, periodType: event.target.value as IndustryPeriod })}>{PERIODS.map(period => <option key={period.value} value={period.value}>{period.label}</option>)}</select></label>
-      <label htmlFor={`${id}-date`}>执行日期（北京时间）<input id={`${id}-date`} type="date" disabled={!ready || blocked || draft.periodType === 'ALL'} value={draft.date ?? ''} aria-invalid={Boolean(formError)} aria-describedby={formError ? `${id}-error` : undefined} onChange={event => setDraft({ ...draft, date: event.target.value })}/></label>
-      <button type="submit" className="button" disabled={!ready || blocked || busy}>查询</button>
-      <button type="button" className="button secondary" disabled={!state.common || blocked || busy} onClick={() => store.refresh()}>刷新当前结果</button>
-      {formError && <p id={`${id}-error`} className="sm-industry-error" role="alert">{formError}</p>}
+    <form className="sm-industry-filters sm-remote-filter-row" noValidate onSubmit={event => event.preventDefault()}>
+      <label htmlFor={`${id}-industry`}>行业<select id={`${id}-industry`} disabled={!ready || blocked} value={state.common?.scopeId ?? ''} onChange={event => apply({ scopeType: event.target.value ? 'CATEGORY' : 'ALL', scopeId: event.target.value || undefined })}><option value="">全部行业</option>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <label htmlFor={`${id}-model`}>模型<select id={`${id}-model`} disabled={!ready || blocked} value={state.common?.modelCode ?? 'all'} onChange={event => apply({ modelCode: event.target.value })}>{!filters?.models.some(model => model.value === 'all') && <option value="all">全部模型</option>}{filters?.models.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}</select></label>
+      <div className="sm-remote-filter-date"><label htmlFor={`${id}-date`}>日期</label><IndustryDateSelect id={`${id}-date`} value={selectedDate ?? { periodType: 'MONTH', date: '' }} minDate={filters?.minDate ?? null} maxDate={filters?.maxDate ?? null} disabled={!ready || blocked} onChange={next => apply(next)}/></div>
     </form>
-    <p className="sm-industry-caption">公共行业信源 · {commonLabel}。按周为周一至周日，按月为自然月。每次新的媒体或内容查询（含翻页、空结果）使用一次共享查询额度。</p>
-    {(state.filters.loading || !ready || blocked) && <div className="sm-industry-notice" role={state.filters.error && state.filters.error.status !== 'configuration_required' || blocked && state.blocked?.status !== 'configuration_required' ? 'alert' : 'status'}><div><strong>{state.filters.loading ? '正在读取行业筛选项…' : state.blocked?.message ?? state.filters.error?.message ?? '当前尚无可选执行日期，暂不查询行业数据。'}</strong>{blocked && <p>请先处理连接、权限或额度问题，再重新检查连接；检查本身不会查询媒体和内容列表。</p>}{state.filters.error && state.filters.error.status !== state.blocked?.status && <p>连接检查：{state.filters.error.message}</p>}</div>{!state.filters.loading && <button type="button" className="button secondary" onClick={() => void store.checkAccess()}>重新检查连接</button>}{state.blocked?.status === 'quota_exhausted' && filters?.maxDate && <button type="button" className="button secondary" disabled={busy} onClick={() => store.resumeAfterResolution()}>额度恢复后重新查询</button>}</div>}
+    {(state.filters.loading || !ready || blocked) && <div className="sm-industry-notice" role={state.filters.error && state.filters.error.status !== 'configuration_required' || blocked && state.blocked?.status !== 'configuration_required' ? 'alert' : 'status'}><div><strong>{state.filters.loading ? '正在读取行业筛选项…' : state.blocked?.message ?? state.filters.error?.message ?? '当前尚无可选执行日期，暂不查询行业数据。'}</strong>{blocked && <p>{initializeAfterCheck ? '连接恢复后将加载默认条件，并使用共享查询额度。' : '请先处理连接、权限或额度问题，再重新检查连接；检查本身不会查询媒体和内容列表。'}</p>}{state.filters.error && state.filters.error.status !== state.blocked?.status && <p>连接检查：{state.filters.error.message}</p>}</div>{!state.filters.loading && <button type="button" className="button secondary" onClick={() => void store.checkAccess()}>{initializeAfterCheck ? '重新检查并加载' : '重新检查连接'}</button>}{state.blocked?.status === 'quota_exhausted' && filters?.maxDate && <button type="button" className="button secondary" disabled={busy} onClick={() => store.resumeAfterResolution()}>额度恢复后重新查询</button>}</div>}
     <IndustryCitationSources id={id} store={store} state={state} ready={ready} commonLabel={commonLabel} panelMessage={panelMessage}/>
     <section className="sm-industry-card sm-industry-distribution-section" aria-labelledby={`${id}-distribution`}><header className="sm-industry-card-heading"><h2 id={`${id}-distribution`}>信源分布</h2><p>范围：{commonLabel}。不随内容的媒体、类型或排序变化；各图使用各自统计分母。</p></header><FailureNotice error={state.distributions.error} retry={() => void store.retryDistributions()}/><div className="sm-industry-distributions"><section className="sm-industry-card"><header className="sm-industry-card-heading"><h3>类型分布</h3></header><SourceDonut title="媒体类型分布" slices={typeSlices} unit="次引用" pending={chartMessage}/></section><section className="sm-industry-card"><header className="sm-industry-card-heading"><h3>时间分布</h3></header><SourceDonut title="内容发布时间分布" slices={timeSlices} unit="项内容" pending={chartMessage}/></section></div><p className="sm-industry-chart-note">发布时间区间相对于数据源当前时间计算，未知包含缺失或未来日期。获取于 {when(state.distributions.fetchedAt)}；源端统计存在缓存，不保证实时更新。</p></section>
   </div>;
