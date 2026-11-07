@@ -1,13 +1,15 @@
 /* These names also style the date popover portal outside the media page shell. */
 .fm-industry-date-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;width:100%;min-height:48px;padding:11px 16px;border:1px solid #dfe3ed;border-radius:12px;background:#fff;color:#343d52;font:inherit;font-size:14px;text-align:left;cursor:pointer}
 .fm-industry-date-trigger>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fm-industry-date-trigger>svg{flex:none;color:#98a1b2;transition:transform .12s ease}
+.fm-industry-date-trigger>svg{flex:none;width:16px;height:16px;color:#98a1b2;transition:transform .12s ease}
+.fm-industry-date-trigger:hover:not(:disabled):not(:focus):not([data-state=open]){border-color:#b4b7c7}
 .fm-industry-date-trigger[data-state=open]{border-color:#8b82ff;box-shadow:0 0 0 3px #eeecff}
 .fm-industry-date-trigger[data-state=open]>svg{transform:rotate(180deg)}
 .fm-industry-date-trigger:disabled{opacity:.55;cursor:not-allowed}
 .fm-industry-date-trigger:focus-visible,.fm-industry-date-popover button:focus-visible{outline:2px solid #7368ff;outline-offset:2px}
-.fm-industry-date-popover[data-slot=popover-content]{box-sizing:border-box;z-index:100;width:min(max(var(--radix-popover-trigger-width),340px),calc(100vw - 32px));max-height:var(--radix-popover-content-available-height);padding:8px;border:1px solid #e0e4ff;border-radius:16px;background:#fff;color:#515c71;box-shadow:0 14px 35px rgba(35,42,70,.1);font-family:inherit;font-size:14px;overflow:hidden}
-.fm-industry-date-tabs{display:flex;gap:6px;padding:5px;margin-bottom:8px;border-radius:11px;background:#f8f9fb}
+.fm-industry-date-popover[data-slot=popover-content]{box-sizing:border-box;z-index:100;width:min(max(var(--radix-popover-trigger-width),340px),calc(100vw - 32px));max-height:min(var(--radix-popover-content-available-height,calc(100dvh - 32px)),calc(100dvh - 32px));display:flex;flex-direction:column;padding:8px;border:1px solid #e0e4ff;border-radius:16px;background:#fff;color:#515c71;box-shadow:0 14px 35px rgba(35,42,70,.1);font-family:inherit;font-size:14px;overflow:hidden}
+.fm-industry-date-popover>[role=tabpanel]{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.fm-industry-date-tabs{flex:none;display:flex;gap:6px;padding:5px;margin-bottom:8px;border-radius:11px;background:#f8f9fb}
 .fm-industry-date-tabs>button{flex:1;min-width:0;min-height:40px;border:0;border-radius:9px;background:transparent;color:#70798b;font:inherit;cursor:pointer}
 .fm-industry-date-tabs>button[aria-selected=true]{background:#fff;color:#5c45ff;font-weight:600;box-shadow:0 2px 5px rgba(26,33,52,.08)}
 .fm-industry-date-options{list-style:none;margin:0;padding:0;max-height:min(340px,calc(var(--radix-popover-content-available-height) - 82px));overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin}
@@ -23,7 +25,38 @@
 .fm-media .sm-industry-remote .sm-industry-filters.sm-remote-filter-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));align-items:center;gap:18px;margin-bottom:18px;padding:18px 20px;border:1px solid #e7eaf2;border-radius:16px;background:#fff}
 .fm-media .sm-industry-remote .sm-industry-filters.sm-remote-filter-row>label,.fm-media .sm-industry-remote .sm-remote-filter-date{display:flex;flex-direction:row;align-items:center;gap:16px;min-width:0;white-space:nowrap;color:#70798b;font-size:14px;font-weight:600}
 .fm-media .sm-industry-remote .sm-industry-filters .sm-remote-filter-date>label{display:block;flex:none;margin:0;font:inherit;color:inherit}
-.fm-media .sm-industry-remote .sm-industry-filters.sm-remote-filter-row>label>select{width:100%;min-width:0;min-height:48px;padding:11px 34px 11px 16px;border:1px solid #dfe3ed;border-radius:12px;background-color:#fff;color:#343d52;font:inherit;font-weight:400}
+/* The standalone white theme has higher-specificity input rules. Keep its existing
+   compact scale, but scope this common control treatment to these three filters. */
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row :is(select,.fm-industry-date-trigger){box-sizing:border-box;width:100%;min-width:0;height:36px;min-height:36px;padding:6px 36px 6px 10px;border:1px solid #d5d9e1;border-radius:8px;background-color:#fff;color:#343d52;font-family:inherit;font-size:13px;font-weight:400;line-height:1.6;text-align:left}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2398a1b2' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-size:16px 16px;background-position:right 10px center}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row .fm-industry-date-trigger{padding-right:10px;gap:10px}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row :is(select,.fm-industry-date-trigger):hover:not(:disabled):not(:focus):not([data-state=open]){border-color:#b4b7c7}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row :is(select,.fm-industry-date-trigger):is(:focus,[data-state=open]){border-color:#8b82ff;box-shadow:0 0 0 3px #eeecff}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row :is(select,.fm-industry-date-trigger):focus-visible{outline:2px solid #7368ff;outline-offset:2px}
+:is(.fm-media,.publish-standalone .publish-shell-main .publish-shell-content.monitoring-module .fm-media) .sm-industry-remote .sm-industry-filters.sm-remote-filter-row :is(select,.fm-industry-date-trigger):disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+.fm-media .sm-industry-remote .sm-remote-filter-date>.fm-industry-date-trigger>svg{width:16px;height:16px;stroke-width:1.8}
 .fm-media .sm-industry-remote .sm-remote-filter-date>.fm-industry-date-trigger{flex:1;font-weight:400}
 @media(max-width:780px){.fm-media .sm-industry-remote .sm-industry-filters.sm-remote-filter-row{grid-template-columns:1fr;gap:12px;padding:14px}.fm-media .sm-industry-remote .sm-industry-filters.sm-remote-filter-row>label,.fm-media .sm-industry-remote .sm-remote-filter-date{gap:14px}}
 @media(prefers-reduced-motion:reduce){.fm-industry-date-trigger>svg{transition:none}}
+
+/* DAY uses the same portal as the unchanged WEEK/MONTH lists. The panel scrolls
+   within Radix's available height so the date range stays reachable on short screens. */
+.fm-industry-day-calendar{padding:8px 4px 0;border-top:1px solid #edf0f5;line-height:1.5}
+.fm-industry-day-header{display:grid;grid-template-columns:36px minmax(0,1fr) 36px;align-items:center;gap:8px;padding:3px 2px 10px}
+.fm-industry-day-month-title{text-align:center;color:#252d3d;font-size:14px;font-weight:600}
+.fm-industry-day-month-nav{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:transparent;color:#70798b;cursor:pointer}
+.fm-industry-day-month-nav>svg{width:18px;height:18px}
+.fm-industry-day-month-nav:hover:not(:disabled){background:#f5f6fc}
+.fm-industry-day-month-nav:disabled{color:#cdd2dc;cursor:not-allowed}
+.fm-industry-day-weekdays,.fm-industry-day-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.fm-industry-day-weekdays{align-items:center;min-height:30px;margin-bottom:4px;text-align:center;color:#98a1b2;font-size:13px}
+.fm-industry-day-week{margin-bottom:4px}
+.fm-industry-day-cell{display:grid;place-items:center;min-width:0;min-height:36px}
+.fm-industry-day,.fm-industry-day-blank{box-sizing:border-box;width:36px;max-width:100%;height:36px}
+.fm-industry-day{display:grid;place-items:center;padding:0;border:0;border-radius:10px;background:transparent;color:#515c71;font:inherit;font-size:14px;cursor:pointer}
+.fm-industry-day:hover:not(:disabled){background:#f0efff}
+.fm-industry-day[aria-pressed=true]{background:#5543ed;color:#fff;font-weight:600}
+.fm-industry-day[aria-pressed=true]:hover{background:#4b39df}
+.fm-industry-day:disabled{color:#cdd2dc;cursor:not-allowed}
+.fm-industry-day-range{padding:13px 4px 5px;text-align:center;color:#98a1b2;font-size:12px;overflow-wrap:anywhere}
+.fm-industry-date-popover .fm-industry-date-empty{padding:20px 12px;color:#98a1b2}

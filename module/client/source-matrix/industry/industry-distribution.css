@@ -181,7 +181,7 @@
 .fm-media .sm-citation-ranking{flex:1;min-height:0;list-style:none;margin:0;padding:12px;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain}
 .fm-media .sm-citation-ranking li{margin:0 0 8px;padding:0}
 .fm-media .sm-citation-ranking li:last-child{margin-bottom:0}
-.fm-media .sm-citation-ranking li>button{display:flex;align-items:center;gap:9px;width:100%;min-height:60px;padding:10px 12px;text-align:left;background:#fff;border:1px solid #dce1eb;border-radius:11px;color:var(--citation-ink);font:inherit}
+.fm-media .sm-citation-ranking li>button{display:flex;align-items:center;gap:9px;width:100%;min-height:54px;padding:7px 12px;text-align:left;background:#fff;border:1px solid #dce1eb;border-radius:11px;color:var(--citation-ink);font:inherit}
 .fm-media .sm-citation-ranking li>button:hover:not(:disabled){background:#f6f7ff;border-color:#c7c4f7}
 .fm-media .sm-citation-ranking li>button[aria-pressed=true]{background:#f0efff;border-color:var(--citation-accent)}
 .fm-media .sm-citation-ranking .sm-industry-rank{flex:0 0 29px;height:29px;padding:0;border-radius:7px;display:grid;place-items:center;background:#f1f4f8;color:#6b7589;font-size:14px;font-weight:700}

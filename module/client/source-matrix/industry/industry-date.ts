@@ -80,3 +80,57 @@ export function industryDateOptions(periodType: IndustryDatePeriod, minDate: str
   }
   return { options, hasMore: inRange() };
 }
+
+/** Calendar browsing uses the same conservative availability as the period lists. */
+export function industryDayCalendar(month: string | null, minDate: string | null, maxDate: string | null) {
+  const range = supportedRange(minDate, maxDate);
+  if (!range) return null;
+  const minMonth = industryPeriodStart('MONTH', range.min), maxMonth = industryPeriodStart('MONTH', range.max);
+  const requested = isIndustryDate(month) ? industryPeriodStart('MONTH', month) : maxMonth;
+  const start = requested < minMonth ? minMonth : requested > maxMonth ? maxMonth : requested;
+  const first = new Date(start + 'T00:00:00Z'), end = periodEnd('MONTH', start);
+  const offset = (first.getUTCDay() + 6) % 7;
+  const days = Number(end.slice(8));
+  const cells = Array.from({ length: Math.max(35, Math.ceil((offset + days) / 7) * 7) }, (_, index) => {
+    const day = index - offset + 1;
+    return day < 1 || day > days ? null : `${start.slice(0, 8)}${String(day).padStart(2, '0')}`;
+  });
+  const weeks: Array<Array<string | null>> = [];
+  for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+  const adjacent = (step: number) => {
+    const date = new Date(first); date.setUTCMonth(date.getUTCMonth() + step);
+    return dateText(date);
+  };
+  return {
+    month: start, label: `${first.getUTCFullYear()}年${first.getUTCMonth() + 1}月`, weeks,
+    firstSelectable: start < range.min ? range.min : start,
+    lastSelectable: end > range.max ? range.max : end,
+    previousMonth: start > minMonth ? adjacent(-1) : null,
+    nextMonth: start < maxMonth ? adjacent(1) : null,
+    rangeLabel: isIndustryDate(minDate) ? `可选日期：${minDate} 至 ${range.max}` : `数据截至：${range.max}`,
+  };
+}
+
+/** Move only the browsing focus. This never changes the applied period or selected day. */
+export function moveIndustryDayFocus(value: string, key: string, minDate: string | null, maxDate: string | null): string | null {
+  const range = supportedRange(minDate, maxDate);
+  if (!range || !isIndustryDate(value) || value < range.min || value > range.max) return null;
+  const date = new Date(value + 'T00:00:00Z');
+  const weekday = (date.getUTCDay() + 6) % 7;
+  if (key === 'ArrowLeft') date.setUTCDate(date.getUTCDate() - 1);
+  else if (key === 'ArrowRight') date.setUTCDate(date.getUTCDate() + 1);
+  else if (key === 'ArrowUp') date.setUTCDate(date.getUTCDate() - 7);
+  else if (key === 'ArrowDown') date.setUTCDate(date.getUTCDate() + 7);
+  else if (key === 'Home') date.setUTCDate(date.getUTCDate() - weekday);
+  else if (key === 'End') date.setUTCDate(date.getUTCDate() + 6 - weekday);
+  else if (key === 'PageUp' || key === 'PageDown') {
+    const day = date.getUTCDate(); date.setUTCDate(1);
+    date.setUTCMonth(date.getUTCMonth() + (key === 'PageUp' ? -1 : 1));
+    const last = new Date(date); last.setUTCMonth(last.getUTCMonth() + 1, 0);
+    date.setUTCDate(Math.min(day, last.getUTCDate()));
+  } else return null;
+  // Clamp before serialization so even a boundary-year navigation cannot invent a date.
+  if (date.getTime() < new Date(range.min + 'T00:00:00Z').getTime()) return range.min;
+  if (date.getTime() > new Date(range.max + 'T00:00:00Z').getTime()) return range.max;
+  return dateText(date);
+}
