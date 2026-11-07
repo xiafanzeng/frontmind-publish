@@ -91,7 +91,7 @@ export async function resolveUserDecisionAdapter(core:ModuleHttpCore,req:Request
  if(!row)return {adapter:createEnvDecisionAdapter(core.environment),mode:envOrNone(core).mode};
  const settings=unseal(core,scope.scope,row.ciphertext);
  endpointFor(settings,core.environment);
- return {adapter:createDecisionAdapter(messages=>invokeAi(settings,core.environment,messages)),connection:{id:row.id,revision:row.revision,provider:row.provider,model:row.model},mode:'user'};
+ return {adapter:createDecisionAdapter(messages=>invokeAi(settings,core.environment,messages),(messages,signal)=>invokeAi(settings,core.environment,messages,false,{identification:true,signal})),connection:{id:row.id,revision:row.revision,provider:row.provider,model:row.model},mode:'user'};
 }
 
 export function createAiConnectionRouter(core:ModuleHttpCore):Router {

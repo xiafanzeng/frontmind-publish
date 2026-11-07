@@ -126,27 +126,36 @@ export async function listProviderModels(config:Pick<AiSettings,'provider'|'apiK
   throw new Error('provider_invalid_response');
  }finally{clearTimeout(timer);}
 }
-export async function invokeAi(config:AiSettings,env:Readonly<Record<string,string|undefined>>,messages:ModelMessage[],test=false):Promise<unknown> {
+export async function invokeAi(config:AiSettings,env:Readonly<Record<string,string|undefined>>,messages:ModelMessage[],test=false,options:{identification?:boolean;signal?:AbortSignal}={}):Promise<unknown> {
  const url=endpointFor(config,env);
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),test?30_000:240_000);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),test?30_000:options.identification?45_000:240_000);
+ const abort=()=>controller.abort();
+ if(options.signal?.aborted)controller.abort();
+ options.signal?.addEventListener('abort',abort,{once:true});
  const headers:Record<string,string>={'Content-Type':'application/json'};
  let body:unknown;
  if(config.provider==='openai'){
   headers.Authorization=`Bearer ${config.apiKey}`;
-  body={model:config.model,input:messages.map(m=>({role:m.role,content:m.content})),max_output_tokens:test?256:8192};
+  body={model:config.model,input:messages.map(m=>({role:m.role,content:m.content})),max_output_tokens:test?256:options.identification?2048:8192,...(options.identification?{text:{format:{type:'json_object'}}}:{})};
  }else if(config.provider==='claude'){
   headers['x-api-key']=config.apiKey;headers['anthropic-version']='2023-06-01';
-  body={model:config.model,system:messages.filter(m=>m.role==='system').map(m=>m.content).join('\n'),messages:messages.filter(m=>m.role==='user'),max_tokens:test?16:8192};
+  body={model:config.model,system:messages.filter(m=>m.role==='system').map(m=>m.content).join('\n'),messages:messages.filter(m=>m.role==='user'),max_tokens:test?16:options.identification?2048:8192};
  }else{
   headers.Authorization=`Bearer ${config.apiKey}`;
   if(config.provider==='dashscope'&&config.workspace)headers['X-DashScope-WorkSpace']=config.workspace;
-  body={model:config.model,messages,max_tokens:test?16:8192};
+  body={model:config.model,messages,max_tokens:test?16:options.identification?2048:8192,...(options.identification?{response_format:{type:'json_object'}}:{})};
  }
  try{
   const response=await fetch(url,{method:'POST',headers,body:JSON.stringify(body),redirect:'error',signal:controller.signal});
   await checkedProviderResponse(response);
-  const raw=await readBounded(response,2_000_000);
+  const raw=await readBounded(response,options.identification?131_072:2_000_000);
   const value=JSON.parse(raw) as Record<string,any>;
+  if(options.identification){
+   const refusal=config.provider==='openai'?value.output?.some((item:any)=>item.content?.some((part:any)=>part.type==='refusal')):config.provider==='claude'?value.stop_reason==='refusal':!!value.choices?.[0]?.message?.refusal||value.choices?.[0]?.finish_reason==='content_filter';
+   if(refusal)throw new Error('provider_refused');
+   const incomplete=config.provider==='openai'?value.status!=='completed':config.provider==='claude'?value.stop_reason!=='end_turn':value.choices?.[0]?.finish_reason!=='stop';
+   if(incomplete)throw new Error('provider_incomplete_response');
+  }
   // A minimal probe checks real model callability, not recommendation JSON.
   // Reasoning models may spend the probe budget before visible text; accept
   // only a recognized, metered response that exhausted that deliberate limit.
@@ -162,10 +171,10 @@ export async function invokeAi(config:AiSettings,env:Readonly<Record<string,stri
   if(test&&config.provider!=='openai'&&config.provider!=='claude'&&value.choices?.[0]?.finish_reason==='length')throw new Error('provider_incomplete_response');
   const content=config.provider==='openai'?(value.output_text||value.output?.flatMap((x:any)=>x.content||[]).filter((x:any)=>x.type==='output_text').map((x:any)=>x.text).join('')):config.provider==='claude'?value.content?.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join(''):value.choices?.[0]?.message?.content;
   if(typeof content!=='string'||!content.trim())throw new Error('provider_empty_response');
-  return test?{ok:true}:extractJson(content);
+  return test?{ok:true}:options.identification?JSON.parse(content):extractJson(content);
  }catch(error){
-  if(error instanceof Error&&['provider_credential_invalid','provider_permission_denied','provider_quota_exhausted','provider_rate_limited','provider_model_unavailable','provider_parameters_invalid','provider_unavailable','provider_response_too_large','provider_empty_response','provider_incomplete_response'].includes(error.message))throw error;
+  if(error instanceof Error&&['provider_credential_invalid','provider_permission_denied','provider_quota_exhausted','provider_rate_limited','provider_model_unavailable','provider_parameters_invalid','provider_unavailable','provider_response_too_large','provider_empty_response','provider_incomplete_response','provider_refused'].includes(error.message))throw error;
   if(error instanceof Error&&error.name==='AbortError')throw new Error('provider_timeout');
   throw new Error('provider_invalid_response');
- }finally{clearTimeout(timer);}
+ }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 }

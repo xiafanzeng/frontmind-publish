@@ -15,6 +15,7 @@ import { prepareExportResearch,researchCatalog } from './export-research.js';
 import { loadPlannerCatalog } from '../publisher-source-matrix-catalog.js';
 import { publisherImageCompatibilityBlocker } from '../publisher-capability.js';
 import { mediaRulesImageBlocker } from '../providers/kol/media-rules.js';
+import { mountArticleIdentificationRoutes } from './article-identification-http.js';
 const start=z.object({dataset_ids:z.array(z.string().uuid()).max(10).optional(),connection_revision:z.string().uuid().optional(),connection_mode:z.enum(['host','user','environment']).optional(),industry_id:z.string().min(1).max(80),questions:z.array(z.string().trim().min(1).max(2000)).min(1).max(50),product:z.string().max(2000).optional(),audience:z.string().max(2000).optional(),regions:z.array(z.string().min(1).max(200)).max(50).optional(),hours:z.string().regex(/^\d{1,6}$/).optional(),requirements:z.array(z.enum(['图片','表格','链接'])).max(3).optional(),sample_platforms:z.array(z.string().min(1).max(80)).max(10).optional(),brand_data:z.string().min(1).max(80).optional(),as_of:z.string(),draft_id:z.string().uuid().optional(),article_version_id:z.string().uuid().optional()}).strict();
 const resourceChoice=z.object({candidate_id:z.string().min(1).max(300),resource_id:z.string().min(1).max(300),offer_id:z.string().min(1).max(300),publication_spec:z.union([z.string().min(1),z.record(z.string(),z.unknown())])}).strict();
 const budget=z.object({plan_id:z.string().regex(/^plan-[a-f0-9]{24}$/),plan_version:z.string().regex(/^plan-version-[a-f0-9]{24}$/),budget:z.record(z.string(),z.unknown()),selected_candidate_ids:z.array(z.string().max(300)).max(500).optional(),resource_selections:z.array(resourceChoice).max(500).optional(),quantity_mode:z.enum(['new_articles','repeat_article']).optional(),as_of:z.string()}).strict();
@@ -55,6 +56,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
    try{if(new URL(origin).host!==host){res.status(403).json({status:'forbidden'});return;}}catch{res.status(403).json({status:'forbidden'});return;}
   }next();
  });
+ mountArticleIdentificationRoutes(router,core);
  router.get('/industries',wrap(async(req,res)=>{
   const repo=await repository(req),items=await repo.industries();res.json({status:items.length?'configured':'configuration_required',industries:items,brand_data_batches:[...BRAND_DATA_BATCHES.map(({id,label,version,sourceFile,recordCount,period,models})=>({id,label,version,sourceFile,recordCount,period,models})),...await repo.brandBatches()],message:items.length?null:'行业数据尚未配置，请联系运营接入真实行业、媒体与报价'});
  }));

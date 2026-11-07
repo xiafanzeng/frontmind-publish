@@ -6,6 +6,7 @@ import { usePublishingFlow, usePublishingOperationScope } from "../PublishingFlo
 import { usePublishingWorkspaceKey } from "../host";
 import type { PublisherGateway } from "../gateway";
 import type { ArticleDetail, ArticleStatus, ArticleSummary } from "../types";
+import { mediaReadError } from "../mediaReadError";
 import "./publishing.article-picker.css";
 
 export type PublishingArticlePickerProps = {
@@ -17,6 +18,10 @@ export type PublishingArticlePickerProps = {
   excludedIds?: readonly string[];
   disabled?: boolean;
   trigger?: HTMLButtonElement;
+  /** Confirmed-version selection reuses the same authorized list and detail lifecycle. */
+  purpose?: "edit" | "confirmed-version";
+  /** Extra authorized owner/project identity supplied by the consuming workflow. */
+  contextKey?: string;
 };
 
 const statusLabels: Record<ArticleStatus, string> = {
@@ -32,11 +37,11 @@ const updatedLabel = (value: string) => {
 type ListState = { gateway: PublisherGateway; scope: string; loading: boolean; articles: ArticleSummary[]; error?: string };
 
 /** Selection is read-only: no save, freeze, copy, task creation or implicit close. */
-export default function PublishingArticlePicker({ open, onClose, onSelect, multiple = false, excludedIds = [], disabled = false, trigger }: PublishingArticlePickerProps) {
+export default function PublishingArticlePicker({ open, onClose, onSelect, multiple = false, excludedIds = [], disabled = false, trigger, purpose = "edit", contextKey = "" }: PublishingArticlePickerProps) {
   const gateway = usePublisherGateway();
   const workspaceKey = usePublishingWorkspaceKey();
   const flow = usePublishingFlow();
-  const scope = `${workspaceKey}:${flow?.taskId ?? "standalone"}`;
+  const scope = `${workspaceKey}:${flow?.taskId ?? "standalone"}:${purpose}:${contextKey}`;
   const operationScope = usePublishingOperationScope(`article-picker:${scope}`);
   const inputId = useId();
   const search = useRef<HTMLInputElement>(null);
@@ -75,8 +80,14 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
       const value = computed.getPropertyValue(token).trim();
       if (value) properties[token] = value;
     }
+    if (purpose === 'confirmed-version') {
+      for (const [publishingToken, mediaToken] of Object.entries({ '--publishing-surface':'--surface', '--publishing-ink':'--ink', '--publishing-muted':'--muted', '--publishing-line':'--line', '--publishing-purple':'--brand', '--publishing-purple-dark':'--brand-hover', '--publishing-purple-soft':'--selected', '--publishing-radius':'--radius' })) {
+        const value = computed.getPropertyValue(mediaToken).trim();
+        if (value) properties[publishingToken] = value;
+      }
+    }
     setPortalStyle(properties as CSSProperties);
-  }, [open, trigger]);
+  }, [open, trigger, purpose]);
 
   useEffect(() => {
     invalidateSelection();
@@ -107,10 +118,13 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
       clearTimeout(timeout);
       setList({ gateway, scope, loading: false, articles });
       setSelectedIds((ids) => ids.filter((id) => articles.some((article) => article.id === id && !unavailableReason(article, excluded))));
-    }).catch(() => {
+    }).catch((reason) => {
       if (!valid() || controller.signal.aborted) return;
       clearTimeout(timeout);
-      setList({ gateway, scope, loading: false, articles: [], error: "读取稿件列表失败，请重试。" });
+      const error = purpose === 'confirmed-version'
+        ? /forbidden|permission|无权限|权限不足/i.test(reason instanceof Error ? reason.message : '') ? '无权读取稿件列表，请检查当前项目权限后重试。' : mediaReadError(reason, '读取稿件列表失败，请重试。')
+        : '读取稿件列表失败，请重试。';
+      setList({ gateway, scope, loading: false, articles: [], error });
     });
     return () => { alive = false; clearTimeout(timeout); controller.abort(); };
   }, [open, gateway, scope, reload, operationScope]);
@@ -123,7 +137,9 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
   }, [excludedKey, disabled, invalidateSelection]);
 
   const visible = list.gateway === gateway && list.scope === scope ? list : { loading: true, articles: [], error: undefined };
-  const articles = visible.articles;
+  // A working copy can still have confirmed historical versions. The detail
+  // step, not its mutable status label, validates the selected frozen version.
+  const articles = purpose === "confirmed-version" ? visible.articles.filter(article => article.currentVersionId || article.currentVersion > 0) : visible.articles;
   const filtered = articles.filter((article) => (status === "all" || article.status === status) && `${article.title} ${article.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const busy = phase !== "idle";
   const selected = selectedIds.filter((id) => articles.some((article) => article.id === id && !unavailableReason(article, excluded)));
@@ -201,7 +217,7 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
       onPointerDownOutside={(event) => { if (phase === "applying") event.preventDefault(); }}>
       <header className="publishing-article-picker-header">
         <div><DialogTitle className="publishing-article-picker-title">{multiple ? "选择稿件并追加" : "选择稿件"}</DialogTitle>
-          <DialogDescription className="publishing-article-picker-description">{multiple ? "可选择多篇稿件追加到当前批量，已加入的稿件和未保存卡片将保留。" : "选择一篇已有稿件继续编辑；切换后会离开当前稿件。"}</DialogDescription></div>
+          <DialogDescription className="publishing-article-picker-description">{purpose === "confirmed-version" ? "选择已有稿件后核对已确认版本；确认前保留当前稿件。" : multiple ? "可选择多篇稿件追加到当前批量，已加入的稿件和未保存卡片将保留。" : "选择一篇已有稿件继续编辑；切换后会离开当前稿件。"}</DialogDescription></div>
         <button type="button" className="publishing-article-picker-button" aria-label="关闭选择稿件" disabled={phase === "applying"} onClick={close}><X size={18} aria-hidden="true" /></button>
       </header>
       <div className="publishing-article-picker-filters">
@@ -209,8 +225,8 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
           {query && <button type="button" aria-label="清空稿件搜索" disabled={busy} onClick={() => { setQuery(""); search.current?.focus(); }}><X size={16} aria-hidden="true" /></button>}</label>
         <label className="publishing-article-picker-status">状态<select aria-label="稿件状态" value={status} disabled={busy} onChange={(event) => setStatus(event.target.value as ArticleStatus | "all")}><option value="all">全部状态</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div>
-      <div className="publishing-article-picker-scroll" role={multiple ? "group" : "radiogroup"} aria-label={multiple ? "可追加稿件" : "可编辑稿件"} aria-busy={visible.loading || busy}>
-        {visible.loading ? <p className="publishing-article-picker-message" role="status">正在读取稿件列表…</p> : visible.error ? <div className="publishing-article-picker-message" role="alert"><p>{visible.error}</p><button type="button" className="publishing-article-picker-button" onClick={() => setReload((value) => value + 1)}>重试列表</button></div> : !articles.length ? <p className="publishing-article-picker-message" role="status">暂无稿件，请先上传文档或撰写稿件。</p> : !filtered.length ? <p className="publishing-article-picker-message" role="status">没有匹配的稿件，请调整搜索或状态筛选。</p> : filtered.map((article) => {
+      <div className="publishing-article-picker-scroll" role={multiple ? "group" : "radiogroup"} aria-label={purpose === "confirmed-version" ? "已有确认版本的稿件" : multiple ? "可追加稿件" : "可编辑稿件"} aria-busy={visible.loading || busy}>
+        {visible.loading ? <p className="publishing-article-picker-message" role="status">正在读取稿件列表…</p> : visible.error ? <div className="publishing-article-picker-message" role="alert"><p>{visible.error}</p><button type="button" className="publishing-article-picker-button" onClick={() => setReload((value) => value + 1)}>重试列表</button></div> : !articles.length ? <p className="publishing-article-picker-message" role="status">{purpose === "confirmed-version" ? "暂无已确认稿件，请先在编辑稿件中确认版本。" : "暂无稿件，请先上传文档或撰写稿件。"}</p> : !filtered.length ? <p className="publishing-article-picker-message" role="status">没有匹配的稿件，请调整搜索或状态筛选。</p> : filtered.map((article) => {
           const reason = unavailableReason(article, excluded);
           const id = `${inputId}-${article.id}`;
           return <label key={article.id} className={`publishing-article-picker-row${selected.includes(article.id) ? " is-selected" : ""}${reason ? " is-unavailable" : ""}`}>
@@ -221,7 +237,7 @@ export default function PublishingArticlePicker({ open, onClose, onSelect, multi
       </div>
       <footer className="publishing-article-picker-footer">
         <div className="publishing-article-picker-feedback">{selectionError ? <p role="alert">{selectionError}</p> : <p role="status">{phase === "reading" ? "正在读取完整稿件，可取消…" : phase === "applying" ? multiple ? "正在追加稿件…" : "正在切换稿件…" : `已选择 ${selected.length} 篇稿件`}</p>}</div>
-        <div className="publishing-article-picker-actions"><button type="button" className="publishing-article-picker-button" disabled={phase === "applying"} onClick={close}>取消</button><button type="button" className="publishing-article-picker-button is-primary" disabled={busy || disabled || visible.loading || Boolean(visible.error) || !selected.length} onClick={() => { void confirm(); }}>{selectionError ? "重试载入" : multiple ? "追加所选稿件" : "使用此稿件"}</button></div>
+        <div className="publishing-article-picker-actions"><button type="button" className="publishing-article-picker-button" disabled={phase === "applying"} onClick={close}>取消</button><button type="button" className="publishing-article-picker-button is-primary" disabled={busy || disabled || visible.loading || Boolean(visible.error) || !selected.length} onClick={() => { void confirm(); }}>{selectionError ? "重试载入" : purpose === "confirmed-version" ? "选择确认版本" : multiple ? "追加所选稿件" : "使用此稿件"}</button></div>
       </footer>
     </DialogContent>
   </Dialog>;

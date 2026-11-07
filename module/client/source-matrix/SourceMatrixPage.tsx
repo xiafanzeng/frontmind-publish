@@ -1,6 +1,6 @@
 import { useEffect,useLayoutEffect,useMemo,useRef,useState,type FormEvent } from 'react';
 import { Link,useLocation,useSearch } from 'wouter';
-import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard } from '../host';
+import { projectWorkspaceUrl,usePublishingWorkspaceKey,useWorkspaceDraftGuard,requestWorkspaceNavigation } from '../host';
 import { matrixApi,downloadUrl } from './api';
 import type { ApplyPlanDiff,BudgetPlan,MatrixResult,ServerBinding,TaskResponse,ResourceSelection } from './types';
 import { label,display,Report,BudgetConfirmDialog,downloadMatrixData } from './SourceMatrixPresentation';
@@ -8,9 +8,9 @@ import {BudgetRecommendations,MatrixRecommendation,RecommendationReason,candidat
 import {LiveIndustryDistribution} from './industry/IndustryDistribution';
 import {matrixDemo,demoInitialForm,demoSemanticKey,demoBudgetMatches} from './demo';
 import {DemoBudgetRecommendations,DemoReport} from './DemoRecommendation';
-import {MediaShell,MediaCartFooter,MediaTaskbar,MediaDetails,useMarketRules,rulesRequest} from './MediaMarket';
+import {MediaShell,MediaCartFooter,MediaDetails,useMarketRules,rulesRequest} from './MediaMarket';
 import {usePublisherGateway} from '../PublishingContext';
-import {publishingDraftRequestKey,usePublishingFlow} from '../PublishingFlowContext';
+import {publishingDraftRequestKey,usePublishingFlow,PublishingFlowContext} from '../PublishingFlowContext';
 import {useMediaSelectionTask} from '../useMediaSelectionTask';
 import {uniqueBatchIds} from '../batchMediaSelection';
 import {withPublishingBatch} from '../batchPublishing';
@@ -25,7 +25,14 @@ import type {ResearchDatasetSummary} from './research-import-types';
 import {ApiConnectionDialog} from './ApiConnectionDialog';
 import type {SafeConnection} from './api-connection-types';
 import {sourceMatrixApiHelpUrl,SOURCE_MATRIX_HELP_API_GUIDE_URL} from '../help-links';
+import {ConfirmedArticleHeader,type ConfirmedArticleSelection} from '../components/ConfirmedArticleHeader';
+import {confirmedArticleSelectionHref,isIndependentArticleSelection} from '../confirmedArticleRoute';
+import {articleEditorHref} from '../articleEditorRoute';
+import {useArticleIdentification} from './useArticleIdentification';
+import {ArticleIdentificationStatus,ArticleIdentificationFieldInfo} from './ArticleIdentificationFeedback';
+import {useMatrixFormDraft} from './useMatrixFormDraft';
 import './source-matrix.css';
+import './article-matrix-navigation.css';
 export interface BrandDataBatchOption { id:string; label:string; version:string; sourceFile:string; recordCount:number; period:{start:string|null;end:string|null}; models?:string[] }
 function refreshedMatrixQuotes(previous:MatrixResult['matrix'],next:MatrixResult['matrix']):MatrixResult['matrix'] {
  const current=new Map(next.candidates.map(candidate=>[candidate.candidate_id,candidate]));
@@ -37,26 +44,77 @@ function additionSummary(addition:ApplyPlanDiff['additions'][number]) {
  return `${addition.replaceExisting?'更新数量':'新增'} · ${quantity} · ${amount!=null&&/^\d+$/.test(amount)?formatPublishingMoney(amount):'完整费用待确认'}`;
 }
 type MatrixView='matrix'|'analysis'|'report'|'industry';
+const matrixGatewayScopes=new WeakMap<object,number>();let nextMatrixGatewayScope=0;
+function matrixGatewayScope(gateway:object){let scope=matrixGatewayScopes.get(gateway);if(scope===undefined){scope=++nextMatrixGatewayScope;matrixGatewayScopes.set(gateway,scope);}return scope;}
 export default function SourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  // Two data lanes share one page: the industry distribution always reads the
  // upstream industry service; brand samples feed only the recommendation lane.
  const search=useSearch(),params=new URLSearchParams(search);
  const activeView=params.get('tab')==='matrix'?'matrix':params.get('tab')==='analysis'?'analysis':view==='matrix'||view==='report'?'matrix':'analysis';
- return <LiveSourceMatrixPage view={activeView}/>;
+ const hostFlow=usePublishingFlow(),gateway=usePublisherGateway(),workspace=usePublishingWorkspaceKey();
+ // Remount every task/result/request owner when the authenticated gateway changes.
+ return <PublishingFlowContext.Provider value={isIndependentArticleSelection(search)?null:hostFlow}><LiveSourceMatrixPage key={`${matrixGatewayScope(gateway)}:${workspace}`} view={activeView}/></PublishingFlowContext.Provider>;
 }
 function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [path,navigate]=useLocation(),search=useSearch(),workspace=usePublishingWorkspaceKey();
  const params=new URLSearchParams(search),taskId:string=params.get('task')??params.get('matrixTask')??'';
- const initialDemoForm=demoInitialForm(matrixDemo),initialForm=taskId?null:initialDemoForm;
- const [showDemo,setShowDemo]=useState(!taskId);
- const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]),[industry,setIndustry]=useState(''),[questions,setQuestions]=useState(initialForm?.questions??''),[product,setProduct]=useState(initialForm?.product??''),[audience,setAudience]=useState(initialForm?.audience??''),[regions,setRegions]=useState(initialForm?.regions??'');
- const [hours,setHours]=useState(initialForm?.hours??''),[assetKind,setAssetKind]=useState(initialForm?.assetKind??''),[samplePlatform,setSamplePlatform]=useState(initialForm?.samplePlatform??''),[brandBatches,setBrandBatches]=useState<BrandDataBatchOption[]>([]),[brandData,setBrandData]=useState(initialForm?.brandData??'');
+ const gateway=usePublisherGateway(),flow=usePublishingFlow(),shortlist=mediaShortlistKey(workspace,search);
+ const routeDraftId=params.get('draftId')??'',routeVersionId=params.get('articleVersion')??'',routeTaskId=params.get('workbenchTask')??'';
+ const contextDraftId=routeDraftId||(!routeVersionId?flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id:'')||'';
+ const articleVersionId=routeVersionId||flow?.resources?.find(resource=>resource.kind==='article_version')?.id||'';
+ const mode=params.get('mode')??'',workbenchTask=routeTaskId||flow?.taskId||'';
+ const batchBindingKey=JSON.stringify([params.getAll('batchArticleVersion'),params.getAll('batchDraft')]);
+ const selectionResources=(draft:PublicationDraft)=>{
+  if(mode!=='batch')return [{kind:'article_version' as const,id:draft.articleVersionId},{kind:'publication_draft' as const,id:draft.id}];
+  // Workbench records replace a resource kind as a whole. Preserve every
+  // batch member when the matrix updates its currently bound article.
+  const versions=uniqueBatchIds([...params.getAll('batchArticleVersion'),...(flow?.resources?.filter(item=>item.kind==='article_version').map(item=>item.id)??[]),draft.articleVersionId]);
+  const drafts=uniqueBatchIds([...params.getAll('batchDraft'),...(flow?.resources?.filter(item=>item.kind==='publication_draft').map(item=>item.id)??[]),draft.id]);
+  return [...versions.map(id=>({kind:'article_version' as const,id})),...drafts.map(id=>({kind:'publication_draft' as const,id}))];
+ };
+ const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
+  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flow?.scopeKey,flow?.agentId]);
+ const selectionTask=useMediaSelectionTask(flow,taskContext);
+ const cartKey=JSON.stringify([shortlist,flow?.scopeKey,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
+ const cartScope=useMemo(()=>({gateway,key:cartKey}),[gateway,cartKey]);
+ const [binding,setBinding]=useState<{scope:typeof cartScope;loading:boolean;error:string;draft?:PublicationDraft;version?:ArticleVersion}>();
+ const currentBinding=binding?.scope===cartScope?binding:undefined,serverDraft=currentBinding?.draft;
+ const [bindingAttempt,setBindingAttempt]=useState(0),[cartBusy,setCartBusy]=useState(false),cartEpoch=useRef(0),cartMutation=useRef(false);
+ const hasArticleContext=Boolean(contextDraftId||articleVersionId);
+ const [connectionEpoch,setConnectionEpoch]=useState(0),[taskHydratedKey,setTaskHydratedKey]=useState('');
+ const hydratedTask=useRef('');
+ const identificationVersion=serverDraft?.articleVersionId??currentBinding?.version?.id??articleVersionId;
+ const taskHydrationKey=JSON.stringify([workspace,taskId,contextDraftId,identificationVersion]);
+ const identificationLoading=hasArticleContext&&!identificationVersion;
+ const identification=useArticleIdentification({gateway,workspace:String(workspace),formScope:taskId||'new',articleVersionId:identificationVersion,draftId:contextDraftId||undefined,connectionEpoch,
+  enabled:Boolean(hasArticleContext&&identificationVersion),
+  autoIdentify:view==='matrix'&&Boolean(currentBinding&&!currentBinding.loading&&!currentBinding.error)&&(!taskId||taskHydratedKey===taskHydrationKey)});
+ const initialDemoForm=demoInitialForm(matrixDemo),initialForm=taskId||hasArticleContext?null:initialDemoForm;
+ const verifiedFormScope=identification.context?JSON.stringify([identification.context.scopeKey,identification.context.articleId,identification.context.articleVersionId,identification.context.contentDigest]):undefined;
+ const pendingFormIdentity=JSON.stringify([workspace,shortlist,contextDraftId,articleVersionId,hasArticleContext?'pending':'research']);
+ const pendingFormScope=JSON.stringify([pendingFormIdentity,taskId||'new']);
+ const formScope=verifiedFormScope?JSON.stringify([verifiedFormScope,taskId||'new']):pendingFormScope;
+ const formDraft=useMatrixFormDraft(gateway,formScope,{product:initialForm?.product??'',industry:'',audience:initialForm?.audience??'',questions:initialForm?.questions??'',
+  regions:initialForm?.regions??'',hours:initialForm?.hours??'',assetKind:initialForm?.assetKind??'',samplePlatform:initialForm?.samplePlatform??'',brandData:initialForm?.brandData??'',
+  currency:'CNY',total:initialForm?matrixDemo.form.budget:'',exploration:initialForm?matrixDemo.form.explorationCap:'',enabled:initialForm?matrixDemo.form.explorationEnabled:false,min:'',max:''},verifiedFormScope?formScope:undefined,pendingFormScope);
+ const {regions,hours,assetKind,samplePlatform,brandData,currency,total,exploration,enabled,min,max}=formDraft.values;
+ const {product,industry,audience,questions}=hasArticleContext?identification.values:formDraft.values;
+ const setProduct=(value:string)=>hasArticleContext?identification.setField('product',value):formDraft.setField('product',value);
+ const setIndustry=(value:string)=>hasArticleContext?identification.setField('industry',value):formDraft.setField('industry',value);
+ const setAudience=(value:string)=>hasArticleContext?identification.setField('audience',value):formDraft.setField('audience',value);
+ const setQuestions=(value:string)=>hasArticleContext?identification.setField('questions',value):formDraft.setField('questions',value);
+ const setRegions=(value:string)=>formDraft.setField('regions',value),setHours=(value:string)=>formDraft.setField('hours',value),setAssetKind=(value:string)=>formDraft.setField('assetKind',value);
+ const setSamplePlatform=(value:string)=>formDraft.setField('samplePlatform',value),setBrandData=(value:string)=>formDraft.setField('brandData',value);
+ const setTotal=(value:string)=>formDraft.setField('total',value),setExploration=(value:string)=>formDraft.setField('exploration',value),setEnabled=(value:boolean)=>formDraft.setField('enabled',value),setMin=(value:string)=>formDraft.setField('min',value),setMax=(value:string)=>formDraft.setField('max',value);
+ const [showDemo,setShowDemo]=useState(!taskId&&!hasArticleContext);
+ const [industries,setIndustries]=useState<Array<{id:string;name:string}>>([]);
+ const [brandBatches,setBrandBatches]=useState<BrandDataBatchOption[]>([]);
  const [confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0),[showReport,setShowReport]=useState(false);
  const [importOpen,setImportOpen]=useState(false),[connectionOpen,setConnectionOpen]=useState(false);
  const [importedDataIds,setImportedDataIds]=useState<string[]>(params.getAll('researchDataset'));
  const [importedDatasets,setImportedDatasets]=useState<ResearchDatasetSummary[]>([]);
  const [connectionState,setConnectionState]=useState<{connection:SafeConnection|null;mode:'host'|'user'|'environment'|'none';available:boolean;message?:string}|null>(null);
- const [connectionEpoch,setConnectionEpoch]=useState(0),[connectionError,setConnectionError]=useState(''),[generationPhase,setGenerationPhase]=useState('');
+ const [connectionError,setConnectionError]=useState(''),[generationPhase,setGenerationPhase]=useState('');
  const [comparisonResult,setComparisonResult]=useState<MatrixResult|null>(null);
  const connectionKey=connectionState?connectionState.mode+':'+(connectionState.mode==='user'?connectionState.connection?.revision??'':''):'';
  const [receivedResult,setResult]=useState<MatrixResult|null>(null),[resultTask,setResultTask]=useState(''),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[industryUnavailable,setIndustryUnavailable]=useState(false),[industryAttempt,setIndustryAttempt]=useState(0),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
@@ -65,14 +123,14 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [budgetNeedsRecompute,setBudgetNeedsRecompute]=useState(false);
  const [applyPreview,setApplyPreview]=useState<{scope:string;data:ApplyPlanDiff}|null>(null),[applyBusy,setApplyBusy]=useState(false);
  const [resourceSelections,setResourceSelections]=useState<ResourceSelection[]>([]),[quantityMode,setQuantityMode]=useState<'new_articles'|'repeat_article'>('new_articles'),[preferFormal,setPreferFormal]=useState(false);
- const [currency,setCurrency]=useState('CNY'),[total,setTotal]=useState(matrixDemo.form.budget),[exploration,setExploration]=useState(initialForm?matrixDemo.form.explorationCap:''),[enabled,setEnabled]=useState(initialForm?matrixDemo.form.explorationEnabled:false),[min,setMin]=useState(''),[max,setMax]=useState(''),[fieldError,setFieldError]=useState(''),[errorStage,setErrorStage]=useState<'matrix'|'budget'>('matrix'),[failedOperation,setFailedOperation]=useState<'load'|'matrix'|'budget'>('load');
+ const [fieldError,setFieldError]=useState(''),[errorStage,setErrorStage]=useState<'matrix'|'budget'>('matrix'),[failedOperation,setFailedOperation]=useState<'load'|'matrix'|'budget'>('load');
  const appliedBudget=useRef('');
  const reasonTrigger=useRef<HTMLElement|null>(null);
  const openReason=(candidate:MatrixResult['matrix']['candidates'][number])=>{reasonTrigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setReasonCandidate(candidate);};
  const latestInput=useRef(''),latestBudget=useRef(''),latestRecommendationContext=useRef(''),pendingBudget=useRef<{key:string;matrix:MatrixResult}|null>(null);
  const inputKey=JSON.stringify([industry,product.trim(),audience.trim(),regions.split('、').map(value=>value.trim()).filter(Boolean),questions.split('\n').map(value=>value.trim()).filter(Boolean),hours,assetKind,samplePlatform,brandData,[...importedDataIds].sort(),connectionKey]);latestInput.current=inputKey;
  // Saved samples are display data only. They never populate live task/cart state.
- const demoActive=showDemo&&!taskId&&!result,showingPrevious=!demoActive&&!!comparisonResult&&(!result||result.matrix.status!=='complete'),displayResult=demoActive?matrixDemo.result:showingPrevious?comparisonResult:result;
+ const demoActive=showDemo&&!hasArticleContext&&!taskId&&!result,showingPrevious=!demoActive&&!!comparisonResult&&(!result||result.matrix.status!=='complete'),displayResult=demoActive?matrixDemo.result:showingPrevious?comparisonResult:result;
  const researchUsage=itemObject(displayResult?.scope.task.research_materials??null);
  const demoSemanticStale=demoSemanticKey({industryLabel:industry?industries.find(item=>item.id===industry)?.name??industry:matrixDemo.form.industry,product,audience,regions,questions,hours,assetKind,samplePlatform,brandData})!==demoSemanticKey(initialDemoForm);
  const demoBudgetStale=demoSemanticStale||!demoBudgetMatches(matrixDemo,{currency,total,enabled,exploration,min,max});
@@ -87,10 +145,11 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const followUpBudget=useRef(false);
  const request=useRef<AbortController|null>(null),pollRequest=useRef<AbortController|null>(null),cancelRequest=useRef<AbortController|null>(null),sequence=useRef(0),formRef=useRef<HTMLFormElement>(null);
  useLayoutEffect(()=>{const node=formRef.current?.querySelector('textarea');if(node){node.style.height='auto';node.style.height=`${Math.min(320,Math.max(132,node.scrollHeight))}px`;}},[questions,view]);
- useWorkspaceDraftGuard({dirty:demoActive?demoSemanticStale:!!questions&&(!result&&!taskId||matrixInput!==null&&matrixInput!==inputKey),label:'信源矩阵输入'});
+ const formNeedsGuard=hasArticleContext?(identification.hasManualChanges&&!identification.persisted||formDraft.hasEdits&&!formDraft.persisted):formDraft.hasEdits;
+ useWorkspaceDraftGuard({dirty:formNeedsGuard,label:'信源矩阵输入'});
  const href=(v:string,id=taskId)=>{const params=new URLSearchParams(search);params.set('tab',v==='matrix'||v==='report'?'matrix':'analysis');if(id)params.set('task',id);else params.delete('task');return projectWorkspaceUrl(`/publishing/source-matrix?${params.toString()}`)+(typeof window!=='undefined'?window.location.hash:'');};
  useEffect(()=>{const abort=new AbortController();setLoading(true);
-  void matrixApi<{industries:Array<{id:string;name:string}>;brand_data_batches?:BrandDataBatchOption[];message?:string}>('/industries',abort.signal).then(r=>{if(!abort.signal.aborted){setIndustries(r.industries);setIndustryUnavailable(!r.industries.length);const batches=r.brand_data_batches??[];setBrandBatches(batches);setBrandData(current=>current||batches[0]?.id||'');}}).catch(()=>{if(!abort.signal.aborted)setIndustryUnavailable(true);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>{abort.abort();};
+  void matrixApi<{industries:Array<{id:string;name:string}>;brand_data_batches?:BrandDataBatchOption[];message?:string}>('/industries',abort.signal).then(r=>{if(!abort.signal.aborted){setIndustries(r.industries);setIndustryUnavailable(!r.industries.length);const batches=r.brand_data_batches??[];setBrandBatches(batches);}}).catch(()=>{if(!abort.signal.aborted)setIndustryUnavailable(true);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>{abort.abort();};
  },[workspace,industryAttempt]);
  useEffect(()=>{const abort=new AbortController();setConnectionError('');
   void matrixApi<{connection:SafeConnection|null;mode:'host'|'user'|'environment'|'none';available:boolean;message?:string}>('/matrix/connection',abort.signal)
@@ -164,7 +223,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    if(latestRecommendationContext.current!==submittedContext){setBusy(false);setBudgetPending(false);pendingBudget.current=null;setNotice('稿件或任务上下文已变化，先前请求未应用。');return;}
    if(stage==='matrix'&&submittedInput!==latestInput.current){setBusy(false);setNotice('投放需求已变化，先前生成结果未应用。请按当前需求重新生成。');return;}
    receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);
-   if(stage==='matrix'&&r.task_id){submittedTask.current={id:r.task_id,workspace,inputKey:submittedInput,bindingKey};setSelected([]);navigate(href('matrix',r.task_id));}
+   if(stage==='matrix'&&r.task_id){identification.adoptFormScope(r.task_id);const nextFormScope=JSON.stringify([verifiedFormScope??pendingFormIdentity,r.task_id]);formDraft.adoptScope(nextFormScope,verifiedFormScope?nextFormScope:undefined);submittedTask.current={id:r.task_id,workspace,inputKey:submittedInput,bindingKey};setSelected([]);navigate(href('matrix',r.task_id));}
    if(stage==='budget'&&r.state==='running')setNotice('预算组合正在校验，请稍后刷新结果。');
   }catch(e){if(!abort.signal.aborted&&seq===sequence.current){setFailedOperation(stage);setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);pendingBudget.current=null;}}finally{if(seq===sequence.current)submissionLock.current=false;}
  }
@@ -178,28 +237,6 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   finally{if(cancelRequest.current===abort)cancelRequest.current=null;}
  }
  const candidates=result?.matrix.candidates??[];
- const gateway=usePublisherGateway(),flow=usePublishingFlow(),shortlist=mediaShortlistKey(workspace,search);
- const routeDraftId=params.get('draftId')??'',routeVersionId=params.get('articleVersion')??'',routeTaskId=params.get('workbenchTask')??'';
- const contextDraftId=routeDraftId||flow?.resources?.find(resource=>resource.kind==='publication_draft')?.id||'';
- const articleVersionId=routeVersionId||flow?.resources?.find(resource=>resource.kind==='article_version')?.id||'';
- const mode=params.get('mode')??'',workbenchTask=routeTaskId||flow?.taskId||'';
- const batchBindingKey=JSON.stringify([params.getAll('batchArticleVersion'),params.getAll('batchDraft')]);
- const selectionResources=(draft:PublicationDraft)=>{
-  if(mode!=='batch')return [{kind:'article_version' as const,id:draft.articleVersionId},{kind:'publication_draft' as const,id:draft.id}];
-  // Workbench records replace a resource kind as a whole. Preserve every
-  // batch member when the matrix updates its currently bound article.
-  const versions=uniqueBatchIds([...params.getAll('batchArticleVersion'),...(flow?.resources?.filter(item=>item.kind==='article_version').map(item=>item.id)??[]),draft.articleVersionId]);
-  const drafts=uniqueBatchIds([...params.getAll('batchDraft'),...(flow?.resources?.filter(item=>item.kind==='publication_draft').map(item=>item.id)??[]),draft.id]);
-  return [...versions.map(id=>({kind:'article_version' as const,id})),...drafts.map(id=>({kind:'publication_draft' as const,id}))];
- };
- const taskContext=useMemo(()=>({gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flowScope:flow?.scopeKey,agent:flow?.agentId}),
-  [gateway,workspace,shortlist,routeDraftId,routeVersionId,routeTaskId,mode,batchBindingKey,taskId,flow?.scopeKey,flow?.agentId]);
- const selectionTask=useMediaSelectionTask(flow,taskContext);
- const cartKey=JSON.stringify([shortlist,flow?.scopeKey,contextDraftId,articleVersionId,selectionTask.scopeKey,routeTaskId,mode,taskId]);
- const cartScope=useMemo(()=>({gateway,key:cartKey}),[gateway,cartKey]);
- const [binding,setBinding]=useState<{scope:typeof cartScope;loading:boolean;error:string;draft?:PublicationDraft;version?:ArticleVersion}>();
- const currentBinding=binding?.scope===cartScope?binding:undefined,serverDraft=currentBinding?.draft;
- const [bindingAttempt,setBindingAttempt]=useState(0),[cartBusy,setCartBusy]=useState(false),cartEpoch=useRef(0),cartMutation=useRef(false);
  const [mappedState,setMappedState]=useState<{scope:typeof cartScope;items:MediaResource[];loading?:boolean;error?:string}>(),[detailMedia,setDetailMedia]=useState<MediaResource>();
  const [mappingAttempt,setMappingAttempt]=useState(0);
  const mapped=useMemo(()=>mappedState?.scope===cartScope?mappedState.items:[],[mappedState,cartScope]);
@@ -250,6 +287,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const mediaHref=(view:'home'|'third'|'cart')=>{
   const query=new URLSearchParams(search);query.delete('task');query.delete('draftId');query.delete('simulation');
   if(taskId)query.set('matrixTask',taskId);if(serverDraft?.articleVersionId||articleVersionId)query.set('articleVersion',serverDraft?.articleVersionId||articleVersionId);if(workbenchTask)query.set('workbenchTask',workbenchTask);
+  const verifiedArticleId=serverDraft?.articleId??identification.context?.articleId;if(verifiedArticleId)query.set('articleId',verifiedArticleId);
   const boundId=serverDraft?.id||contextDraftId,base=boundId?`/publishing/drafts/${encodeURIComponent(boundId)}/media`:'/publishing/media';
   return projectWorkspaceUrl(base+(view==='home'?'':'/'+view)+(query.size?'?'+query.toString():''))+(typeof window!=='undefined'?window.location.hash:'');
  };
@@ -349,8 +387,12 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   await persistCart([...next]);
  };
  useEffect(()=>{setSelected(candidates.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&cart.has(media.id);}).map(candidate=>candidate.candidate_id));},[result,mapped,cart]);
- const hydratedTask=useRef('');
- useEffect(()=>{if(!result||!taskId||loading||connectionState===null&&!connectionError||hydratedTask.current===`${workspace}:${taskId}`)return;hydratedTask.current=`${workspace}:${taskId}`;
+ useEffect(()=>{if(!result||!taskId||loading||hasArticleContext&&!identification.context||connectionState===null&&!connectionError||hydratedTask.current===taskHydrationKey)return;hydratedTask.current=taskHydrationKey;
+  const savedBinding=itemObject(result.scope.task.binding??null);
+  if(hasArticleContext&&(savedBinding.article_version_id!==identification.context?.articleVersionId||savedBinding.article_id!==identification.context?.articleId)){
+   setServerStale(true);setMatrixBinding('mismatched');setNotice('已保存矩阵与当前稿件或版本不一致。已保留当前输入，请重新生成矩阵。');setTaskHydratedKey(taskHydrationKey);return;
+  }
+  const draftBindingChanged=hasArticleContext&&(savedBinding.draft_id??'')!==contextDraftId;
   const t=result.scope.task,nextIndustry=industries.find(i=>i.name===t.industry)?.id??'',nextProduct=typeof t.product==='string'?t.product:'',nextAudience=typeof t.audience==='string'?t.audience:'',nextRegions=Array.isArray(t.regions)?t.regions.filter((x):x is string=>typeof x==='string'):[],nextQuestions=Array.isArray(t.questions)?t.questions.map(q=>q&&typeof q==='object'&&!Array.isArray(q)?typeof q.text==='string'?q.text:'':typeof q==='string'?q:'').filter(Boolean):[];
   const requirements=itemObject(t.requirements??null),brand=itemObject(t.brand??null),platforms=Array.isArray(brand.platforms)?brand.platforms.filter((value):value is string=>typeof value==='string'):[];
   const nextHours=typeof t.hours==='string'?t.hours:'',nextAsset=requirements.images===true?'图片':requirements.tables===true?'表格':requirements.links===true?'链接':'',nextPlatform=platforms.length===1?platforms[0]??'':'',nextBrand=typeof brand.batch_id==='string'?brand.batch_id:'';
@@ -358,16 +400,19 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const modelConnection=itemObject(t.model_connection??null),nextConnectionKey=typeof t.model_source==='string'?t.model_source+':'+(t.model_source==='user'&&typeof modelConnection.revision==='string'?modelConnection.revision:''):connectionKey;
   const submitted=submittedTask.current?.id===taskId&&submittedTask.current.workspace===workspace?submittedTask.current:null;
   if(submitted)submittedTask.current=null;
-  setMatrixInput(submitted?.inputKey??JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions,nextHours,nextAsset,nextPlatform,nextBrand,[...nextImportIds].sort(),nextConnectionKey]));setMatrixBinding(submitted?.bindingKey??bindingKey);
+  setMatrixInput(submitted?.inputKey??JSON.stringify([nextIndustry,nextProduct.trim(),nextAudience.trim(),nextRegions,nextQuestions,nextHours,nextAsset,nextPlatform,nextBrand,[...nextImportIds].sort(),nextConnectionKey]));setMatrixBinding(draftBindingChanged?'mismatched':submitted?.bindingKey??bindingKey);
+  if(draftBindingChanged){setServerStale(true);setNotice('当前稿件的投放草稿已变化，已恢复投放要求；请重新生成矩阵后采用推荐组合。');}
   // Hydrate another saved task exactly once. A task just created here keeps any
   // edits made while it was running; its submitted key marks those edits stale.
-  if(!submitted){setImportedDatasets(Array.isArray(t.research_dataset_refs)?t.research_dataset_refs.flatMap(value=>{const row=itemObject(value);return typeof row.id==='string'&&typeof row.name==='string'?[{id:row.id,name:row.name,version:typeof row.version==='string'?row.version:'',recordCount:typeof row.recordCount==='number'?row.recordCount:0,createdAt:typeof row.createdAt==='string'?row.createdAt:'',status:'confirmed' as const}]:[];}):[]);setImportedDataIds(params.get('researchSelection')==='custom'?params.getAll('researchDataset'):nextImportIds);setIndustry(nextIndustry);setProduct(nextProduct);setAudience(nextAudience);setRegions(nextRegions.join('、'));setQuestions(nextQuestions.join('\n'));setHours(nextHours);setAssetKind(nextAsset);setSamplePlatform(nextPlatform);setBrandData(nextBrand);setShowDemo(false);
+  if(!submitted){setImportedDatasets(Array.isArray(t.research_dataset_refs)?t.research_dataset_refs.flatMap(value=>{const row=itemObject(value);return typeof row.id==='string'&&typeof row.name==='string'?[{id:row.id,name:row.name,version:typeof row.version==='string'?row.version:'',recordCount:typeof row.recordCount==='number'?row.recordCount:0,createdAt:typeof row.createdAt==='string'?row.createdAt:'',status:'confirmed' as const}]:[];}):[]);setImportedDataIds(params.get('researchSelection')==='custom'?params.getAll('researchDataset'):nextImportIds);if(hasArticleContext)identification.hydrate({industry:nextIndustry,product:nextProduct,audience:nextAudience,questions:nextQuestions.join('\n')},`${workspace}:${taskId}`);
+    formDraft.hydrate({industry:nextIndustry,product:nextProduct,audience:nextAudience,questions:nextQuestions.join('\n'),regions:nextRegions.join('、'),hours:nextHours,assetKind:nextAsset,samplePlatform:nextPlatform,brandData:nextBrand});setShowDemo(false);
    setResourceSelections(result.resource_selections??[]);setQuantityMode(result.quantity_mode??'new_articles');
-   const p=result.budget_plans[0]??result.content_plans?.[0];if(p?.total_cap)setTotal(p.total_cap);if(p?.currency)setCurrency(p.currency);setEnabled(!!p?.exploration_cap&&Number(p.exploration_cap)>0);setExploration(p?.exploration_cap??'');setMin('');setMax('');
+   const p=result.budget_plans[0]??result.content_plans?.[0];formDraft.hydrate({total:p?.total_cap??'',currency:p?.currency??'CNY',enabled:!!p?.exploration_cap&&Number(p.exploration_cap)>0,exploration:p?.exploration_cap??'',min:'',max:''});
   }
-  // A restored plan has no verified current-cart preference snapshot; compare it,
+  setTaskHydratedKey(taskHydrationKey);
+   // A restored plan has no verified current-cart preference snapshot; compare it,
   // then regenerate before applying rather than treating it as freshly checked.
- },[taskId,result,workspace,industries,loading,connectionState,connectionError]);
+ },[taskId,result,workspace,industries,loading,connectionState,connectionError,identification.context,hasArticleContext,taskHydrationKey,contextDraftId]);
  useEffect(()=>{
   if(!followUpBudget.current||busy||budgetPending||!result||matrixInput===null||matrixStale)return;
   followUpBudget.current=false;
@@ -481,16 +526,33 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const generate=(e:FormEvent)=>{void submit('matrix',e);};
  const budgetFields=<><div className="sm-budget-fields"><label>总预算（{currency}）<input className="field" id="z-budget-total" inputMode="decimal" value={total} placeholder="输入总预算" onChange={e=>setTotal(e.target.value)}/></label><label>篇数含义<select value={quantityMode} disabled={busy} onChange={event=>setQuantityMode(event.target.value as 'new_articles'|'repeat_article')}><option value="new_articles">每篇为不同内容</option><option value="repeat_article">使用当前稿件重复发布</option></select></label><label className="sm-exploration-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>启用探索投放</label>{enabled&&<label>探索子预算上限<input className="field" inputMode="decimal" value={exploration} placeholder="包含在总预算内" onChange={e=>setExploration(e.target.value)}/></label>}<details><summary>单篇价格条件</summary><label>最低单篇价格<input className="field" inputMode="decimal" value={min} placeholder="不限" onChange={e=>setMin(e.target.value)}/></label><label>最高单篇价格<input className="field" inputMode="decimal" value={max} placeholder="不限" onChange={e=>setMax(e.target.value)}/></label></details><button className="button primary" disabled={demoActive?busy||loading:busy||!result||matrixStale||result.matrix.status!=='complete'} onClick={e=>demoActive?generate(e):void submit('budget',e)}>{demoActive?'按当前要求在线生成':budgetPending?'正在生成组合…':result?.budget_plans.length||result?.content_plans?.length?'更新组合':'生成组合'}</button></div>{errorStage==='budget'&&fieldError&&<p className="block-error" role="alert">{fieldError}</p>}</>;
  const recommendationSwitch=!!result?.content_plans?.length&&!!result.budget_plans.length?<div className="sm-plan-kind" aria-label="组合类型"><button type="button" aria-pressed={contentPlansActive} onClick={()=>{setPreferFormal(false);setPlanIndex(0);}}>内容规划草案</button><button type="button" aria-pressed={!contentPlansActive} onClick={()=>{setPreferFormal(true);setPlanIndex(0);}}>正式发布方案</button></div>:null;
- const taskbarTitle=serverDraft?.articleTitle||(currentBinding?.version?'已确认稿件 v'+currentBinding.version.version:contextDraftId||articleVersionId?'当前稿件':undefined);
- const taskbarNote=bindingIssue||(serverDraft?'已确认 v'+serverDraft.articleVersion:currentBinding?.version?'当前冻结版本，首次选媒后保存投放草稿':undefined);
- return <MediaShell title="信源矩阵" taskbar={<MediaTaskbar title={taskbarTitle} count={cart.size} total={pendingPrices?undefined:moneyTotal} cartHref={cartHref} actions={registrationPending?<button className="link small" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button>:undefined}/>}
+ const selectedArticleId=serverDraft?.articleId??identification.context?.articleId;
+ const selectedArticleTitle=serverDraft?.articleTitle??identification.context?.title;
+ const selectedArticleVersion=serverDraft?.articleVersion??currentBinding?.version?.version;
+ const headerRows=selectedArticleTitle&&identificationVersion?[{id:identificationVersion,title:selectedArticleTitle,articleId:selectedArticleId,versionId:identificationVersion,version:selectedArticleVersion}]:[];
+ const editHref=selectedArticleId?projectWorkspaceUrl(articleEditorHref(selectedArticleId,search,{retainArticleContext:true})):undefined;
+ const selectArticle=(selection:ConfirmedArticleSelection)=>{
+  if(selection.article.id===selectedArticleId&&selection.version.id===identificationVersion)return;
+  const next=confirmedArticleSelectionHref('/publishing/source-matrix',search,{articleId:selection.article.id,versionId:selection.version.id},{articleId:selectedArticleId,versionId:identificationVersion});
+  requestWorkspaceNavigation(()=>navigate(projectWorkspaceUrl(next)));
+ };
+ const navigateFromHeader=(next:string)=>requestWorkspaceNavigation(()=>navigate(next));
+ const taskbar=<div className="sm-article-context"><ConfirmedArticleHeader rows={headerRows} selectedVersionId={identificationVersion||undefined} batch={mode==='batch'}
+  loading={hasArticleContext&&(!currentBinding||currentBinding.loading)} error={currentBinding?.error||undefined} onRetry={()=>setBindingAttempt(value=>value+1)}
+  disabled={cartBusy||busy||registrationPending} onSelect={selectArticle} editHref={editHref} onNavigate={navigateFromHeader}/>
+  <div className="sm-article-context-tools"><select aria-label="当前投放任务"><option value="research">独立浏览 / 研究</option>{hasArticleContext&&<option value="current">当前稿件 · {selectedArticleTitle??'正在读取'}</option>}</select>
+   {registrationPending&&<button className="link small" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button>}
+   <Link className="button secondary" href={cartHref}>购物车 {cart.size} · {pendingPrices||moneyTotal===undefined?'待确认':formatPublishingMoney(moneyTotal)}</Link>
+  </div></div>;
+ return <MediaShell title="信源矩阵" actions={<Link className="button secondary" href={mediaHref('third')} onClick={event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigateFromHeader(mediaHref('third'));}}}>进入媒体库自选</Link>} taskbar={taskbar}
  dialogs={<><ResearchImportDialog key={workspace+':imports'} open={importOpen} selectedIds={importedDataIds} onChange={updateImports} onClose={()=>setImportOpen(false)}/><ApiConnectionDialog key={workspace+':connection'} open={connectionOpen} onChange={updateConnection} onClose={()=>setConnectionOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy||applyBusy} preview={budgetPreview} onClose={()=>{setConfirmBudget(null);setConfirmLayer(null);setApplyPreview(null);}} onConfirm={()=>void confirmBudgetMedia()}/><RecommendationReason candidate={reasonCandidate} result={displayResult} returnFocus={reasonTrigger.current} resourceSelection={resourceSelections.find(value=>value.candidate_id===reasonCandidate?.candidate_id)} disabled={busy||matrixStale} onResourceSelection={!demoActive&&!showingPrevious&&reasonCandidate?value=>{setResourceSelections(current=>[...current.filter(item=>item.candidate_id!==reasonCandidate.candidate_id),...(value?[value]:[])]);}:undefined} onClose={()=>setReasonCandidate(null)}/></>}>
   <div className={'sm-workspace'+(view==='matrix'?' sm-recommendation-workspace':'')}>
    <nav className="x-matrix-nav" aria-label="信源矩阵子板块"><Link className={view==='analysis'?'active':''} aria-current={view==='analysis'?'page':undefined} href={href('analysis')}>行业信源分布</Link><Link className={view==='matrix'?'active':''} aria-current={view==='matrix'?'page':undefined} href={href('matrix')}>信源矩阵推荐</Link></nav>
    {view==='analysis'?<LiveIndustryDistribution/>:<>
     <form className="panel sm-demand" ref={formRef} aria-labelledby="sm-demand-title" noValidate onSubmit={generate}><div className="panel-title"><h2 id="sm-demand-title">本次投放要求</h2></div>
+     {identificationLoading?<p role="status">{currentBinding?.error||'正在读取稿件上下文…'}</p>:<ArticleIdentificationStatus identification={identification}/>}
      
-     <div className="sm-demand-fields"><label>品牌 / 产品<input className="field" value={product} placeholder="输入品牌或产品" onChange={e=>setProduct(e.target.value)}/></label><label>目标行业 *<select value={industry} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!industry} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} onChange={e=>setIndustry(e.target.value)}><option value="">{demoActive?matrixDemo.form.industry+' · 演示':loading?'正在读取行业…':industries.length?'选择行业':'暂无已接入行业'}</option>{industries.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>覆盖地区<input className="field" value={regions} placeholder="多个地区用顿号分隔" onChange={e=>setRegions(e.target.value)}/></label><label>目标受众<input className="field" value={audience} placeholder="描述内容面向的人群" onChange={e=>setAudience(e.target.value)}/></label><label>期望发布时效（小时）<input className="field" inputMode="numeric" value={hours} placeholder="不限定" onChange={e=>setHours(e.target.value)}/></label><label>素材能力要求<select value={assetKind} onChange={e=>setAssetKind(e.target.value)}><option value="">不限定</option><option value="图片">图片</option><option value="表格">表格</option><option value="链接">链接</option></select></label><label>品牌引用数据<select value={brandData} onChange={e=>{setBrandData(e.target.value);setSamplePlatform('');}}><option value="">不使用品牌样本</option>{brandData===matrixDemo.form.brandDataBatchId&&!brandBatches.some(batch=>batch.id===brandData)&&<option value={brandData}>一航软件 · 保存样本</option>}{brandBatches.map(batch=><option key={batch.id} value={batch.id}>{batch.label} · {batch.recordCount} 条</option>)}{!brandBatches.length&&brandData!==matrixDemo.form.brandDataBatchId&&<option value="">暂无可用品牌数据批次</option>}</select></label><label>引用样本平台<select value={samplePlatform} onChange={e=>setSamplePlatform(e.target.value)}><option value="">全部已输入平台</option>{[...new Set(sampleModels)].map(model=><option key={model} value={model}>{model}</option>)}</select></label><label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!questions.trim()} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} value={questions} placeholder="输入目标问题" onChange={e=>setQuestions(e.target.value)}/></label></div>
+     <div className="sm-demand-fields"><label>品牌 / 产品<input className="field" aria-label="品牌 / 产品" disabled={identificationLoading} value={product} placeholder="输入品牌或产品" onChange={e=>setProduct(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="product" identification={identification}/>}</label><label>目标行业 *<select aria-label="目标行业 *" disabled={identificationLoading} value={industry} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!industry} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} onChange={e=>setIndustry(e.target.value)}><option value="">{demoActive?matrixDemo.form.industry+' · 演示':loading?'正在读取行业…':industries.length?'选择行业':'暂无已接入行业'}</option>{industries.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="industry" identification={identification} industryName={id=>industries.find(item=>item.id===id)?.name??id}/>}</label><label>覆盖地区<input className="field" value={regions} placeholder="多个地区用顿号分隔" onChange={e=>setRegions(e.target.value)}/></label><label>目标受众<input className="field" aria-label="目标受众" disabled={identificationLoading} value={audience} placeholder="描述内容面向的人群" onChange={e=>setAudience(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="audience" identification={identification}/>}</label><label>期望发布时效（小时）<input className="field" inputMode="numeric" value={hours} placeholder="不限定" onChange={e=>setHours(e.target.value)}/></label><label>素材能力要求<select value={assetKind} onChange={e=>setAssetKind(e.target.value)}><option value="">不限定</option><option value="图片">图片</option><option value="表格">表格</option><option value="链接">链接</option></select></label><label>品牌引用数据<select value={brandData} onChange={e=>{setBrandData(e.target.value);setSamplePlatform('');}}><option value="">不使用品牌样本</option>{brandData===matrixDemo.form.brandDataBatchId&&!brandBatches.some(batch=>batch.id===brandData)&&<option value={brandData}>一航软件 · 保存样本</option>}{brandBatches.map(batch=><option key={batch.id} value={batch.id}>{batch.label} · {batch.recordCount} 条</option>)}{!brandBatches.length&&brandData!==matrixDemo.form.brandDataBatchId&&<option value="">暂无可用品牌数据批次</option>}</select></label><label>引用样本平台<select value={samplePlatform} onChange={e=>setSamplePlatform(e.target.value)}><option value="">全部已输入平台</option>{[...new Set(sampleModels)].map(model=><option key={model} value={model}>{model}</option>)}</select></label><label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-label="目标问题 / 内容需求 *" disabled={identificationLoading} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!questions.trim()} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} value={questions} placeholder="输入目标问题" onChange={e=>setQuestions(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="questions" identification={identification}/>}</label></div>
      <div className="sm-demand-actions"><div>{industryUnavailable&&<p className="small" role="status">在线推荐行业暂不可用，{demoActive?'保存样本可继续查看；':''}请重试或联系运营接入。<button type="button" className="link small" disabled={loading} onClick={()=>setIndustryAttempt(value=>value+1)}>重试读取行业</button></p>}</div><div className="actions"><button type="button" className="button secondary" disabled={busy} onClick={()=>setImportOpen(true)}>导入数据</button><div className="sm-api-action"><button type="button" className="button secondary" disabled={busy} onClick={()=>setConnectionOpen(true)}>连接 API</button></div><button className="button primary" disabled={busy||loading} type="submit">{busy&&!budgetPending?generationPhase||'正在生成…':result?'重新生成矩阵并组合':'生成推荐矩阵'}</button></div></div>
      
      <div className="sm-input-status" aria-live="polite"><span>{importedDataIds.length?`已选择 ${importedDataIds.length} 份导入数据`:'未选择导入数据'}{importedDatasets.filter(item=>importedDataIds.includes(item.id)).map(item=><span key={item.id}> · {item.name}（{item.recordCount} 条）</span>)}</span><span>{connectionState?.mode==='user'&&connectionState.connection?`当前模型：${connectionState.connection.name} · ${connectionState.connection.model}`:connectionState?.mode==='host'?'当前使用平台统一模型':connectionState?.mode==='environment'?'当前使用平台配置的模型':connectionError||'尚未连接 AI'}</span></div>

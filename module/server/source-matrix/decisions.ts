@@ -1,5 +1,7 @@
 import { clone, semantic, type Row } from './common.js';
 import type { SourceMatrixDecisionAdapter } from './adapter.js';
+import { identificationMessages } from './article-identification.js';
+import { endpointFor, invokeAi, type AiSettings } from './ai-connection-provider.js';
 
 /**
  * Env-gated server-side decision adapter (OpenAI-compatible chat completions,
@@ -16,12 +18,18 @@ const DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 const DEFAULT_MODEL = 'glm-4.6';
 const REQUEST_TIMEOUT_MS = 240_000;
 
+/** Keep explicit endpoints and the established default; normalize the documented /v1 base. */
+export function environmentChatEndpoint(env: Readonly<Record<string, string | undefined>>): string {
+  const base = env.FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL?.trim() || DEFAULT_BASE_URL;
+  return /\/v1\/?$/.test(base) ? base.replace(/\/$/, '') + '/chat/completions' : base;
+}
+
 export interface ChatMessage { role: 'system' | 'user'; content: string; }
 
 async function chat(env: Record<string, string | undefined>, messages: ChatMessage[]): Promise<unknown> {
   const key = env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY?.trim();
   if (!key) throw new Error('adapter_not_configured');
-  const base = env.FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL?.trim() || DEFAULT_BASE_URL;
+  const base = environmentChatEndpoint(env);
   const model = env.FRONTMIND_SOURCE_MATRIX_LLM_MODEL?.trim() || DEFAULT_MODEL;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -156,8 +164,9 @@ budget_plans仅用于已存在的真实稿件和真实矩阵资源；每套strat
 组合保留selected_items中锁定发布项、供应商和用途，无法满足就说明，不删除锁定项凑预算。content_plans不能替代正式锁定发布项。
 依据全部报价规格、单价×数量、必要附加费和套餐规则安排篇数，不为花满预算加篇；探索包含总额且受明确探索子额度。费用未知不当0，不宣称买得起。最终费用和可执行状态由校验器计算，禁止输出价格、总价或budget_feasible等事实。`;
 
-export function createDecisionAdapter(send:(messages:ChatMessage[])=>Promise<unknown>): SourceMatrixDecisionAdapter {
+export function createDecisionAdapter(send:(messages:ChatMessage[])=>Promise<unknown>,identifySend?:(messages:ChatMessage[],signal?:AbortSignal)=>Promise<unknown>): SourceMatrixDecisionAdapter {
   return {
+    ...(identifySend?{identify:(input:Parameters<NonNullable<SourceMatrixDecisionAdapter['identify']>>[0])=>identifySend(identificationMessages(input),input.signal)}:{}),
     async matrix(input) {
       const {research_dataset_refs:_refs,research_dataset_ids:_ids,model_connection:_connection,model_source:_source,...promptTask}=semantic(input.request.task??{});
       const payload=await send([
@@ -181,6 +190,13 @@ export function createDecisionAdapter(send:(messages:ChatMessage[])=>Promise<unk
 }
 
 export function createEnvDecisionAdapter(env: Readonly<Record<string, string | undefined>>): SourceMatrixDecisionAdapter | undefined {
-  if (!env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY?.trim()) return undefined;
-  return createDecisionAdapter(messages=>chat(env as Record<string,string|undefined>,messages));
+  const key=env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY?.trim();
+  if (!key) return undefined;
+  // The environment gateway already speaks OpenAI-compatible chat completions.
+  // Reuse the bounded provider transport for identification, with the same
+  // server allowlist as personal connections; legacy matrix/budget are unchanged.
+  const settings:AiSettings={name:'Environment',provider:'glm',model:env.FRONTMIND_SOURCE_MATRIX_LLM_MODEL?.trim()||DEFAULT_MODEL,apiKey:key,baseUrl:environmentChatEndpoint(env)};
+  let configured=false;
+  try{endpointFor(settings,env);configured=/^[\w.\-:/]{1,160}$/.test(settings.model);}catch{/** Invalid identification configuration stays explicitly unavailable. */}
+  return createDecisionAdapter(messages=>chat(env as Record<string,string|undefined>,messages),configured?(messages,signal)=>invokeAi(settings,env,messages,false,{identification:true,signal}):undefined);
 }

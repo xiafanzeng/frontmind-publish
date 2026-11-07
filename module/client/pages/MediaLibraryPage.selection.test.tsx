@@ -23,8 +23,8 @@ vi.mock("../source-matrix/MediaMarket", () => ({
   RowHead: () => null,
   MarketRemark: () => null,
   MediaDetails: () => null,
-  MediaShell: ({ title, steps, taskbar, children }: { title: string; steps?: ReactNode; taskbar?: ReactNode; children: ReactNode }) => (
-    <main><h1>{title}</h1>{steps}{taskbar}{children}</main>
+  MediaShell: ({ title, actions, steps, taskbar, children }: { title: string; actions?: ReactNode; steps?: ReactNode; taskbar?: ReactNode; children: ReactNode }) => (
+    <main><h1>{title}</h1>{actions}{steps}{taskbar}{children}</main>
   ),
   MediaTaskbar: ({ children }: { children?: ReactNode }) => <section>{children}</section>,
   MediaCartFooter: ({ count, total, nextDisabled, nextLabel, onNext, selectionPending }: { count: number; total?: string; nextDisabled?: boolean; nextLabel?: string; onNext?: () => void; selectionPending?: boolean }) => (
@@ -910,6 +910,91 @@ describe("media catalogue inventory, filters and cart integration", () => {
     });
     expect(screen.queryByRole("checkbox", { name: "选择 媒体 news-0" })).toBeNull();
     expect(count()).toBe("0");
+  });
+});
+
+describe("shared confirmed article navigation", () => {
+  it("replaces the heading export with a context-preserving recommendation link and editor return", async () => {
+    const fixture = gatewayFixture(undefined, article(), draft([media('a')]));
+    harness(fixture.gateway, '/publishing/drafts/draft-1/media/third?articleVersion=version-1&mode=multi&titleMode=single&workbenchTask=task-1&matrixTask=matrix-1&operatorOwnerId=9&enterpriseProjectId=p');
+    await waitFor(() => expect(count()).toBe('1'));
+    const target = new URL(screen.getByRole('link', { name: '查看推荐信源矩阵' }).getAttribute('href')!, window.location.origin);
+    expect(target.pathname).toBe('/publishing/source-matrix');
+    expect(target.searchParams.get('tab')).toBe('matrix');
+    expect(target.searchParams.get('task')).toBe('matrix-1');
+    expect(target.searchParams.get('workbenchTask')).toBe('task-1');
+    expect(target.searchParams.get('articleVersion')).toBe('version-1');
+    expect(target.searchParams.get('draftId')).toBe('draft-1');
+    expect(target.searchParams.get('operatorOwnerId')).toBe('9');
+    expect(target.searchParams.get('enterpriseProjectId')).toBe('p');
+    expect(screen.queryByRole('button', { name: '导出媒体清单' })).toBeNull();
+    const back = new URL(screen.getByRole('link', { name: /返回编辑稿件/ }).getAttribute('href')!, window.location.origin);
+    expect(back.pathname).toBe('/publishing/articles/article-1/edit');
+    expect(back.searchParams.get('draftId')).toBe('draft-1');
+    expect(back.searchParams.get('articleVersion')).toBe('version-1');
+    expect(back.searchParams.get('mode')).toBe('multi');
+  });
+
+  it('restores a historical version by article identity without inheriting the still-mounted previous task', async () => {
+    const oldVersion = { ...article().versions[0]!, id: 'historical-1', version: 1, hash: 'historical-hash' };
+    const detail = article({ currentVersionId: 'version-2', currentVersion: 2, versions: [oldVersion, { ...article().versions[0]!, id: 'version-2', version: 2 }] });
+    const fixture = gatewayFixture(undefined, detail);
+    const oldFlow = flow({ resources: [{ kind: 'publication_draft', id: 'unrelated-draft' }, { kind: 'article_version', id: 'unrelated-version' }] });
+    harness(fixture.gateway, '/publishing/media/third?articleId=article-1&articleVersion=historical-1&mode=multi', oldFlow);
+    await screen.findByText('已确认稿件 · v1');
+    expect(fixture.getArticle).toHaveBeenCalledWith('article-1', expect.any(AbortSignal));
+    expect(fixture.gateway.listArticles).not.toHaveBeenCalled();
+    expect(fixture.getDraft).not.toHaveBeenCalled();
+    expect(oldFlow.ensureTask).not.toHaveBeenCalled();
+    expect(oldFlow.saveSelections).not.toHaveBeenCalled();
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+    expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
+  });
+
+  it('switches article only after the shared read-only selector verifies its version and drops old cart/task bindings', async () => {
+    const first = article();
+    const second = article({ id: 'article-2', title: '第二篇真实稿件', currentVersionId: 'version-2', versions: [{ ...first.versions[0]!, id: 'version-2', hash: 'hash-2' }] });
+    const fixture = gatewayFixture(undefined, first, draft([media('a')]));
+    fixture.gateway.listArticles = vi.fn(async () => [first, second]);
+    fixture.getArticle.mockImplementation(async id => id === second.id ? second : first);
+    fixture.getArticleVersion.mockImplementation(async id => id === 'version-2' ? second.versions[0]! : first.versions[0]!);
+    const oldFlow = flow();
+    const view = harness(fixture.gateway, '/publishing/drafts/draft-1/media/third?articleVersion=version-1&workbenchTask=task-1&matrixTask=matrix-1&mode=multi&enterpriseProjectId=p', oldFlow);
+    await waitFor(() => expect(count()).toBe('1'));
+    fireEvent.click(screen.getByRole('button', { name: /当前稿件/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: /ID：article-2/ }));
+    fireEvent.click(screen.getByRole('button', { name: '选择确认版本' }));
+    await screen.findByRole('combobox', { name: '稿件版本' });
+    expect(count()).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: '使用此版本' }));
+    await waitFor(() => expect(view.location.history?.at(-1)).toContain('articleId=article-2'));
+    const target = new URL(view.location.history!.at(-1)!, window.location.origin);
+    expect(target.pathname).toBe('/publishing/media/third');
+    expect(target.searchParams.get('articleVersion')).toBe('version-2');
+    expect(target.searchParams.has('draftId')).toBe(false);
+    expect(target.searchParams.has('workbenchTask')).toBe(false);
+    expect(target.searchParams.has('matrixTask')).toBe(false);
+    expect(target.searchParams.get('mode')).toBe('multi');
+    expect(target.searchParams.get('enterpriseProjectId')).toBe('p');
+    await waitFor(() => expect(count()).toBe('0'));
+    expect(fixture.createDraft).not.toHaveBeenCalled();
+    expect(fixture.updateDraftMedia).not.toHaveBeenCalled();
+    expect(oldFlow.ensureTask).not.toHaveBeenCalled();
+  });
+
+  it('asks before discarding an unpersisted independent media shortlist on matrix navigation', async () => {
+    const fixture = gatewayFixture();
+    const location = memoryLocation({ path: '/publishing/media/third', record: true });
+    render(<Router hook={location.hook} searchHook={location.searchHook}><PublishingGatewayProvider gateway={fixture.gateway}><MediaLibraryPage view="third"/></PublishingGatewayProvider></Router>);
+    await waitFor(() => expect(choice('a').disabled).toBe(false));
+    fireEvent.click(choice('a'));
+    await waitFor(() => expect(count()).toBe('1'));
+    fireEvent.click(screen.getByRole('link', { name: '查看推荐信源矩阵' }));
+    const dialog = screen.getByRole('dialog', { name: '离开媒体选择' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    expect(count()).toBe('1');
+    expect(location.history?.at(-1)).not.toContain('/source-matrix');
+    expect(fixture.createDraft).not.toHaveBeenCalled();
   });
 });
 
