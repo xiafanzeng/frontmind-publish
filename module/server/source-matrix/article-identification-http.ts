@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
@@ -13,7 +13,6 @@ const selection = z.object({ article_version_id: z.string().uuid(), draft_id: z.
 const identifyBody = selection.extend({ content_digest: z.string().regex(/^[a-f0-9]{64}$/), connection_revision: z.string().min(1).max(160) }).strict();
 const unconfiguredMessage = 'AI 识别暂未配置，可先手动填写。';
 type Decision = Awaited<ReturnType<typeof resolveUserDecisionAdapter>>;
-const hostRevisions = new WeakMap<object, { identify: unknown; revision: string }>();
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function failure(status: number, code: string, publicMessage: string) { return Object.assign(new Error(code), { status, code, publicMessage }); }
 
@@ -32,13 +31,6 @@ function connectionOf(core: ModuleHttpCore, decision: Decision): IdentificationC
     // or an unkeyed hash of it. It is stable across equivalent server workers.
     const env = core.environment;
     revision = 'environment:' + createHmac('sha256', env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY || 'unconfigured').update(JSON.stringify([env.FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL || '', env.FRONTMIND_SOURCE_MATRIX_LLM_MODEL || '', env.FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS || '', 'identify-v1'])).digest('hex');
-  } else if (decision.mode === 'host' && decision.adapter) {
-    if (decision.adapter.identificationRevision) revision = 'host:' + hash(decision.adapter.identificationRevision);
-    else {
-      let entry = hostRevisions.get(decision.adapter);
-      if (!entry || entry.identify !== decision.adapter.identify) { entry = { identify: decision.adapter.identify, revision: randomUUID() }; hostRevisions.set(decision.adapter, entry); }
-      revision = 'host:' + entry.revision;
-    }
   } else revision = 'none:identify-v1';
   return { mode: decision.mode, available: typeof decision.adapter?.identify === 'function', revision };
 }

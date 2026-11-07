@@ -240,7 +240,7 @@ it('hydrates a cancelled task projection with no result and still recognizes its
 it('waits for verified article context after adopting a new task before comparing transferred form fields', async () => {
  const ctx=context(),nextContext=deferred<IdentificationContextResponse>();let contexts=0;
  const fetcher=installApi({readContext:()=>++contexts===1?contextResponse(ctx):nextContext.promise,identify:()=>identified(ctx),
-  readCatalog:()=>canonicalCatalog([{id:'102',name:'真实行业'}]),generate:()=>({state:'running',task_id:'task-a'}),readTask:()=>matrixResult('识别品牌','version-a','新任务矩阵媒体')});
+  readCatalog:()=>canonicalCatalog(),generate:()=>({state:'running',task_id:'task-a'}),readTask:()=>matrixResult('识别品牌','version-a','新任务矩阵媒体')});
  open('tab=matrix&articleVersion=version-a');
  await waitFor(()=>expect(field('品牌 / 产品').value).toBe('识别品牌'));
  fireEvent.change(field('总预算（CNY）'),{target:{value:''}});

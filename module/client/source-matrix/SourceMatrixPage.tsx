@@ -140,7 +140,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [connectionError,setConnectionError]=useState(''),[generationPhase,setGenerationPhase]=useState('');
  const [comparisonResult,setComparisonResult]=useState<MatrixResult|null>(null),[comparingPrevious,setComparingPrevious]=useState(false);
  const industrySelection=selectedIndustryQuery(params),industrySelectionKey=industryQueryKey(industrySelection.query)??(industrySelection.error?JSON.stringify(['invalid',params.get('siScope'),params.get('siPeriod'),params.get('siDate'),params.get('siModel')]):null);
- const [receivedResult,setResult]=useState<MatrixResult|null>(null),[resultTask,setResultTask]=useState(''),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
+ const [receivedResult,setResult]=useState<MatrixResult|null>(null),[resultTask,setResultTask]=useState(''),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[,setTaskState]=useState(''),[pollEpoch,setPollEpoch]=useState(0),[selected,setSelected]=useState<string[]>([]);
  const result=resultTask===`${workspace}:${taskId}`?receivedResult:null;
  const [receivedTaskDetails,setReceivedTaskDetails]=useState<{owner:string;task:TaskResponse['task']}>();
  const savedTask=(receivedTaskDetails?.owner===`${workspace}:${taskId}`?receivedTaskDetails.task:undefined)??result?.scope.task;
