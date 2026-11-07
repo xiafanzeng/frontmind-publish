@@ -28,7 +28,7 @@ let nextStoreIdentity = 0;
 /** A gateway-scoped store keeps the same operation across StrictMode and route remounts. */
 export class IndustrySourceStore {
   readonly identity = ++nextStoreIdentity;
-  private state: IndustryState = { filters: empty(), common: null, selection: { ...defaultSelection }, media: empty(), contents: empty(), distributions: empty(), mediaSize: 10, contentSize: 20, blocked: null };
+  private state: IndustryState = { filters: empty(), common: null, selection: { ...defaultSelection }, media: empty(), contents: empty(), distributions: empty(), mediaSize: 50, contentSize: 20, blocked: null };
   private listeners = new Set<() => void>();
   private generations = { media: 0, contents: 0, distributions: 0 };
   private controllers: Partial<Record<ListKind | 'filters' | 'distributions', AbortController>> = {};
@@ -43,6 +43,9 @@ export class IndustrySourceStore {
   private stickyBlock(failure: IndustryFailure): IndustryFailure {
     // Free endpoints cannot prove that billed-query quota has recovered, even after another failure.
     return this.state.blocked?.status === 'quota_exhausted' ? this.state.blocked : failure;
+  }
+  reportExportFailure(failure: IndustryFailure) {
+    if (blockedStatuses.has(failure.status)) this.update({ blocked: this.stickyBlock(failure) });
   }
   dispose() { for (const controller of Object.values(this.controllers)) controller?.abort(); this.listeners.clear(); }
 
