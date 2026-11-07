@@ -213,6 +213,7 @@ it('feeds the selected brand batch and demand constraints into the planner reque
 
 
 it('passes verified industry context to the platform request and persists the same snapshot',async()=>{
+ canonicalReads();
  const created=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{industry_source_scope_id:'42'}} as any);
@@ -225,12 +226,13 @@ it('passes verified industry context to the platform request and persists the sa
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],industry_query:query,as_of:'2026-11-07T00:00:00Z'})});
  expect(response.status).toBe(202);await response.json();
  expect(load.mock.calls[0]?.[0]).toMatchObject({industryId:'industry-1',industryName:'软件测试',selection:query,configuredScopeId:'42'});
- expect(created.mock.calls[0]?.[3]).toMatchObject({industry_query:query,industry_context:snapshot,model_source:'environment'});
- expect(received.task.industry_context).toEqual(snapshot);
+ expect(created.mock.calls[0]?.[3]).toMatchObject({industry_query:query,industry_context:{...snapshot,industry_id:'101'},model_source:'environment'});
+ expect(received.task.industry_context).toEqual({...snapshot,industry_id:'101'});
  expect(received.task.industry_assignment.kind).toBe('user_confirmed');
 });
 
 it('fails closed before generation when the authorized frozen text cannot be read',async()=>{
+ canonicalReads();
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  const created=vi.spyOn(MatrixRepository.prototype,'create');
  vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({binding:{draftId:bindingRow.draft_id,draftRevision:1,draftStatus:'draft',articleVersionId:bindingRow.article_version_id,articleId:'article-1',versionNumber:1,contentHash:'hash-1',containsImages:false,articleTitle:'验收稿件',selections:[],fingerprint:'fp-1'}});

@@ -641,7 +641,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  fireEvent.click(screen.getByRole('button',{name:'按当前要求在线生成'}));
  await screen.findByText('模型尚未配置，请稍后重试');
  expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
- expect(bodies[0]!.body).toMatchObject({industry_id:'configured-industry',brand_data:matrixDemo.form.brandDataBatchId});
+ expect(bodies[0]!.body).toMatchObject({industry_id:'901',brand_data:matrixDemo.form.brandDataBatchId});
  expect(bodies[0]!.body).not.toHaveProperty('connection_mode');expect(bodies[0]!.body).not.toHaveProperty('connection_revision');
  expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
  expect(screen.queryByText('一航软件 · 已保存样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();

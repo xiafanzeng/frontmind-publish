@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import type { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
@@ -7,12 +7,21 @@ import { BindingStore, type IdentificationArticle } from './binding.js';
 import { loadIndustryCatalog } from './industry-catalog.js';
 import { digest } from './common.js';
 import { resolveUserDecisionAdapter } from './ai-connection-http.js';
+import type { SourceMatrixDecisionAdapter } from './adapter.js';
 import { identificationDigest, unidentifiedFields, validateIdentificationFields, identifyWithinDeadline, identificationCandidates, IDENTIFICATION_MAX_CHARACTERS } from './article-identification.js';
 
 const selection = z.object({ article_version_id: z.string().uuid(), draft_id: z.string().uuid().optional() }).strict();
 const identifyBody = selection.extend({ content_digest: z.string().regex(/^[a-f0-9]{64}$/), connection_revision: z.string().min(1).max(160) }).strict();
 const unconfiguredMessage = 'AI 识别暂未配置，可先手动填写。';
-type Decision = Awaited<ReturnType<typeof resolveUserDecisionAdapter>>;
+type Decision = { adapter?: SourceMatrixDecisionAdapter; mode: 'host' | 'environment' | 'none' };
+/** Identification keeps the documented host seam: an injected host adapter wins,
+ * otherwise the platform environment resolver applies (matrix/budget generation
+ * stays platform-only by design). */
+async function resolveIdentificationAdapter(core: ModuleHttpCore, req: Request): Promise<Decision> {
+  if (core.sourceMatrixDecisions) return { adapter: core.sourceMatrixDecisions, mode: 'host' as const };
+  return resolveUserDecisionAdapter(core, req);
+}
+const hostRevisions = new WeakMap<object, { identify: unknown; revision: string }>();
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function failure(status: number, code: string, publicMessage: string) { return Object.assign(new Error(code), { status, code, publicMessage }); }
 
@@ -31,6 +40,13 @@ function connectionOf(core: ModuleHttpCore, decision: Decision): IdentificationC
     // or an unkeyed hash of it. It is stable across equivalent server workers.
     const env = core.environment;
     revision = 'environment:' + createHmac('sha256', env.FRONTMIND_SOURCE_MATRIX_LLM_API_KEY || 'unconfigured').update(JSON.stringify([env.FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL || '', env.FRONTMIND_SOURCE_MATRIX_LLM_MODEL || '', env.FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS || '', 'identify-v1'])).digest('hex');
+  } else if (decision.mode === 'host' && decision.adapter) {
+    if (decision.adapter.identificationRevision) revision = 'host:' + hash(decision.adapter.identificationRevision);
+    else {
+      let entry = hostRevisions.get(decision.adapter);
+      if (!entry || entry.identify !== decision.adapter.identify) { entry = { identify: decision.adapter.identify, revision: randomUUID() }; hostRevisions.set(decision.adapter, entry); }
+      revision = 'host:' + entry.revision;
+    }
   } else revision = 'none:identify-v1';
   return { mode: decision.mode, available: typeof decision.adapter?.identify === 'function', revision };
 }
@@ -70,7 +86,7 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (!loaded.article) throw failure(loaded.failure === 'draft_version_mismatch' ? 409 : 404, 'binding_not_found', '当前稿件或版本不可用，请重新选择已授权稿件。');
     const catalog = await loadIndustryCatalog(core, req);
     const industries = catalog.status === 'ok' ? catalog.data.industries : [];
-    const decision = await resolveUserDecisionAdapter(core, req);
+    const decision = await resolveIdentificationAdapter(core, req);
     if (authorizedScope(core, req).scopeKey !== scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     return { scope, store, article: loaded.article, industries, catalog, decision, context: { ...contextOf(scope.scopeKey, loaded.article, connectionOf(core, decision)), catalogVersion: catalog.status === 'ok' ? catalog.data.catalogVersion : null } };
   }
@@ -109,7 +125,7 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (authorizedScope(core, req).scopeKey !== current.scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     const latest = await current.store.loadIdentificationArticle({ articleVersionId: body.article_version_id, draftId: body.draft_id });
     if (!latest.article || latest.article.articleId !== current.article.articleId || latest.article.articleVersionId !== current.article.articleVersionId || latest.article.versionNumber !== current.article.versionNumber || identificationDigest(latest.article) !== current.context.contentDigest || latest.article.contentHash !== current.article.contentHash) throw failure(409, 'stale_content', '稿件或版本权限已变化，本次结果未采用，请重新读取。');
-    const nextDecision = await resolveUserDecisionAdapter(core, req);
+    const nextDecision = await resolveIdentificationAdapter(core, req);
     if (connectionOf(core, nextDecision).revision !== current.context.connection.revision || !nextDecision.adapter?.identify) throw failure(409, 'connection_changed', 'AI 连接已变化，本次结果未采用，请重新识别。');
     if (fields.industry.value) {
       const latestCatalog = await loadIndustryCatalog(core, req);

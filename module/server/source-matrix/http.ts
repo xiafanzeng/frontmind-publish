@@ -130,7 +130,10 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const context=core.context(req);
   const identity=createHash('sha256').update(JSON.stringify({account:context.accountUserId,actor:context.actorUserId,owner:context.businessOwnerId,project:context.enterpriseProjectId,businessActor:context.businessActorId})).digest('hex');
   // Only the free supplier filters/distributions are used; no billed ranking queries.
-  task.industry_context=await loadMatrixIndustryContext({industryId:industry.industryId,industryName:industry.name,selection:body.industry_query,configuredScopeId:typeof industry.dataset.industry_source_scope_id==='string'?industry.dataset.industry_source_scope_id:undefined,identity,environment:core.environment});
+  const loadedContext=await loadMatrixIndustryContext({industryId:industry.industryId,industryName:industry.name,selection:body.industry_query,configuredScopeId:typeof industry.dataset.industry_source_scope_id==='string'?industry.dataset.industry_source_scope_id:undefined,identity,environment:core.environment});
+  // The task stores the canonical industry identity; align the local-dataset
+  // context to it so snapshot consistency validation holds.
+  task.industry_context=loadedContext&&typeof loadedContext==='object'?{...loadedContext,industry_id:canonical.id,industry_name:canonical.name}:loadedContext;
   task.industry_assignment={kind:'user_confirmed',industry_id:industry.industryId,article_version_id:binding?.articleVersionId??null,content_hash:binding?.contentHash??null};
   const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await directory(req)),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
   if(prepared.status==='invalid_input'){res.status(400).json(prepared);return;}
