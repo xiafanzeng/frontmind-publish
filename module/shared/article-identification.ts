@@ -1,15 +1,19 @@
 /** Public, secret-free contract for read-only identification of a frozen article. */
 export type IdentificationFieldKey = 'product' | 'industry' | 'audience' | 'questions';
 export type IdentificationSource = 'article' | 'inferred' | 'unidentified';
+export type IdentificationReason = 'missing' | 'invalid_format' | 'empty' | 'too_long' | 'industry_not_in_catalog' | 'catalog_unavailable' | 'ambiguous_industry' | 'evidence_not_verbatim' | 'inferred_from_article' | 'unsupported_product' | 'catalog_changed';
 export interface IdentificationField {
   value: string | null;
   source: IdentificationSource;
   evidence?: string;
   candidate?: string;
+  reason?: IdentificationReason;
+  canonicalId?: string;
 }
 export type IdentificationFields = Record<IdentificationFieldKey, IdentificationField>;
 export interface IdentificationContext {
   scopeKey: string;
+  catalogVersion?: string | null;
   articleId: string;
   articleVersionId: string;
   versionNumber: number;

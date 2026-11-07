@@ -21,6 +21,198 @@ function memoryStorage(): Storage {
 const route = { workspace: 'project-a', articleVersionId: 'version-a', connectionEpoch: 0 };
 
 describe('authenticated article identification state', () => {
+  it('reuses successful authorized article recognition across tasks without sharing protected requirements, and explicit re-identify stays fresh', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const store = new ArticleIdentificationStore(api.transport, () => null), a = store.route({ ...route, formScope: 'task-a' });
+    const stopA = a.mount(); await vi.waitFor(() => expect(a.getSnapshot().status).toBe('ready'));
+    a.hydrate({ product: 'Saved task A brand' }, 'task-a'); a.setField('audience', 'Private task A audience'); a.setAutomatic(true);
+    await vi.waitFor(() => expect(a.getSnapshot().status).toBe('partial')); stopA();
+    const b = store.route({ ...route, formScope: 'task-b' }); const stopB = b.mount();
+    b.hydrate({ product: 'Saved task B brand' }, 'task-b'); b.setField('questions', ''); b.setAutomatic(true);
+    await vi.waitFor(() => expect(b.getSnapshot().status).toBe('partial'));
+    expect(b.getSnapshot().values).toMatchObject({ product: 'Saved task B brand', audience: '', questions: '' });
+    expect(b.getSnapshot().fields.product.suggestion?.value).toBe('Suggested product');
+    expect(b.getSnapshot().fields.questions.edited).toBe(true);
+    expect(api.send.mock.calls.filter(([path]) => path.includes('/context?'))).toHaveLength(2);
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(1);
+    await b.identify();
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(2);
+    expect(b.getSnapshot().values.product).toBe('Saved task B brand'); stopB();
+  });
+
+  it('joins in-flight article recognition across different authorized task forms', async () => {
+    const model = deferred<IdentifyArticleResponse>(), api = wire(async path => path.includes('/context?') ? ready() : model.promise);
+    const store = new ArticleIdentificationStore(api.transport, () => null), a = store.route({ ...route, formScope: 'task-a' }), b = store.route({ ...route, formScope: 'task-b' });
+    const stopA = a.mount(), stopB = b.mount(); a.setAutomatic(true); b.setAutomatic(true);
+    await vi.waitFor(() => expect(a.getSnapshot().status).toBe('identifying'));
+    await vi.waitFor(() => expect(b.getSnapshot().status).toBe('identifying'));
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(1);
+    a.setField('product', 'A manual'); b.setField('questions', ''); model.resolve(identified());
+    await vi.waitFor(() => expect(a.getSnapshot().status).toBe('partial'));
+    await vi.waitFor(() => expect(b.getSnapshot().status).toBe('partial'));
+    expect(a.getSnapshot().values.product).toBe('A manual'); expect(b.getSnapshot().values.product).toBe('Suggested product');
+    expect(a.getSnapshot().values.questions).toBe('First question\nSecond question'); expect(b.getSnapshot().values.questions).toBe(''); stopA(); stopB();
+  });
+
+  it('reuses another task session recognition after fresh authorization on reload without restoring its private form edits', async () => {
+    const storage = memoryStorage(), firstApi = wire(async path => path.includes('/context?') ? ready() : identified());
+    const a = new ArticleIdentificationStore(firstApi.transport, () => storage).route({ ...route, formScope: 'task-a' });
+    const stopA = a.mount(); a.setAutomatic(true); await vi.waitFor(() => expect(a.getSnapshot().status).toBe('partial'));
+    a.setField('product', 'Private task A brand'); a.setField('audience', 'Private task A audience'); stopA();
+    const metadata = deferred<IdentificationContextResponse>(), secondApi = wire(async path => { if (path.includes('/context?')) return metadata.promise; throw new Error('Model must reuse authenticated persisted recognition'); });
+    const b = new ArticleIdentificationStore(secondApi.transport, () => storage).route({ ...route, formScope: 'task-b' });
+    const stopB = b.mount(); b.setAutomatic(true); b.hydrate({ product: 'Saved task B brand' }, 'task-b');
+    expect(b.getSnapshot().recognizedIndustry).toBeNull(); expect(b.getSnapshot().values.product).toBe('');
+    metadata.resolve(ready()); await vi.waitFor(() => expect(b.getSnapshot().status).toBe('partial'));
+    expect(b.getSnapshot().values).toMatchObject({ product: 'Saved task B brand', audience: '' });
+    expect(b.getSnapshot().fields.product.suggestion?.value).toBe('Suggested product');
+    expect(secondApi.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(0); stopB();
+  });
+
+  it.each(['authorization', 'version', 'digest', 'connection', 'workspace'] as const)('never reuses article recognition after a %s identity change', async kind => {
+    let ctx = context();
+    const api = wire(async path => path.includes('/context?') ? ready(ctx) : identified(ctx));
+    const store = new ArticleIdentificationStore(api.transport, () => null), a = store.route({ ...route, formScope: 'task-a' });
+    const stopA = a.mount(); a.setAutomatic(true); await vi.waitFor(() => expect(a.getSnapshot().status).toBe('partial')); stopA();
+    ctx = kind === 'authorization' ? context('version-a', 'other-authorized-account') : kind === 'version' ? context('version-b') : kind === 'digest' ? { ...context(), contentDigest: 'updated-digest' } : kind === 'connection' ? context('version-a', 'user-project-a', 'connection-2') : context();
+    const b = store.route({ ...route, articleVersionId: ctx.articleVersionId, workspace: kind === 'workspace' ? 'project-b' : route.workspace, formScope: 'task-b' });
+    const stopB = b.mount(); b.setAutomatic(true); await vi.waitFor(() => expect(b.getSnapshot().status).toBe('partial'));
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(2); stopB();
+  });
+
+  it.each(['failed', 'unidentified'] as const)('does not cache a %s attempt as a successful result for another task', async outcome => {
+    let attempts = 0;
+    const api = wire(async path => { if (path.includes('/context?')) return ready(); if (++attempts === 1) { if (outcome === 'failed') throw new Error('synthetic failure'); return { status: 'unidentified', context: context(), fields: emptyFields() }; } return identified(); });
+    const store = new ArticleIdentificationStore(api.transport, () => null), a = store.route({ ...route, formScope: 'task-a' });
+    const stopA = a.mount(); a.setAutomatic(true); await vi.waitFor(() => expect(a.getSnapshot().status).toBe(outcome)); stopA();
+    const b = store.route({ ...route, formScope: 'task-b' }), stopB = b.mount(); b.setAutomatic(true);
+    await vi.waitFor(() => expect(b.getSnapshot().status).toBe('partial'));
+    expect(b.getSnapshot().values.product).toBe('Suggested product'); expect(attempts).toBe(2); stopB();
+  });
+
+  it('fills historically empty saved fields while retaining nonempty saved and explicit clears', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
+    const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.hydrate({ product: '', audience: 'Saved audience', questions: '' }, 'task-empty');
+    current.hydrate({ questions: '' }, 'task-clear', { explicitEmpty: ['questions'] });
+    await current.identify();
+    expect(current.getSnapshot().values).toMatchObject({ product: 'Suggested product', audience: 'Saved audience', questions: '' });
+    expect(current.getSnapshot().fields.questions.savedEmpty).toBe(true);
+    expect(current.getSnapshot().fields.questions.suggestion?.value).toBe('First question\nSecond question');
+    current.hydrate({ questions: 'Late saved question' }, 'late-saved', { replaceSaved: ['questions'] });
+    expect(current.getSnapshot().values.questions).toBe('');
+    stop();
+  });
+
+  it('queues partial hydration and accepts a late industry without resetting other fields', async () => {
+    const meta = deferred<IdentificationContextResponse>();
+    const api = wire(async () => meta.promise);
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
+    const stop = current.mount();
+    current.hydrate({ product: 'Saved product', industry: '' }, 'task');
+    current.hydrate({ audience: 'Saved audience' }, 'task');
+    current.setField('questions', 'Manual question');
+    meta.resolve(ready()); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.hydrate({ industry: '901' }, 'task');
+    expect(current.getSnapshot().values).toEqual({ product: 'Saved product', audience: 'Saved audience', questions: 'Manual question', industry: '901' });
+    current.hydrate({ industry: '902' }, 'task:catalog-2', { replaceSaved: ['industry'] });
+    expect(current.getSnapshot().values.industry).toBe('902');
+    expect(current.getSnapshot().values.product).toBe('Saved product'); stop();
+  });
+
+  it('does not erase good AI results with a later missing/empty hydration or replace saved nonempty by default', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
+    const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    await current.identify(); current.hydrate(values(), 'missing-after-ai');
+    expect(current.getSnapshot().values.product).toBe('Suggested product');
+    current.hydrate({ audience: 'Saved audience' }, 'saved');
+    current.hydrate({ audience: 'Other audience' }, 'later');
+    expect(current.getSnapshot().values.audience).toBe('Saved audience'); stop();
+  });
+
+  it('migrates v1 invalid saved-empty markers after authorization and preserves manual clears/nonempty saved values', async () => {
+    const storage = memoryStorage(), api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const first = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    const stop = first.mount(); await vi.waitFor(() => expect(first.getSnapshot().status).toBe('ready'));
+    first.hydrate({ audience: 'Saved audience' }, 'saved'); first.setField('questions', ''); stop();
+    const key = storage.key(0)!, legacy = JSON.parse(storage.getItem(key)!);
+    delete legacy.schema; legacy.attempted = true; legacy.status = 'partial'; legacy.hydrations = ['saved'];
+    legacy.fields.product = { value: '', origin: 'saved', edited: false, suggestion: { value: 'Recovered suggestion', source: 'inferred' } };
+    legacy.fields.industry = { value: '', origin: 'saved', edited: false };
+    storage.setItem(key, JSON.stringify(legacy));
+    const restored = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    expect(restored.getSnapshot().values.product).toBe(''); const stopRestored = restored.mount();
+    await vi.waitFor(() => expect(restored.getSnapshot().values.product).toBe('Recovered suggestion'));
+    expect(restored.getSnapshot().fields.industry.origin).toBe('unidentified');
+    restored.setAutomatic(true); await vi.waitFor(() => expect(restored.getSnapshot().status).toBe('partial'));
+    expect(restored.getSnapshot().values).toMatchObject({ product: 'Suggested product', audience: 'Saved audience', questions: '' });
+    expect(restored.getSnapshot().fields.questions.edited).toBe(true);
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(1); stopRestored();
+  });
+
+  it('restores new explicit saved-empty metadata without reopening or overwriting the field', async () => {
+    const storage = memoryStorage(), api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const first = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    const stop = first.mount(); await vi.waitFor(() => expect(first.getSnapshot().status).toBe('ready'));
+    first.hydrate({ product: '' }, 'deliberate-clear', { explicitEmpty: ['product'] }); await first.identify(); stop();
+    const restored = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    const stopRestored = restored.mount(); restored.setAutomatic(true);
+    await vi.waitFor(() => expect(restored.getSnapshot().status).toBe('partial'));
+    expect(restored.getSnapshot().fields.product).toMatchObject({ value: '', origin: 'saved', savedEmpty: true });
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(1); stopRestored();
+  });
+
+  it('validates industry results against a late/changing canonical catalog without touching other fields', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : ({ ...identified(), fields: { ...identified().fields, industry: { value: '901', canonicalId: '901', source: 'inferred' } } }));
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
+    const stop = current.mount(); current.setIndustryCatalog({ ids: ['901'], version: 'catalog-1' });
+    await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready')); await current.identify();
+    expect(current.getSnapshot().values.industry).toBe('901');
+    current.setIndustryCatalog({ ids: ['902'], version: 'catalog-2' });
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '', reason: 'catalog_changed' });
+    expect(current.getSnapshot().values.product).toBe('Suggested product');
+    current.setIndustryCatalog({ ids: ['901', '902'], version: 'catalog-3' });
+    expect(current.getSnapshot().values.industry).toBe('901');
+    current.setField('industry', '902'); current.setIndustryCatalog({ ids: ['901'], version: 'catalog-4' });
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '902', origin: 'manual', edited: true });
+    expect(api.send.mock.calls.filter(([path]) => path === '/matrix/identify')).toHaveLength(1); stop();
+  });
+
+  it('maps trusted legacy industry identities without losing manual ownership and invalidates stale suggestions', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : ({ ...identified(), fields: { ...identified().fields, industry: { value: '901', source: 'inferred' } } }));
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
+    const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.setField('industry', 'legacy-id'); current.remapIndustry('legacy-id', '902');
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '902', origin: 'manual', edited: true, canonicalId: '902' });
+    current.setIndustryCatalog({ ids: ['901', '902'], version: 'catalog-1' }); await current.identify();
+    expect(current.getSnapshot().fields.industry.suggestion?.value).toBe('901');
+    current.setIndustryCatalog({ ids: ['902'], version: 'catalog-2' }); current.adopt('industry');
+    expect(current.getSnapshot().values.industry).toBe('902');
+    expect(current.getSnapshot().fields.industry.suggestion).toBeUndefined();
+    current.setField('industry', ''); current.remapIndustry('902', '903');
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '', edited: true }); stop();
+  });
+
+  it('keeps the authenticated shared recognized industry independent of form edits and same-tab reloads', async () => {
+    const storage = memoryStorage();
+    const api = wire(async path => path.includes('/context?') ? ready() : ({ ...identified(), fields: { ...identified().fields, industry: { value: '901', canonicalId: '901', source: 'inferred' } } }));
+    const current = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    await current.identify(); current.setField('industry', '902');
+    expect(current.getSnapshot().recognizedIndustry).toMatchObject({ value: '901', canonicalId: '901', source: 'inferred' });
+    current.setField('industry', '');
+    expect(current.getSnapshot().values.industry).toBe('');
+    expect(current.getSnapshot().recognizedIndustry?.value).toBe('901'); stop();
+    const meta = deferred<IdentificationContextResponse>(), restoredApi = wire(async () => meta.promise);
+    const restored = new ArticleIdentificationStore(restoredApi.transport, () => storage).route(route);
+    expect(restored.getSnapshot().recognizedIndustry).toBeNull(); const stopRestored = restored.mount();
+    expect(restored.getSnapshot().recognizedIndustry).toBeNull(); meta.resolve(ready());
+    await vi.waitFor(() => expect(restored.getSnapshot().recognizedIndustry?.value).toBe('901'));
+    expect(restored.getSnapshot().fields.industry).toMatchObject({ value: '', edited: true }); stopRestored();
+  });
+
   it('keeps typing and intentional clearing while a model result is pending, then offers explicit adoption', async () => {
     const model = deferred<IdentifyArticleResponse>();
     const api = wire(async path => path.includes('/context?') ? ready() : model.promise);

@@ -49,13 +49,14 @@ export function IndustryCitationSources({ id, store, state, ready, panelMessage 
   const pendingFocus = useRef<{ button: 'type' | 'sort'; common: IndustryState['common']; selection: ContentSelection } | null>(null);
   const blocked = state.blocked !== null;
   const { media, contents } = state;
-  const mediaReady = Boolean(media.data && !media.loading && !media.error);
-  const contentsReady = Boolean(contents.data && !contents.loading && !contents.error);
+  const mediaReady = Boolean(ready && media.data && !media.loading && !media.error);
+  const contentsReady = Boolean(ready && contents.data && !contents.loading && !contents.error);
   const exportStatus = citationExportStatus(state);
   const mediaLabel = state.selection.media
     ? media.data?.items.find(item => item.code === state.selection.media)?.name || contents.data?.items[0]?.media || state.selection.media
     : '全部媒体';
 
+  useEffect(() => { if (!ready) setExportOpen(false); }, [ready]);
   useEffect(() => { if (rankingScroll.current) rankingScroll.current.scrollTop = 0; }, [media.data]);
   useEffect(() => { if (contentScroll.current) contentScroll.current.scrollTop = 0; }, [contents.data]);
   useEffect(() => {
@@ -77,29 +78,29 @@ export function IndustryCitationSources({ id, store, state, ready, panelMessage 
   }, [contents.loading, contents.data, contents.error, state.common, state.selection]);
   const applyContent = (selection: ContentSelection, button: 'type' | 'sort') => {
     const current = store.getSnapshot();
-    if (current.blocked || !current.common || JSON.stringify(current.selection) === JSON.stringify(selection)) return;
+    if (!ready || current.blocked || !current.common || JSON.stringify(current.selection) === JSON.stringify(selection)) return;
     pendingFocus.current = { button, common: current.common, selection };
     store.selectContent(selection);
   };
   const closeExport = () => { setExportOpen(false); exportButton.current?.focus(); };
   const selectMedia = (mediaCode: string) => {
-    if (!blocked) store.selectContent({ ...state.selection, media: mediaCode });
+    if (ready && !blocked) store.selectContent({ ...state.selection, media: mediaCode });
   };
   const retry = (kind: ListKind) => {
     const lane = state[kind];
-    if (blocked || lane.loading || !lane.error) return undefined;
+    if (!ready || blocked || lane.loading || !lane.error) return undefined;
     return () => lane.error!.retryable ? store.retry(kind) : store.restart(kind);
   };
   const count = (kind: ListKind, field: 'total' | 'totalCitations') => {
     const lane = state[kind];
-    return lane.data && !lane.loading && !lane.error ? integerText(lane.data[field]) : '—';
+    return ready && lane.data && !lane.loading && !lane.error ? integerText(lane.data[field]) : '—';
   };
   const sortAscending = state.selection.sortOrder === 'asc';
 
   return <><section className="sm-industry-card sm-citation" aria-labelledby={`${id}-sources`}>
     <header className="sm-citation-heading">
       <h2 id={`${id}-sources`}><Folder size={18} strokeWidth={2} aria-hidden="true"/>引用信源</h2>
-      <button ref={exportButton} type="button" className="button secondary sm-citation-export" disabled={!exportStatus.available} onClick={() => setExportOpen(true)}>导出</button>
+      <button ref={exportButton} type="button" className="button secondary sm-citation-export" disabled={!ready || !exportStatus.available} onClick={() => setExportOpen(true)}>导出</button>
     </header>
     <div className="sm-citation-panels">
       <aside className="sm-citation-panel" aria-label="媒体引用排行" aria-busy={media.loading}>
@@ -156,6 +157,6 @@ export function IndustryCitationSources({ id, store, state, ready, panelMessage 
       </section>
     </div>
   </section>
-    {exportOpen && <IndustryExportDialog store={store} state={state} onClose={closeExport}/>}
+    {exportOpen && ready && <IndustryExportDialog store={store} state={state} onClose={closeExport}/>}
   </>;
 }

@@ -48,3 +48,16 @@ it('does not read context or identify when disabled for independent/demo browsin
   expect(screen.getByText('请先选择稿件，可继续手动填写。')).toBeTruthy();
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+it('renders only allowlisted field reasons and keeps arbitrary provider reason text out of feedback', async () => {
+  let reason = 'unsupported_product';
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => ({ ok: true, json: async () => input.includes('/context?')
+    ? { status: 'ready', context: context('version-a'), fields: emptyFields }
+    : { status: 'unidentified', context: context('version-a'), fields: { ...emptyFields, product: { value: null, source: 'unidentified', reason } } } })));
+  render(<Harness {...options()}/>);
+  await screen.findByText('稿件中未找到可靠的品牌／产品依据，请手动填写。');
+  reason = 'provider raw payload must never render';
+  fireEvent.click(screen.getByRole('button', { name: '重新识别' }));
+  await waitFor(() => expect(screen.queryByText('稿件中未找到可靠的品牌／产品依据，请手动填写。')).toBeNull());
+  expect(screen.queryByText(reason)).toBeNull();
+});

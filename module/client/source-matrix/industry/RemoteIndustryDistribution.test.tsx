@@ -5,6 +5,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublishingGatewayProvider } from '../../PublishingContext';
 import type { PublisherGateway } from '../../gateway';
+import type { ArticleIndustryBridge } from './RemoteIndustryDistribution';
+import { flattenIndustryCatalog } from '../../../shared/industry-catalog';
+import { industryCatalogFor } from './useIndustryCatalog';
 import { LiveIndustryDistribution } from './IndustryDistribution';
 import { downloadCitationCsv } from './industry-source-export';
 
@@ -16,7 +19,7 @@ vi.mock('./industry-source-export', async importOriginal => {
 
 beforeEach(() => { window.history.replaceState({}, '', '/publishing/source-matrix?task=task-9&draftId=draft-7#analysis'); vi.mocked(downloadCitationCsv).mockClear(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const filters = { models: [{ value: 'all', label: '全部模型' }, { value: 'doubao_api', label: '豆包' }], industryTree: [], sourceTypes: ['新闻资讯'], minDate: '2026-09-01', maxDate: '2026-10-29' };
+const filters = { models: [{ value: 'all', label: '全部模型' }, { value: 'doubao_api', label: '豆包' }], industryTree: [{ id: 'category-101', scopeId: '101', scopeType: 'CATEGORY' as const, label: '制造业', children: [{ id: 'category-102', scopeId: '102', scopeType: 'CATEGORY' as const, label: '工业软件', children: [] }] }], sourceTypes: ['新闻资讯'], minDate: '2026-09-01', maxDate: '2026-10-29' };
 const success = (data: unknown) => ({ status: 'ok', source: 'molizhishu-public-industry', fetchedAt: '2026-11-06T12:00:00Z', data });
 const listPage = (media: boolean, overrides: Record<string, unknown> = {}) => ({
   items: media ? [{ code: 'media-code-1', name: '原始媒体', citationCount: '10' }] : [{ sequence: '1', linkId: 'link-1', title: '真实来源标题', url: null, icon: null, media: '原始媒体', sourceType: '新闻资讯', publishTime: null, citationCount: '6', citationRatio: '60.00' }],
@@ -27,19 +30,23 @@ function installFetch(options: { noDate?: boolean; configuration?: boolean; resp
     let value: unknown = await options.response?.(new URL(input, window.location.origin));
     if (value !== undefined) { /* A controlled server response for this request. */ }
     else if (options.configuration) value = { status: 'configuration_required', message: '行业信源连接尚未配置。', httpStatus: 503, retryable: false };
-    else if (input.includes('/filters')) value = success({ ...filters, maxDate: options.noDate ? null : filters.maxDate });
+    else if (input.includes('/industries')) value = success({ ...filters, maxDate: options.noDate ? null : filters.maxDate });
     else if (input.includes('/distributions')) value = success({ sourceTypeDistribution: [{ code: '新闻资讯', name: '新闻资讯', citationCount: '3' }], publishTimeDistribution: [{ code: 'ONE_DAY', name: '1天内', contentCount: '2' }] });
     else {
       const media = input.includes('/media-ranking');
       value = success(listPage(media));
     }
+    if (input.includes('/industries') && (value as { status: string }).status === 'ok') {
+      const data = (value as { data: typeof filters }).data;
+      value = { status: 'configured', industries: flattenIndustryCatalog(data.industryTree), filters: data, catalogVersion: 'catalog-v1', legacyMappings: [], brand_data_batches: [] };
+    }
     const result = value as { status: string; httpStatus?: number };
-    return { ok: result.status === 'ok', status: result.httpStatus ?? 200, json: async () => value };
+    return { ok: result.status === 'ok' || result.status === 'configured', status: result.httpStatus ?? 200, json: async () => value };
   });
   vi.stubGlobal('fetch', fetcher); return fetcher;
 }
-function mount(gateway = {} as PublisherGateway) {
-  return render(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution/></div></PublishingGatewayProvider></StrictMode>);
+function mount(gateway = {} as PublisherGateway, article?: ArticleIndustryBridge) {
+  return render(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={article}/></div></PublishingGatewayProvider></StrictMode>);
 }
 async function chooseType(name: string) {
   const trigger = screen.getByRole('button', { name: '筛选媒体类型' });
@@ -79,7 +86,7 @@ describe('live industry API boundary', () => {
   });
   it('starts one query group when a connection recheck first supplies an available date', async () => {
     let filterReads = 0;
-    const fetcher = installFetch({ response: url => url.pathname.endsWith('/filters') && filterReads++ === 0
+    const fetcher = installFetch({ response: url => url.pathname.endsWith('/industries') && filterReads++ === 0
       ? success({ ...filters, maxDate: null }) : undefined });
     mount();
     await screen.findByText('当前尚无可选执行日期，暂不查询行业数据。');
@@ -88,7 +95,7 @@ describe('live industry API boundary', () => {
     await screen.findByText('真实来源标题');
     expect(screen.getByRole('button', { name: '日期：按月 · 2026-10' })).toBeTruthy();
     expect(fetcher).toHaveBeenCalledTimes(5);
-    expect(fetcher.mock.calls.filter(([url]) => url.includes('/filters'))).toHaveLength(2);
+    expect(fetcher.mock.calls.filter(([url]) => url.includes('/industries'))).toHaveLength(2);
     expect(fetcher.mock.calls.filter(([url]) => url.includes('/media-ranking?'))).toHaveLength(1);
     expect(fetcher.mock.calls.filter(([url]) => url.includes('/contents?'))).toHaveLength(1);
     expect(fetcher.mock.calls.filter(([url]) => url.includes('/distributions?'))).toHaveLength(1);
@@ -429,5 +436,123 @@ describe('citation export dialog isolation', () => {
     expect(screen.queryByText('导出内容21')).toBeNull();
     expect(screen.queryByText('导出内容25')).toBeNull();
     expect(screen.getAllByRole('row')).toHaveLength(21);
+  });
+});
+
+
+describe('article industry bridge (source-only regression)', () => {
+  const bridge = (scopeKey: string, recognitionPending: boolean, suggestedIndustryId?: string): ArticleIndustryBridge => ({ scopeKey, recognitionPending, suggestedIndustryId });
+  const charged = (fetcher: ReturnType<typeof installFetch>) => fetcher.mock.calls.filter(([url]) => /\/(media-ranking|contents|distributions)\??/.test(url));
+  it('shares the canonical catalog read and waits for recognition before one category query group', async () => {
+    const fetcher = installFetch(), actualGateway = {} as PublisherGateway;
+    const view = mount(actualGateway, bridge('article-A:v1', true));
+    await screen.findByRole('option', { name: '工业软件' });
+    expect(charged(fetcher)).toHaveLength(0);
+    const select = screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement;
+    expect(select.disabled).toBe(false); expect(select.value).toBe('__pending__');
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={actualGateway}><div className="fm-media"><LiveIndustryDistribution article={bridge('article-A:v1', false, '102')}/></div></PublishingGatewayProvider></StrictMode>);
+    await screen.findByText('真实来源标题');
+    expect(charged(fetcher)).toHaveLength(3);
+    expect(charged(fetcher).every(([url]) => new URL(url, location.origin).searchParams.get('scopeId') === '102')).toBe(true);
+    expect(fetcher.mock.calls.filter(([url]) => url.includes('/source-ranking/filters'))).toHaveLength(0);
+    expect(fetcher.mock.calls.filter(([url]) => url.includes('/industries'))).toHaveLength(1);
+  });
+  it.each(['', '101'])('keeps explicit manual scope %s while recognition finishes late', async scope => {
+    const fetcher = installFetch(), gateway = {} as PublisherGateway;
+    const view = mount(gateway, bridge('article-A:v1', true));
+    await screen.findByRole('option', { name: '工业软件' });
+    fireEvent.change(screen.getByRole('combobox', { name: '行业' }), { target: { value: scope } });
+    await screen.findByText('真实来源标题'); expect(charged(fetcher)).toHaveLength(3);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={bridge('article-A:v1', false, '102')}/></div></PublishingGatewayProvider></StrictMode>);
+    await waitFor(() => expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe(scope));
+    expect(charged(fetcher)).toHaveLength(3);
+    expect(new URL(location.href).searchParams.get('siManual')).toBe('1');
+  });
+  it('isolates article/version stores and ignores another article URL scope before recognition', async () => {
+    const fetcher = installFetch(), gateway = {} as PublisherGateway;
+    const view = mount(gateway, bridge('article-A:v1', false, '101'));
+    await screen.findByText('真实来源标题');
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={bridge('article-B:v2', true)}/></div></PublishingGatewayProvider></StrictMode>);
+    await waitFor(() => expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('__pending__'));
+    expect(screen.queryByText('真实来源标题')).toBeNull(); expect(charged(fetcher)).toHaveLength(3);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={bridge('article-B:v2', false, '102')}/></div></PublishingGatewayProvider></StrictMode>);
+    await screen.findByText('真实来源标题'); expect(charged(fetcher)).toHaveLength(6);
+    expect(fetcher.mock.calls.filter(([url]) => url.includes('/industries'))).toHaveLength(1);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={bridge('article-A:v1', false, '101')}/></div></PublishingGatewayProvider></StrictMode>);
+    await waitFor(() => expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('101'));
+    expect(charged(fetcher)).toHaveLength(6);
+  });
+  it('settles failed/unidentified recognition to ALL once and never accepts an invalid category', async () => {
+    const fetcher = installFetch(); mount({} as PublisherGateway, bridge('article-A:v1', false, 'not-in-catalog'));
+    await screen.findByText('真实来源标题'); expect(charged(fetcher)).toHaveLength(3);
+    expect(charged(fetcher).every(([url]) => new URL(url, location.origin).searchParams.get('scopeType') === 'ALL')).toBe(true);
+  });
+});
+
+
+describe('explicit recognition retry after a terminal unknown result (source-only)', () => {
+  it('keeps ALL during a retry, then applies one valid result while preserving the model and date', async () => {
+    window.history.replaceState({}, '', '/publishing/source-matrix?siModel=doubao_api&siPeriod=DAY&siDate=2026-10-28');
+    const fetcher = installFetch(), gateway = {} as PublisherGateway;
+    const view = mount(gateway, { scopeKey: 'article-retry:v1', recognitionPending: false });
+    await screen.findByText('真实来源标题'); expect(fetcher).toHaveBeenCalledTimes(4);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={{ scopeKey: 'article-retry:v1', recognitionPending: true }}/></div></PublishingGatewayProvider></StrictMode>);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={{ scopeKey: 'article-retry:v1', recognitionPending: false, suggestedIndustryId: '102' }}/></div></PublishingGatewayProvider></StrictMode>);
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(7));
+    const mediaCalls = fetcher.mock.calls.filter(([url]) => url.includes('/media-ranking'));
+    expect(mediaCalls).toHaveLength(2);
+    expect(new URL(mediaCalls[1]![0], location.origin).searchParams.get('scopeId')).toBe('102');
+    expect(new URL(mediaCalls[1]![0], location.origin).searchParams.get('modelCode')).toBe('doubao_api');
+    expect(new URL(mediaCalls[1]![0], location.origin).searchParams.get('date')).toBe('2026-10-28');
+    expect(new URL(mediaCalls[1]![0], location.origin).searchParams.get('periodType')).toBe('DAY');
+  });
+});
+
+
+describe('authorized context and catalog invalidation UI (source-only)', () => {
+  it('cannot charge a provisional article while catalog is ready and authorizing context is still pending', async () => {
+    const fetcher = installFetch(), gateway = {} as PublisherGateway;
+    const view = mount(gateway, { scopeKey: 'pending-article-A', recognitionPending: true, contextReady: false });
+    await screen.findByRole('option', { name: '工业软件' });
+    const industry = screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement;
+    expect(industry.disabled).toBe(true);
+    expect((screen.getByRole('combobox', { name: '模型' }) as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '日期：按月 · 2026-10' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '导出' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(industry, { target: { value: '101' } }); fireEvent.change(industry, { target: { value: '' } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={{ scopeKey: 'verified-article-A:v1', recognitionPending: false, contextReady: true, suggestedIndustryId: '102' }}/></div></PublishingGatewayProvider></StrictMode>);
+    await screen.findByText('真实来源标题'); expect(fetcher).toHaveBeenCalledTimes(4);
+    const queries = fetcher.mock.calls.filter(([url]) => url.includes('/media-ranking'));
+    expect(queries).toHaveLength(1); expect(new URL(queries[0]![0], location.origin).searchParams.get('scopeId')).toBe('102');
+  });
+  it('keeps the removed category visibly invalid, hides stale results, and permits one explicit valid selection', async () => {
+    let removeScope = false;
+    const fetcher = installFetch({ response: url => url.pathname.endsWith('/industries') && removeScope ? success({ ...filters, industryTree: filters.industryTree[0]!.children }) : undefined });
+    const gateway = {} as PublisherGateway; mount(gateway, { scopeKey: 'article-catalog:v1', recognitionPending: false, contextReady: true, suggestedIndustryId: '101' });
+    await screen.findByText('真实来源标题'); expect(fetcher).toHaveBeenCalledTimes(4);
+    removeScope = true; await act(async () => { await industryCatalogFor(gateway, 1).load(true); });
+    const removed = await screen.findByRole('option', { name: '原行业已失效，请重新选择' }) as HTMLOptionElement;
+    expect(removed.disabled).toBe(true); expect(removed.value).toBe('101');
+    expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('101');
+    expect(screen.queryByText('真实来源标题')).toBeNull(); expect((screen.getByRole('button', { name: '导出' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(5); expect(window.location.search).toContain('siScope=101');
+    expect(screen.getByText(/范围：原行业已失效，请重新选择/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: '行业' }), { target: { value: '102' } });
+    await screen.findByText('真实来源标题'); expect(fetcher).toHaveBeenCalledTimes(8);
+    expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('102');
+  });
+  it('allows an untouched automatic removed scope to recover only to a valid new recognized category', async () => {
+    let removeScope = false;
+    const fetcher = installFetch({ response: url => url.pathname.endsWith('/industries') && removeScope ? success({ ...filters, industryTree: filters.industryTree[0]!.children }) : undefined });
+    const gateway = {} as PublisherGateway;
+    const view = mount(gateway, { scopeKey: 'article-auto-catalog:v1', recognitionPending: false, contextReady: true, suggestedIndustryId: '101' });
+    await screen.findByText('真实来源标题'); removeScope = true;
+    await act(async () => { await industryCatalogFor(gateway, 1).load(true); });
+    await screen.findByRole('option', { name: '原行业已失效，请重新选择' }); expect(fetcher).toHaveBeenCalledTimes(5);
+    view.rerender(<StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={{ scopeKey: 'article-auto-catalog:v1', recognitionPending: false, contextReady: true, suggestedIndustryId: '102' }}/></div></PublishingGatewayProvider></StrictMode>);
+    await screen.findByText('真实来源标题'); expect(fetcher).toHaveBeenCalledTimes(8);
+    expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('102');
   });
 });

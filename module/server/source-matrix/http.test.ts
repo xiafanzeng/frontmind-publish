@@ -6,6 +6,7 @@ import { createModuleHttpApi,type ModuleHttpCore } from '../http-api.js';
 import { MatrixRepository } from './repository.js';
 import { BindingStore } from './binding.js';
 import { digest } from './common.js';
+import * as canonicalCatalog from './industry-catalog.js';
 import * as catalogBridge from '../publisher-source-matrix-catalog.js';
 import * as plannerKernel from './planner.js';
 const servers:Server[]=[];
@@ -84,6 +85,7 @@ it('does not fall back to latest for a missing snapshot, cancelled task or snaps
 });
 const bindingRow={draft_id:'3f0d1111-1111-4111-8111-111111111111',article_version_id:'5aab2222-2222-4222-8222-222222222222',article_id:'article-1',version_number:1,content_hash:'hash-1',article_title:'验收稿件',fingerprint:'fp-1'};
 it('binds matrix generation to the server-verified frozen version and persists the binding fingerprint',async()=>{
+ canonicalReads();
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  const loadBinding=vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({binding:{draftId:'3f0d1111-1111-4111-8111-111111111111',draftRevision:3,draftStatus:'draft',articleVersionId:'5aab2222-2222-4222-8222-222222222222',articleId:'article-1',versionNumber:1,contentHash:'hash-1',containsImages:false,articleTitle:'验收稿件',selections:[],fingerprint:'fp-1'}});
@@ -98,6 +100,7 @@ it('binds matrix generation to the server-verified frozen version and persists t
  expect(loadBinding).toHaveBeenCalledWith({draftId:'3f0d1111-1111-4111-8111-111111111111',articleVersionId:'5aab2222-2222-4222-8222-222222222222'});
 });
 it('rejects matrix generation when the named draft or frozen version is outside the authorized owner',async()=>{
+ canonicalReads();
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  vi.spyOn(BindingStore.prototype,'loadBinding').mockResolvedValue({failure:'draft_not_found'});
  const url=await host(core({database:async()=>({} as any)}));
@@ -181,6 +184,7 @@ it('refuses cancelled and superseded plans before loading publication items',asy
 });
 
 it('feeds the selected brand batch and demand constraints into the planner request',async()=>{
+ canonicalReads();
  const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
  vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
  const url=await host(core({database:async()=>({} as any),sourceMatrixDecisions:{matrix:async()=>undefined,budget:async()=>undefined}}));
@@ -198,4 +202,37 @@ it('feeds the selected brand batch and demand constraints into the planner reque
  expect(body.result.scope.input_snapshot.citations).toEqual([]);
  expect(body.result.matrix.candidates.some((candidate:any)=>candidate.attributes.data_kind==='raw_brand_observation_context')).toBe(true);
  expect(body.result.scope.task.brand.batch_id).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');
+});
+
+
+function canonicalReads(){
+ vi.spyOn(canonicalCatalog,'loadIndustryCatalog').mockResolvedValue({status:'ok',source:'molizhishu-public-industry',fetchedAt:'2026-11-07T00:00:00Z',data:{catalogVersion:'catalog-1',industries:[{id:'101',scopeId:'101',name:'软件测试',label:'软件测试',depth:0,path:['软件测试']}],filters:{models:[],industryTree:[],minDate:null,maxDate:null,sourceTypes:[]}}});
+ vi.spyOn(MatrixRepository.prototype,'industryMappings').mockResolvedValue([{id:'industry-1',name:'软件测试'}]);
+}
+it('keeps a valid category selectable and reports data_unavailable before creating a task',async()=>{
+ canonicalReads();
+ vi.mocked(MatrixRepository.prototype.industryMappings).mockResolvedValue([]);
+ const create=vi.spyOn(MatrixRepository.prototype,'create');
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'101',questions:['如何选型'],as_of:'2026-11-07T00:00:00Z'})});
+ expect(response.status).toBe(409);expect(await response.json()).toMatchObject({status:'data_unavailable',industry_id:'101'});expect(create).not.toHaveBeenCalled();
+});
+it('projects legacy task identity without mutating the stored task or result snapshot',async()=>{
+ canonicalReads();
+ const stored={taskId:'task-1',industryId:'industry-1',state:'complete',task:{industry:'软件测试',private_actor:'private'},latest:{scope:{input_snapshot:{task:{industry:'软件测试'}}}}};
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue(stored as any);
+ const before=JSON.stringify(stored);
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/classify/task-1'),body=await response.json();
+ expect(body.task).toMatchObject({industry_id:'101',industry_dataset_id:'industry-1',industry_resolution:'mapped'});
+ expect(body.task.private_actor).toBeUndefined();expect(body.result).toEqual(stored.latest);expect(JSON.stringify(stored)).toBe(before);
+});
+
+
+it('returns canonical choices even when recommendation storage cannot be opened',async()=>{
+ canonicalReads();
+ const url=await host(core());
+ const response=await fetch(url+'/api/modules/publish/industries');
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({status:'configured',industries:[{id:'101',name:'软件测试'}],legacyMappings:[]});
 });

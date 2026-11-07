@@ -4,6 +4,7 @@ import express from 'express';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createModuleHttpApi, type ModuleHttpCore } from '../http-api.js';
 import { BindingStore } from './binding.js';
+import * as canonicalCatalog from './industry-catalog.js';
 import { MatrixRepository } from './repository.js';
 import type { ArticleIdentificationInput } from './adapter.js';
 
@@ -21,7 +22,7 @@ async function host(overrides: Partial<ModuleHttpCore> = {}) {
 }
 function reads() {
   const load = vi.spyOn(BindingStore.prototype, 'loadIdentificationArticle').mockResolvedValue({ article });
-  vi.spyOn(MatrixRepository.prototype, 'industries').mockResolvedValue([{ id: 'retail', name: '零售' }]);
+  vi.spyOn(canonicalCatalog, 'loadIndustryCatalog').mockResolvedValue({ status: 'ok', source: 'molizhishu-public-industry', fetchedAt: '2026-11-07T00:00:00Z', data: { catalogVersion: 'catalog-1', industries: [{ id: 'retail', scopeId: 'retail', name: '零售', label: '零售', path: ['零售'], depth: 0 }], filters: { models: [], industryTree: [], minDate: null, maxDate: null, sourceTypes: [] } } });
   return load;
 }
 async function contextAt(url: string) {
@@ -110,7 +111,7 @@ it('rejects an in-flight response after the authenticated workspace changes', as
 it('drops an industry removed during identification but preserves other valid fields', async () => {
   reads();
   const url = await host({ sourceMatrixDecisions: { matrix: async () => undefined, budget: async () => undefined, identify: async () => {
-    vi.mocked(MatrixRepository.prototype.industries).mockResolvedValue([]);
+    vi.mocked(canonicalCatalog.loadIndustryCatalog).mockResolvedValue({ status: 'configuration_required', httpStatus: 503, retryable: false, message: '目录暂不可用' });
     return { fields: { product: { value: '星河软件', source: 'inferred' }, industry: { value: 'retail', source: 'inferred' } } };
   } } });
   const { body } = await contextAt(url); const response = await identifyAt(url, body.context);
@@ -122,4 +123,18 @@ it('rechecks host model configuration revision before returning output', async (
   const adapter = { identificationRevision: 'model-before', matrix: async () => undefined, budget: async () => undefined, identify: async () => { adapter.identificationRevision = 'model-after'; return { fields: {} }; } };
   const url = await host({ sourceMatrixDecisions: adapter }); const { body } = await contextAt(url); const response = await identifyAt(url, body.context);
   expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ status: 'connection_changed' });
+});
+
+
+it('identifies the other three fields when the industry catalog is unavailable', async () => {
+  reads();
+  vi.mocked(canonicalCatalog.loadIndustryCatalog).mockResolvedValue({ status: 'configuration_required', httpStatus: 503, retryable: false, message: '目录暂不可用' });
+  const identify = vi.fn(async () => ({ fields: { product: { value: '星河软件', source: 'inferred' }, audience: { value: '零售企业', source: 'inferred' }, questions: { value: '如何管理门店', source: 'inferred' }, industry: { value: 'retail', source: 'inferred' } } }));
+  const url = await host({ sourceMatrixDecisions: { matrix: async () => undefined, budget: async () => undefined, identify } });
+  const { response, body } = await contextAt(url);
+  expect(response.status).toBe(200);
+  expect(body.fields.industry.reason).toBe('catalog_unavailable');
+  const result = await identifyAt(url, body.context);
+  expect(await result.json()).toMatchObject({ status: 'partial', fields: { product: { value: '星河软件' }, industry: { value: null, reason: 'catalog_unavailable' }, audience: { value: '零售企业' }, questions: { value: '如何管理门店' } } });
+  expect(identify).toHaveBeenCalledOnce();
 });

@@ -110,7 +110,7 @@ describe('industry transport and request identity', () => {
     expect(await provider.query('media-ranking', query(), 'scope', 'server-token')).toMatchObject({ status, httpStatus });
   });
   it('bounds response size and request time without automatic replacement operations', async () => {
-    const oversized = vi.fn(async () => new Response('{}', { headers: { 'content-length': String(3 * 1024 * 1024) } }));
+    const oversized = vi.fn(async () => new Response('{}', { headers: { 'content-length': String(13 * 1024 * 1024) } }));
     expect(await new IndustrySourceProvider(oversized as typeof fetch, () => now).query('filters', new URLSearchParams(), 'scope', 'server-token')).toMatchObject({ status: 'invalid_response' });
     vi.useFakeTimers();
     const pending = vi.fn((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
@@ -119,4 +119,26 @@ describe('industry transport and request identity', () => {
     expect(await result).toMatchObject({ status: 'timeout', retryable: true });
     expect(pending).toHaveBeenCalledOnce();
   });
+});
+
+
+it('coalesces and caches a complete large filters directory above the old response and cache limits', async () => {
+  const filters = { models: [], minDate: null, maxDate: null, sourceTypes: [], industryTree: Array.from({ length: 5000 }, (_, i) => ({ id: String(i + 1), label: '行业'.repeat(240), scopeId: String(i + 1), scopeType: 'CATEGORY', children: [] })) };
+  const transport = vi.fn(async () => response(filters));
+  const provider = new IndustrySourceProvider(transport as typeof fetch, () => now);
+  const first = await provider.query('filters', new URLSearchParams(), 'scope', 'server-token');
+  expect(first).toMatchObject({ status: 'ok' });
+  expect(await provider.query('filters', new URLSearchParams(), 'scope', 'server-token')).toEqual(first);
+  expect(transport).toHaveBeenCalledOnce();
+});
+it('briefly shares failed filters reads without changing billed operation retry behavior', async () => {
+  let time = now;
+  const transport = vi.fn(async () => new Response(null, { status: 503 }));
+  const provider = new IndustrySourceProvider(transport as typeof fetch, () => time);
+  await provider.query('filters', new URLSearchParams(), 'scope', 'server-token');
+  await provider.query('filters', new URLSearchParams(), 'scope', 'server-token');
+  expect(transport).toHaveBeenCalledOnce();
+  time += 10001;
+  await provider.query('filters', new URLSearchParams(), 'scope', 'server-token');
+  expect(transport).toHaveBeenCalledTimes(2);
 });

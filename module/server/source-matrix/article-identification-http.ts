@@ -4,10 +4,10 @@ import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
 import type { IdentificationContext, IdentificationContextResponse, IdentificationFields, IdentifyArticleResponse } from '../../shared/article-identification.js';
 import { BindingStore, type IdentificationArticle } from './binding.js';
-import { MatrixRepository } from './repository.js';
+import { loadIndustryCatalog } from './industry-catalog.js';
 import { digest } from './common.js';
 import { resolveUserDecisionAdapter } from './ai-connection-http.js';
-import { identificationDigest, unidentifiedFields, validateIdentificationFields, identifyWithinDeadline, IDENTIFICATION_MAX_CHARACTERS } from './article-identification.js';
+import { identificationDigest, unidentifiedFields, validateIdentificationFields, identifyWithinDeadline, identificationCandidates, IDENTIFICATION_MAX_CHARACTERS } from './article-identification.js';
 
 const selection = z.object({ article_version_id: z.string().uuid(), draft_id: z.string().uuid().optional() }).strict();
 const identifyBody = selection.extend({ content_digest: z.string().regex(/^[a-f0-9]{64}$/), connection_revision: z.string().min(1).max(160) }).strict();
@@ -75,11 +75,11 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     const store = new BindingStore(db, scope);
     const loaded = await store.loadIdentificationArticle({ articleVersionId: input.article_version_id, draftId: input.draft_id });
     if (!loaded.article) throw failure(loaded.failure === 'draft_version_mismatch' ? 409 : 404, 'binding_not_found', '当前稿件或版本不可用，请重新选择已授权稿件。');
-    const industries = await new MatrixRepository(db, scope.tenantId).industries();
-    if (industries.length > 500 || industries.some(item => typeof item.id !== 'string' || !item.id || item.id.length > 80 || typeof item.name !== 'string' || !item.name || item.name.length > 200)) throw failure(503, 'industry_configuration_required', '行业选项暂不可用，可先手动填写其他内容。');
+    const catalog = await loadIndustryCatalog(core, req);
+    const industries = catalog.status === 'ok' ? catalog.data.industries : [];
     const decision = await resolveUserDecisionAdapter(core, req);
     if (authorizedScope(core, req).scopeKey !== scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
-    return { scope, store, article: loaded.article, industries, decision, context: contextOf(scope.scopeKey, loaded.article, connectionOf(core, decision)) };
+    return { scope, store, article: loaded.article, industries, catalog, decision, context: { ...contextOf(scope.scopeKey, loaded.article, connectionOf(core, decision)), catalogVersion: catalog.status === 'ok' ? catalog.data.catalogVersion : null } };
   }
 
   router.get('/matrix/identify/context', wrap(async (req, res) => {
@@ -89,6 +89,7 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     // The actual schema has no trusted brand, industry, audience or questions
     // metadata. Do not infer it from working names, summaries or demo records.
     const body: IdentificationContextResponse = { status: current.context.connection.available ? 'ready' : 'not_configured', context: current.context, fields: unidentifiedFields(), ...(!current.context.connection.available ? { message: unconfiguredMessage } : {}) };
+    if (current.catalog.status !== 'ok') body.fields.industry.reason = 'catalog_unavailable';
     res.json(body);
   }));
 
@@ -104,10 +105,11 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (current.article.body.length > IDENTIFICATION_MAX_CHARACTERS || current.article.title.length > 2000) throw failure(413, 'article_too_large', '稿件超出本次全文识别的 60,000 字符限制，尚未分析；请手动填写。');
     let fields: IdentificationFields;
     try {
-      const output = await identifyWithinDeadline(input => current.decision.adapter!.identify!(input), { article: { title: current.article.title, body: current.article.body }, industries: current.industries });
+      const output = await identifyWithinDeadline(input => current.decision.adapter!.identify!(input), { article: { title: current.article.title, body: current.article.body }, ...identificationCandidates(current.article, current.industries) });
       const encoded = JSON.stringify(output);
       if (!encoded || Buffer.byteLength(encoded, 'utf8') > 131_072) throw new Error('provider_response_too_large');
       fields = validateIdentificationFields(output, current.article, current.industries);
+      if (current.catalog.status !== 'ok') fields.industry = { value: null, source: 'unidentified', reason: 'catalog_unavailable', ...(fields.industry.candidate ? { candidate: fields.industry.candidate } : {}) };
     } catch (error) { throw modelFailure(error); }
     // Reauthorize after the potentially long model call. A removed draft,
     // version, permission, industry or connection invalidates the late result.
@@ -116,8 +118,10 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (!latest.article || latest.article.articleId !== current.article.articleId || latest.article.articleVersionId !== current.article.articleVersionId || latest.article.versionNumber !== current.article.versionNumber || identificationDigest(latest.article) !== current.context.contentDigest || latest.article.contentHash !== current.article.contentHash) throw failure(409, 'stale_content', '稿件或版本权限已变化，本次结果未采用，请重新读取。');
     const nextDecision = await resolveUserDecisionAdapter(core, req);
     if (connectionOf(core, nextDecision).revision !== current.context.connection.revision || !nextDecision.adapter?.identify) throw failure(409, 'connection_changed', 'AI 连接已变化，本次结果未采用，请重新识别。');
-    const latestIndustries = await new MatrixRepository(await core.database(), current.scope.tenantId).industries();
-    if (fields.industry.value && !latestIndustries.some(item => item.id === fields.industry.value && current.industries.some(original => original.id === item.id && original.name === item.name))) fields.industry = { value: null, source: 'unidentified' };
+    if (fields.industry.value) {
+      const latestCatalog = await loadIndustryCatalog(core, req);
+      if (latestCatalog.status !== 'ok' || !latestCatalog.data.industries.some(item => item.id === fields.industry.value && current.industries.some(original => original.id === item.id && original.name === item.name))) fields.industry = { value: null, source: 'unidentified', reason: latestCatalog.status === 'ok' ? 'catalog_changed' : 'catalog_unavailable' };
+    }
     if (authorizedScope(core, req).scopeKey !== current.scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     const count = Object.values(fields).filter(field => field.value !== null).length;
     const response: IdentifyArticleResponse = { status: count === 4 ? 'complete' : count ? 'partial' : 'unidentified', context: current.context, fields };

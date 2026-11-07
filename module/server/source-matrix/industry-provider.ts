@@ -10,7 +10,8 @@ const ROOT = '/api/business/source-ranking/';
 const TIMEOUT_MS = 60000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ENTRIES = 256;
-const MAX_CACHED_BYTES = 8 * 1024 * 1024;
+const MAX_FILTER_BYTES = 12 * 1024 * 1024;
+const MAX_CACHED_BYTES = 16 * 1024 * 1024;
 const OPERATION_TTL_MS = 10 * 60 * 1000;
 
 export function industryFailure(status: IndustryFailure['status'], httpStatus: number, message: string, retryable = false): IndustryFailure {
@@ -33,9 +34,9 @@ function providerFailure(httpStatus: number, value: unknown): IndustryFailure {
   return industryFailure('upstream_error', 502, '行业信源服务暂时不可用，可稍后重试当前查询。', true);
 }
 
-async function readBounded(response: Response, controller: AbortController): Promise<string> {
+async function readBounded(response: Response, controller: AbortController, limit = MAX_RESPONSE_BYTES): Promise<string> {
   const length = Number(response.headers.get('content-length'));
-  if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) { controller.abort(); throw new IndustryDecodeError(); }
+  if (Number.isFinite(length) && length > limit) { controller.abort(); throw new IndustryDecodeError(); }
   if (!response.body) return '';
   const reader = response.body.getReader(), decoder = new TextDecoder('utf-8', { fatal: true });
   let size = 0, body = '';
@@ -44,7 +45,7 @@ async function readBounded(response: Response, controller: AbortController): Pro
       const chunk = await reader.read();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) { controller.abort(); throw new IndustryDecodeError(); }
+      if (size > limit) { controller.abort(); throw new IndustryDecodeError(); }
       try { body += decoder.decode(chunk.value, { stream: true }); } catch { throw new IndustryDecodeError(); }
     }
     try { return body + decoder.decode(); } catch { throw new IndustryDecodeError(); }
@@ -62,6 +63,7 @@ interface Entry {
   month: string;
   pending?: Promise<IndustryResponse<unknown>>;
   value?: IndustrySuccess<unknown>;
+  failure?: IndustryFailure;
   bytes: number;
 }
 
@@ -101,6 +103,7 @@ export class IndustrySourceProvider {
     }
     if (entry?.pending) return entry.pending;
     if (entry?.value && entry.expiresAt > startedAt) return entry.value;
+    if (endpoint === 'filters' && entry?.failure && entry.expiresAt > startedAt) return entry.failure;
     if (entry && !billed && entry.expiresAt <= startedAt) { this.discard(key, entry); entry = undefined; }
     if (!entry) {
       if (!this.room()) return industryFailure('upstream_error', 503, '行业信源服务繁忙，请稍后重试当前查询。', true);
@@ -117,11 +120,16 @@ export class IndustrySourceProvider {
           if (expiry < BigInt(owned.expiresAt)) owned.expiresAt = Number(expiry);
         }
         const bytes = Buffer.byteLength(JSON.stringify(result));
-        if (bytes <= 256 * 1024 && this.bytes + bytes <= MAX_CACHED_BYTES) {
+        if (bytes <= (endpoint === 'filters' ? MAX_FILTER_BYTES : 256 * 1024) && this.bytes + bytes <= MAX_CACHED_BYTES) {
           owned.value = result;
           owned.bytes = bytes;
           this.bytes += bytes;
         }
+      } else if (endpoint === 'filters') {
+        // Context, catalog and identification may arrive together. Share a brief
+        // failure too, without reissuing supplier reads on every task poll.
+        owned.failure = result;
+        owned.expiresAt = this.now() + 10000;
       } else if (result.status === 'session_expired') {
         // Never re-issue an operation the supplier has declared non-replayable.
         owned.expiresAt = 0;
@@ -136,12 +144,12 @@ export class IndustrySourceProvider {
     url.search = query.toString();
     const controller = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, TIMEOUT_MS);
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, endpoint === 'filters' ? 10000 : TIMEOUT_MS);
     try {
       // Do not couple this to a browser disconnect: an already-sent query can have consumed quota.
       // Keep the operation available for an identical retry. No implicit transport retries.
       const response = await this.transport(url.toString(), { method: 'GET', redirect: 'error', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, signal: controller.signal });
-      const body = await readBounded(response, controller);
+      const body = await readBounded(response, controller, endpoint === 'filters' ? MAX_FILTER_BYTES : MAX_RESPONSE_BYTES);
       let parsed: unknown;
       try { parsed = parseIndustryJson(body); } catch {
         if (!response.ok) return providerFailure(response.status, null);

@@ -9,9 +9,17 @@ import { PublishingFlowProvider,type PublishingFlow } from '../PublishingFlowCon
 import type { MediaResource,PublicationDraft } from '../types';
 import type { MatrixResult } from './types';
 import {matrixDemo} from './demo';
+import type { IndustryCatalogResponse } from '../../shared/industry-catalog';
 // jsdom does not implement <dialog>; the confirmation dialog needs these stubs.
 HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
 HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+
+// Complete canonical contract. Dataset availability is expressed separately from
+// selectable categories so generation fixtures still exercise real eligibility.
+function canonicalCatalog(rows: Array<{id:string;name:string}> = [], brandBatches: IndustryCatalogResponse['brand_data_batches'] = []): IndustryCatalogResponse {
+ const industries=rows.map(({id,name})=>({id,scopeId:id,name,label:name,path:[name],depth:0}));
+ return {status:'configured',industries,catalogVersion:'page-fixture-catalog-1',filters:{models:[{value:'all',label:'全部模型'}],minDate:'2026-10-01',maxDate:'2026-10-31',industryTree:rows.map(({id,name})=>({id:'node-'+id,label:name,scopeType:'CATEGORY' as const,scopeId:id,children:[]})),sourceTypes:['新闻资讯']},legacyMappings:rows.map(({id,name})=>({localId:'legacy-'+id,localName:name,canonicalId:id,status:'mapped' as const,via:'explicit' as const})),brand_data_batches:brandBatches};
+}
 
 const mediaGateway=vi.hoisted(()=>({listMedia:vi.fn(),getDraft:vi.fn(),getArticleVersion:vi.fn(),createDraft:vi.fn(),updateDraftMedia:vi.fn()}));
 const gatewayIdentity=vi.hoisted(()=>({current:null as object|null}));
@@ -21,7 +29,7 @@ beforeEach(()=>{Object.values(mediaGateway).forEach(mock=>mock.mockReset());gate
 afterEach(()=>{cleanup();sessionStorage.clear();vi.unstubAllGlobals();window.history.replaceState({},'', '/');});
 it('defaults to real industry distribution and exposes only the two canonical tabs',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?draftId=draft-1&articleVersion=version-1#range');
- vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({industries:[]})})));
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>canonicalCatalog()})));
  mediaGateway.getDraft.mockResolvedValue(draft());
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByText('真实行业分布');
@@ -31,14 +39,14 @@ it('defaults to real industry distribution and exposes only the two canonical ta
 });
 it('keeps configuration details out of permanent layout and offers a local industry retry',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>String(url).includes('/matrix/connection')?{connection:null,mode:'none',available:false}:{status:'configuration_required',industries:[],message:'信源规划存储尚未配置，请联系管理员完成模块迁移'}})));
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>String(url).includes('/matrix/connection')?{connection:null,mode:'none',available:false}:{...canonicalCatalog(),status:'configuration_required',filters:null,catalogVersion:null,message:'信源规划存储尚未配置，请联系管理员完成模块迁移'}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
  expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
 });
 it('shows an automatically named connection without repeating its model',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}:{industries:[]}})));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}:canonicalCatalog()})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  expect(await screen.findByText('当前模型：硅基流动 · model-from-directory')).toBeTruthy();
  expect(screen.queryByText('当前模型：硅基流动 · model-from-directory · model-from-directory')).toBeNull();
@@ -47,7 +55,7 @@ it('shows pending connection state without claiming there is no saved connection
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
  let finish!:(value:unknown)=>void;
  const pending=new Promise(resolve=>{finish=resolve;});
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?pending:{industries:[]}})));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?pending:canonicalCatalog()})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  expect(await screen.findByText('正在读取模型连接…')).toBeTruthy();
  expect(screen.queryByText('尚未连接 AI')).toBeNull();
@@ -56,14 +64,14 @@ it('shows pending connection state without claiming there is no saved connection
 });
 it('labels an unavailable saved connection as saved instead of currently usable',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'研究专用',provider:'deepseek',model:'saved-model',maskedKey:'••••1234'},mode:'user',available:false,message:'已保存的个人连接地址或地域不可用，请检查设置或联系管理员。'}:{industries:[]}})));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'研究专用',provider:'deepseek',model:'saved-model',maskedKey:'••••1234'},mode:'user',available:false,message:'已保存的个人连接地址或地域不可用，请检查设置或联系管理员。'}:canonicalCatalog()})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  expect(await screen.findByText('已保存连接：研究专用 · saved-model')).toBeTruthy();
  expect(screen.queryByText('当前模型：研究专用 · saved-model')).toBeNull();
 });
 it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?task=task&tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/industries')?{industries:[]}:{task_id:'task',state:'complete',result:{status:'stale_matrix',errors:[{code:'stale_matrix',message:'任务已变化，请重新生成'}]}}})));
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog():{task_id:'task',state:'complete',result:{status:'stale_matrix',errors:[{code:'stale_matrix',message:'任务已变化，请重新生成'}]}}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByText('任务已变化，请重新生成');expect(screen.getByText('等待生成矩阵')).toBeTruthy();
 });
@@ -75,7 +83,7 @@ function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
   if(url.includes('/matrix/identify/context')){const versionId=new URL(url,window.location.origin).searchParams.get('article_version_id')??'version-1';return {ok:true,json:async()=>({status:'not_configured',context:{scopeKey:'authorized-test-project',articleId:'article-1',articleVersionId:versionId,versionNumber:1,title:'当前稿件',contentDigest:'digest-'+versionId,connection:{available:false,mode:'environment',revision:'fixture-identification-unavailable'}},fields:{product:{value:null,source:'unidentified'},industry:{value:null,source:'unidentified'},audience:{value:null,source:'unidentified'},questions:{value:null,source:'unidentified'}}})};}
-  return {ok:true,json:async()=>url.includes('/industries')?{industries:[]}:url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
+  return {ok:true,json:async()=>url.includes('/industries')?canonicalCatalog():url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
  }));
  mediaGateway.listMedia.mockResolvedValue({items:[media],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
  mediaGateway.getArticleVersion.mockResolvedValue({id:'version-1',version:1,hash:'hash-1',containsImages:false,frozen:true,createdAt:'2026-10-24T00:00:00Z',createdBy:'当前账号'});
@@ -552,7 +560,7 @@ it('one click generates the matrix then automatically the budget combination wit
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
-  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-1',name:'软件测试'}],brand_data_batches:[{id:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',label:'一航软件样本',version:'v1',sourceFile:'一航软件-信源分析-20260913-214944.xlsx',recordCount:502,period:{start:'2026-09-07',end:'2026-09-13'},models:['百度文心-手机版']}]})};
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'901',name:'软件测试'}],[{id:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',label:'一航软件样本',version:'v1',sourceFile:'一航软件-信源分析-20260913-214944.xlsx',recordCount:502,period:{start:'2026-09-07',end:'2026-09-13'},models:['百度文心-手机版']}])};
   if(url.endsWith('/matrix/generate')){const body=JSON.parse(String(init?.body));expect(body.brand_data).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');return {ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:echoedTask})};}
   if(url.endsWith('/budget')){budgetBodies.push(JSON.parse(String(init?.body)));return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...echoedTask,budget_plans:[offerPlan]}})};}
   if(url.includes('/classify/matrix-1'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:echoedTask})};
@@ -562,7 +570,7 @@ it('one click generates the matrix then automatically the budget combination wit
  render(<div className="monitoring-module"><SourceMatrixPage view="matrix"/></div>);
  await screen.findByText('AI 识别暂未配置，可先手动填写。');
  await screen.findByRole('option',{name:'软件测试'});
- fireEvent.change(await screen.findByLabelText('目标行业 *'),{target:{value:'industry-1'}});
+ fireEvent.change(await screen.findByLabelText('目标行业 *'),{target:{value:'901'}});
  fireEvent.change(await screen.findByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
  fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d'}});
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'3000'}});
@@ -597,7 +605,7 @@ it('shows the actual saved sample without configured services and never writes a
 
 it('keeps the saved matrix unchanged on budget-only edits and distinguishes semantic edits',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({industries:[]})})));
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>canonicalCatalog()})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});
  const original=[...document.querySelectorAll('[data-source-id]')].map(node=>node.getAttribute('data-source-id'));
@@ -621,19 +629,19 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
   if(url.includes('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
-  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'configured-industry',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'verified-source',sourceFile:matrixDemo.source.file,recordCount:502,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'901',name:matrixDemo.form.industry}],[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'verified-source',sourceFile:matrixDemo.source.file,recordCount:502,period:matrixDemo.source.period,models:matrixDemo.source.models}])};
   if(init?.method==='POST'){bodies.push({url,body:JSON.parse(String(init.body))});return {ok:false,json:async()=>({message:'模型尚未配置，请稍后重试'})};}
   return {ok:true,json:async()=>({})};
  }));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:matrixDemo.form.industry});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'configured-industry'}});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'901'}});
  expect(screen.queryByText(/投放要求已修改，下方保存矩阵/)).toBeNull();
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'5000'}});
  fireEvent.click(screen.getByRole('button',{name:'按当前要求在线生成'}));
  await screen.findByText('模型尚未配置，请稍后重试');
  expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
- expect(bodies[0]!.body).toMatchObject({industry_id:'configured-industry',brand_data:matrixDemo.form.brandDataBatchId});
+ expect(bodies[0]!.body).toMatchObject({industry_id:'901',brand_data:matrixDemo.form.brandDataBatchId});
  expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
  expect(screen.queryByText('一航软件 · 已保存样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
@@ -642,7 +650,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
 it('hydrates a different task instead of mixing its result with the prefilled demo or previous task',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
  const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海'],hours:'24',requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?{industries:[{id:'configured-industry',name:'已接入行业'}]}:url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog([{id:'901',name:'已接入行业'}]):url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByText(/已保存的样本矩阵/);
@@ -667,14 +675,14 @@ it('does not send the automatic budget stage to another task after leaving a run
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);if(init?.method==='POST')posts.push(url);
   if(url.includes('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
-  if(url.endsWith('/industries'))return {ok:true,json:async()=>({industries:[{id:'industry-live',name:matrixDemo.form.industry}],brand_data_batches:[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'v1',recordCount:502,sourceFile:matrixDemo.source.file,period:matrixDemo.source.period,models:matrixDemo.source.models}]})};
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'901',name:matrixDemo.form.industry}],[{id:matrixDemo.form.brandDataBatchId,label:'一航软件样本',version:'v1',recordCount:502,sourceFile:matrixDemo.source.file,period:matrixDemo.source.period,models:matrixDemo.source.models}])};
   if(url.endsWith('/matrix/generate')||url.endsWith('/task-A'))return {ok:true,json:async()=>({task_id:'task-A',state:'running',result:taskResult('正在生成的A')})};
   if(url.endsWith('/task-B'))return {ok:true,json:async()=>({task_id:'task-B',state:'complete',result:taskResult('已有任务B')})};
   return {ok:true,json:async()=>({items:[]})};
  }));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:matrixDemo.form.industry});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'901'}});
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('task-A'));
  await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-B');window.dispatchEvent(new PopStateEvent('popstate'));});

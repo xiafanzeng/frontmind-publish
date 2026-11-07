@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { SourceDistributionBatch } from '../../../contracts/source-distribution';
-import { RemoteIndustryDistribution } from './RemoteIndustryDistribution';
+import { RemoteIndustryDistribution, type RemoteIndustryDistributionProps } from './RemoteIndustryDistribution';
 import { UNKNOWN, contentGroups, defaultFilter, filterRecords, mediaKey, mediaRanking, percentageText, periodEnd, periodsFor, periodRange, publicationDistribution, safeSourceUrl, typeDistribution, uniqueBatches, type ContentGroup, type DistributionFilter, type DistributionSlice, type PeriodGranularity, type PeriodOption } from './distribution';
 import './industry-distribution.css';
 
@@ -134,6 +134,6 @@ export function IndustryDistribution({ batches, loading = false, error, unavaila
   </div>;
 }
 
-export function LiveIndustryDistribution() {
-  return <RemoteIndustryDistribution/>;
+export function LiveIndustryDistribution(props: RemoteIndustryDistributionProps = {}) {
+  return <RemoteIndustryDistribution {...props}/>;
 }
