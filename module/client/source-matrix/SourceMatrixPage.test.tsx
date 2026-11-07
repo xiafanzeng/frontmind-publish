@@ -35,6 +35,31 @@ it('keeps configuration details out of permanent layout and offers a local indus
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
  expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
 });
+it('shows an automatically named connection without repeating its model',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}:{industries:[]}})));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ expect(await screen.findByText('当前模型：硅基流动 · model-from-directory')).toBeTruthy();
+ expect(screen.queryByText('当前模型：硅基流动 · model-from-directory · model-from-directory')).toBeNull();
+});
+it('shows pending connection state without claiming there is no saved connection',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ let finish!:(value:unknown)=>void;
+ const pending=new Promise(resolve=>{finish=resolve;});
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?pending:{industries:[]}})));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ expect(await screen.findByText('正在读取模型连接…')).toBeTruthy();
+ expect(screen.queryByText('尚未连接 AI')).toBeNull();
+ await act(async()=>finish({connection:{id:'connection-1',revision:'revision-1',name:'硅基流动 · model-from-directory',provider:'siliconflow',model:'model-from-directory',maskedKey:'••••1234'},mode:'user',available:true}));
+ expect(await screen.findByText('当前模型：硅基流动 · model-from-directory')).toBeTruthy();
+});
+it('labels an unavailable saved connection as saved instead of currently usable',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:{id:'connection-1',revision:'revision-1',name:'研究专用',provider:'deepseek',model:'saved-model',maskedKey:'••••1234'},mode:'user',available:false,message:'已保存的个人连接地址或地域不可用，请检查设置或联系管理员。'}:{industries:[]}})));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ expect(await screen.findByText('已保存连接：研究专用 · saved-model')).toBeTruthy();
+ expect(screen.queryByText('当前模型：研究专用 · saved-model')).toBeNull();
+});
 it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?task=task&tab=matrix');
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/industries')?{industries:[]}:{task_id:'task',state:'complete',result:{status:'stale_matrix',errors:[{code:'stale_matrix',message:'任务已变化，请重新生成'}]}}})));
