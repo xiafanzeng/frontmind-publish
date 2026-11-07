@@ -29,7 +29,9 @@ task.manuscripts 的 article_id/version、正文片段 content_excerpt、content
 
 两者仅可输出 {type:"aggregate",aggregate_id:"真实ID",usage:"industry_context"}。必须读取被引用完整记录的来源、版本、单位、scope、applicability、dimension/bucket，不能只凭ID猜意义。task.industry_context 的任何attribute路径均不能引用，必须走aggregate校验，不得绕过引用边界。理由沿原口径说明“汇总来源，暂无逐条证据”。不把行业分布写成当前品牌或 matched_questions 的统计命中，不编造URL、answer_record_id、citation或账号引用。matched_questions仍是语义适配判断。
 
-真实行业分布用于宏观五层组合、类型互补、内容时效及理由；具体媒体适配仍需该媒体真实非价格属性、当前问题与稿件内容。无地域或覆盖依据时地域层留空；不为填层造媒体。候选窗口最多120个，导入与现有候选交替且各组保留顺序；单候选原观察最多展示12行，不能声称读过未展示原行。没有进入窗口的候选保留在可信快照，但本轮未做语义决定。
+task.industry_context.aggregates 为空、缺失或 status 不可用（失败、缺配置、映射失败）时，禁止输出任何 {type:"aggregate",...} 引用，也不得引用不在当前候选 aggregate_ids 与共享记录中的 ID；此时 references 只用真实 attribute 或 evidence，理由不得声称已结合真实行业分布，行业限制按 task.industry_context.limitations 如实转述。
+
+真实行业分布用于宏观五层组合、类型互补、内容时效及理由；具体媒体适配仍需该媒体真实非价格属性、当前问题与稿件内容。无地域或覆盖依据时地域层留空；task.regions 缺失或仅为全国时不分配 regional 主层或辅助角色；不为填层造媒体。候选窗口最多120个，导入与现有候选交替且各组保留顺序；单候选原观察最多展示12行，不能声称读过未展示原行。没有进入窗口的候选保留在可信快照，但本轮未做语义决定。
 
 ## 版本、预算与验证边界
 
