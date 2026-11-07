@@ -212,12 +212,14 @@ export default function TipTapArticleEditor({
             <ImagePlus size={18} />
           )}
         </ToolbarButton>
+        {/* V6：该 input 仅供工具栏“插入图片”程序化调用。原 visually-hidden 类只在
+            .publishing-page 作用域生效，standalone 外壳下会露出原生“选择文件”控件，
+            改用 hidden 属性在所有上下文彻底隐藏（imageInputRef.click() 仍可唤起选图）。 */}
         <input
           ref={imageInputRef}
-          className="publishing-visually-hidden"
+          hidden
           type="file"
           accept="image/jpeg,image/png,image/webp,image/gif"
-          aria-label="选择要插入的图片"
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file) void insertUploadedImage(file);
