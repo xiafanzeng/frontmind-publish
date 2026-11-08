@@ -68,3 +68,19 @@ body:has(.fm3-root){background:#fff;margin:0}
 /* 删除稿件：红底白字，与行内主按钮同尺寸 */
 .fm3-root .btn.danger-solid {background:#d92d42;border-color:#d92d42;color:#fff}
 .fm3-root .btn.danger-solid:hover:not(:disabled) {background:#b81f37;border-color:#b81f37;color:#fff}
+
+/* ---------- V8 统一状态徽标与管理稿件分页 ---------- */
+/* 色底+白字+白圆点（沿用 .badge::before 的 currentColor 圆点） */
+.fm3-root .badge.solid-blue {background:#2563eb;color:#fff}
+.fm3-root .badge.solid-green {background:#1f8a5d;color:#fff}
+.fm3-root .badge.solid-red {background:#d92d42;color:#fff}
+/* 管理稿件表格内的紧凑操作按钮（同行还有版本/字数等信息，比工作台行内稍小） */
+.fm3-root .table-action {display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.fm3-root .btn.small.compact {font-size:11px;min-height:26px;padding:3px 8px}
+/* 分页：页码按钮替换“第X页/共X页” */
+.fm3-root .pagination {display:flex;align-items:center;justify-content:space-between;gap:12px}
+.fm3-root .pagination .page-buttons {display:flex;align-items:center;gap:5px}
+.fm3-root .pagination .page-buttons button {min-width:26px;height:26px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer}
+.fm3-root .pagination .page-buttons button:hover:not(:disabled):not(.active) {background:#f1f1f3}
+.fm3-root .pagination .page-buttons button.active {background:var(--brand);border-color:var(--brand);color:#fff;cursor:default}
+.fm3-root .pagination .page-buttons button:disabled {opacity:.45;cursor:not-allowed}

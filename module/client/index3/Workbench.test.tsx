@@ -129,11 +129,11 @@ it("lists one row per article ordered by recent update with folded step indicato
   }));
   expect(summary).toEqual([
     // 唯一匹配的已就绪草稿把步骤推进到配置标题，并直达配置标题页。
-    { title: "待投放的稿件", step: "当前步骤：配置标题", action: "继续配置", hasDelete: true, href: "/publishing/drafts/draft%2Fready-1/titles" },
+    { title: "待投放的稿件", step: "当前步骤：配置标题", action: "继续投放", hasDelete: true, href: "/publishing/drafts/draft%2Fready-1/titles" },
     // 同名歧义：不折叠，保持选择媒体，入口按冻结版本定位。
     { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", hasDelete: true, href: "/publishing/media?articleVersion=version-twin-a" },
     { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", hasDelete: true, href: "/publishing/media?articleVersion=version-twin-b" },
-    { title: "编辑中的稿件", step: "当前步骤：编辑稿件", action: "继续编辑", hasDelete: true, href: "/publishing/articles/article-draft/edit" },
+    { title: "编辑中的稿件", step: "当前步骤：编辑稿件", action: "继续投放", hasDelete: true, href: "/publishing/articles/article-draft/edit" },
   ]);
 });
 
