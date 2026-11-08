@@ -7,6 +7,7 @@ export type PublishTransaction = Parameters<Parameters<PublishDatabase["transact
 export type PublishFundsStatus = "reserved" | "frozen" | "consumed" | "released";
 export interface PublishPersistenceCore {
   tables: PublishSchema;
+  enterpriseProjectIsActive(tx: PublishTransaction, projectId: string | null | undefined, ownerId: string): Promise<boolean>;
   audit(tx: PublishTransaction, entry: Record<string, unknown>): Promise<void>;
   settlePublisherItemMoney(tx: PublishTransaction, input: {
     itemId: string; settlement: "frozen" | "consumed" | "released";
