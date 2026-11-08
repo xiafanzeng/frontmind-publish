@@ -78,6 +78,11 @@ function modelFailure(error: unknown): Error {
 /** Mounted after the existing matrix same-origin/no-store middleware. No writes. */
 export function mountArticleIdentificationRoutes(router: Router, core: ModuleHttpCore): void {
   const wrap = (fn: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => { void fn(req, res).catch(next); };
+  // Research-mode drafts need the same authenticated owner/project boundary,
+  // even when there is no article and no catalogue/model service available.
+  router.get('/matrix/form-scope', wrap(async (req, res) => {
+    res.json({ scopeKey: authorizedScope(core, req).scopeKey });
+  }));
   async function load(req: Request, input: z.infer<typeof selection>) {
     const scope = authorizedScope(core, req);
     const db = await core.database();

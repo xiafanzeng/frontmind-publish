@@ -1,72 +1,227 @@
-import { useEffect,useRef,useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { MatrixDialog } from './SourceMatrixPresentation';
-import { RESEARCH_IMPORT_ACCEPT,RESEARCH_IMPORT_FIELDS,RESEARCH_IMPORT_LIMITS as L,type ResearchDatasetSummary,type ResearchImportPreview,type ResearchImportMapping,type ResearchImportPurpose,type ResearchImportCounts } from './research-import-types';
+import { MediaDialog } from './MediaMarket';
+import { RESEARCH_IMPORT_ACCEPT, RESEARCH_IMPORT_LIMITS as L, type ResearchDatasetSummary, type ResearchImportCounts } from './research-import-types';
 import './research-import.css';
-type Validation={counts:ResearchImportCounts;errors:Array<{locator:string;message:string}>};
-type Pending={key:number;name:string;preview?:ResearchImportPreview;sheet:string;purpose:ResearchImportPurpose;mapping:ResearchImportMapping;validation?:Validation;error?:string;busy?:boolean;confirmed?:boolean;replaceId?:string};
-const API='/api/modules/publish/matrix/imports';
-const purposes:Array<[ResearchImportPurpose,string]>=[['source','信源清单'],['citation','引用线索（待核验）'],['context','补充资料']];
-const aliases:Record<string,string[]>={source_name:['source_name','mediaName','name','媒体名称','信源名称','媒体或信源名称'],url:['url','mediaUrl','media_url','domain','网址','域名','URL'],platform:['platform','model','平台','引用平台'],question:['question','问题','目标问题'],collected_at:['collected_at','citedAt','采集时间','采样日期'],text:['text','content','description','内容','正文','说明','推荐理由']};
-function suggested(columns:string[]):ResearchImportMapping{return Object.fromEntries(Object.entries(aliases).flatMap(([field,words])=>{const column=columns.find(c=>words.some(word=>word.toLowerCase()===c.toLowerCase()));return column?[[field,column]]:[];}));}
-export function ResearchImportDialog({open,onClose,selectedIds,onChange}:{open:boolean;onClose:()=>void;selectedIds:string[];onChange:(ids:string[],datasets:ResearchDatasetSummary[])=>void}){
- const [datasets,setDatasets]=useState<ResearchDatasetSummary[]>([]),[pending,setPending]=useState<Pending[]>([]),[message,setMessage]=useState(''),[error,setError]=useState(''),[uploading,setUploading]=useState(false),[loading,setLoading]=useState(false),[removing,setRemoving]=useState<string|null>(null),[confirmRemove,setConfirmRemove]=useState<string|null>(null);
- const input=useRef<HTMLInputElement>(null),epoch=useRef(0),serial=useRef(0),controllers=useRef(new Set<AbortController>()),replace=useRef<string|undefined>(undefined),selected=useRef(selectedIds),saved=useRef(datasets),callback=useRef(onChange);
- selected.current=selectedIds;saved.current=datasets;callback.current=onChange;
- const working=uploading||removing!==null||pending.some(item=>item.busy);
- const request=async<T,>(path:string,init:RequestInit={}):Promise<T>=>{const controller=new AbortController();controllers.current.add(controller);try{const response=await fetch(API+path,{...init,credentials:'same-origin',signal:controller.signal});const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.message??'数据导入请求失败，请重试'),{validation:data.validation});return data as T;}finally{controllers.current.delete(controller);}};
- const patch=(key:number,value:Partial<Pending>)=>setPending(list=>list.map(item=>item.key===key?{...item,...value}:item));
- const choose=(ids:string[],items=saved.current)=>{if(ids.length>L.files){setError('最多选择 10 个数据集');return false;}if(items.filter(d=>ids.includes(d.id)).reduce((n,d)=>n+d.recordCount,0)>L.selectedRows){setError('所选数据集合计超过 10,000 条，请减少选择');return false;}selected.current=ids;callback.current(ids,items.filter(d=>ids.includes(d.id)));return true;};
- useEffect(()=>{if(!open)return;const token=++epoch.current;setLoading(true);setUploading(false);setRemoving(null);setConfirmRemove(null);setError('');setMessage('');setPending([]);replace.current=undefined;
-  void request<{datasets:ResearchDatasetSummary[]}>('').then(data=>{if(token!==epoch.current)return;setDatasets(data.datasets);saved.current=data.datasets;const valid=selected.current.filter(id=>data.datasets.some(d=>d.id===id));if(valid.length!==selected.current.length){choose(valid,data.datasets);setMessage('已移除失效的数据集选择，请核对后重新生成。');}}).catch(reason=>{if(token===epoch.current)setError(reason instanceof Error?reason.message:'数据集加载失败');}).finally(()=>{if(token===epoch.current)setLoading(false);});
-  return()=>{epoch.current++;controllers.current.forEach(c=>c.abort());controllers.current.clear();};
- },[open]);
- async function addFiles(files:FileList|File[]|null){
-  if(!files?.length||working||loading)return;setError('');setMessage('');const items=Array.from(files);if(items.length>L.files||pending.filter(p=>!p.confirmed).length+items.length>L.files){setError('一次最多处理 10 个文件，请确认或移除当前文件后继续');return;}
-  if(replace.current&&items.length!==1){setError('替换时请选择一个文件');return;}
-  const token=epoch.current;setUploading(true);
-  for(const file of items){if(token!==epoch.current)break;const key=++serial.current,replaceId=replace.current;setPending(list=>[...list,{key,name:file.name,sheet:'',purpose:'context',mapping:{},busy:true,replaceId}]);
-   if(file.size<=0||file.size>L.bytes){patch(key,{busy:false,error:'文件必须大于 0 且不超过 8 MiB'});continue;}
-   const extension='.'+file.name.split('.').pop()?.toLowerCase();if(!RESEARCH_IMPORT_ACCEPT.split(',').includes(extension)){patch(key,{busy:false,error:'不支持此格式，请选择下方列出的文件类型'});continue;}
-   try{const body=new FormData();body.append('file',file);const preview=await request<ResearchImportPreview>('/preview',{method:'POST',body});if(token!==epoch.current)break;const first=preview.sheets[0],purpose:ResearchImportPurpose=['txt','md','docx','pdf'].includes(file.name.split('.').pop()?.toLowerCase()??'')?'context':'source';patch(key,{preview,sheet:first?.name??'',mapping:suggested(first?.columns??[]),purpose,busy:false});if(preview.existing){setMessage('检测到相同文件，复用已有数据集；不会重复创建记录。');if(preview.status==='confirmed'){const list=await request<{datasets:ResearchDatasetSummary[]}>('');if(token!==epoch.current)break;setDatasets(list.datasets);saved.current=list.datasets;}}}
-   catch(reason){if(token===epoch.current)patch(key,{busy:false,error:reason instanceof Error?reason.message:'文件解析失败'});}
+
+type Props = { open: boolean; scopeKey?: string; onClose: () => void; selectedIds: string[]; onChange: (ids: string[], datasets: ResearchDatasetSummary[]) => void; onRefresh?: (datasets: ResearchDatasetSummary[]) => void };
+type Pending = { key: number; file: File; replaceId?: string; status: 'queued' | 'uploading' | 'failed'; error?: string };
+type AutoImportResult = { dataset: ResearchDatasetSummary; reused: boolean; replacedId?: string; validation: { counts: ResearchImportCounts; warnings: string[] } };
+const API = '/api/modules/publish/matrix/imports';
+
+function conciseError(reason: unknown, fallback: string) {
+  return reason instanceof Error && reason.name !== 'TypeError' ? reason.message.replace(/\s+/g, ' ').slice(0, 180) || fallback : fallback;
+}
+function selectionError(ids: string[], datasets: ResearchDatasetSummary[]) {
+  if (ids.length > L.files) return `最多选用 ${L.files} 个文件，请先取消部分选择。`;
+  if (datasets.filter(item => ids.includes(item.id)).reduce((total, item) => total + item.recordCount, 0) > L.selectedRows) return '所选数据超过 10,000 条，请先取消部分选择。';
+  return '';
+}
+function savedStatus(dataset: ResearchDatasetSummary, concise = true) {
+  const parts = [`已保存 · ${dataset.recordCount.toLocaleString('zh-CN')} 条`];
+  if (dataset.duplicateCount) parts.push(`去重 ${dataset.duplicateCount} 条`);
+  if (dataset.failedCount) parts.push(`跳过 ${dataset.failedCount} 条`);
+  if (dataset.warnings?.length) {
+    const warnings = dataset.warnings.join('；');
+    parts.push(concise && warnings.length > 140 ? warnings.slice(0, 140) + '…' : warnings);
   }
-  if(token===epoch.current){setUploading(false);replace.current=undefined;if(input.current)input.current.value='';}
- }
- async function validateItem(item:Pending,confirm=false){if(!item.preview)return;if(confirm){const ids=selected.current.filter(id=>id!==item.replaceId&&id!==item.preview!.id),total=saved.current.filter(d=>ids.includes(d.id)).reduce((n,d)=>n+d.recordCount,0)+(item.validation?.counts.valid??0);if(ids.length>=L.files||total>L.selectedRows){patch(item.key,{error:'所选数据集超过 10 个或合计 10,000 条，请减少选择后再确认'});return;}}const token=epoch.current;patch(item.key,{busy:true,error:undefined});try{
-  const data=await request<{dataset?:ResearchDatasetSummary;validation:Validation}>(confirm?'/confirm':'/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:item.preview.id,sheet:item.sheet,purpose:item.purpose,mapping:item.mapping})});if(token!==epoch.current)return;
-  patch(item.key,{validation:data.validation,busy:false,...(data.dataset?{confirmed:true}:{})});
-  if(data.dataset){const next=[data.dataset,...saved.current.filter(d=>d.id!==data.dataset!.id)];setDatasets(next);saved.current=next;const ids=[...new Set([...selected.current.filter(id=>id!==item.replaceId),data.dataset.id])];if(choose(ids,next))setMessage(item.replaceId?'当前任务已改选新数据集，旧数据集仍可再次选用。':'导入成功，已选中用于当前任务。');else setMessage('数据集已保存；当前选择达到上限，请减少选择后在下方选用。');}
- }catch(reason){if(token===epoch.current)patch(item.key,{busy:false,error:reason instanceof Error?reason.message:'数据校验失败',validation:(reason as {validation?:Validation}).validation});}}
- async function removeDataset(id:string){const token=epoch.current;setRemoving(id);setError('');try{await request('/'+encodeURIComponent(id)+'/remove',{method:'POST'});if(token!==epoch.current)return;const next=saved.current.filter(d=>d.id!==id);setDatasets(next);saved.current=next;choose(selected.current.filter(x=>x!==id),next);setConfirmRemove(null);setMessage('数据集已移除。已有任务仍保留生成时的研究快照。');}catch(reason){if(token===epoch.current)setError(reason instanceof Error?reason.message:'移除失败，数据已保留');}finally{if(token===epoch.current)setRemoving(null);}}
- function update(item:Pending,value:Partial<Pending>){patch(item.key,{...value,validation:undefined,error:undefined});}
- function close(){epoch.current++;controllers.current.forEach(c=>c.abort());controllers.current.clear();setUploading(false);setLoading(false);setRemoving(null);onClose();}
- return <MatrixDialog open={open} title="导入研究数据" width={920} onClose={close} footer={<button type="button" className="button primary" onClick={close}>完成</button>}>
-  <div className="sm-research-import">
-   <p className="notice">导入内容只作为当前用户的研究资料，身份、引用和报价仍需核验。确认并选中后，生成推荐将交由当前服务商处理必要资料。</p>
-   <p className="small muted" id="sm-import-limits">每次最多 10 个文件；每个文件 8 MiB、全部工作表合计 5,000 条、64 列；最多 30 个工作表、PDF 200 页，解压后 32 MiB、解析后文字 2 MiB。任务最多选择 10 个数据集、合计 10,000 条；资料发送上限 60,000 字符，超出部分会标注未发送。</p>
-   <div className="sm-import-drop" onDragOver={event=>event.preventDefault()} onDrop={event=>{event.preventDefault();void addFiles(event.dataTransfer.files);}}>
-    <button className="button secondary" type="button" disabled={working||loading} onClick={()=>{replace.current=undefined;input.current?.click();}}>{uploading?'正在逐个解析…':'选择文件 / 拖拽到此处'}</button>
-    <input ref={input} className="sr" type="file" multiple accept={RESEARCH_IMPORT_ACCEPT} aria-describedby="sm-import-limits" onChange={event=>void addFiles(event.target.files)}/>
-    <p className="small muted">CSV、TSV、XLSX、XLS、JSON、JSONL、TXT、Markdown、DOCX、文字型 PDF。扫描 PDF 请先完成 OCR。</p>
-   </div>
-   {error&&<p className="block-error" role="alert">{error}</p>}{message&&<p className="notice" role="status">{message}</p>}
-   <div aria-live="polite">{pending.map(item=>{const current=item.preview?.sheets.find(s=>s.name===item.sheet),existing=saved.current.find(d=>d.id===item.preview?.id),limitReached=!item.replaceId&&!selected.current.includes(item.preview?.id??'')&&selected.current.length>=L.files;return <section key={item.key} className="sm-import-file" aria-busy={!!item.busy}>
-    <div className="sm-import-heading"><strong>{item.name}</strong><span>{item.busy?'处理中…':item.confirmed?'已确认':item.preview?.status==='confirmed'?'文件已存在':'待确认'}</span></div>
-    {item.error&&<p className="block-error" role="alert">{item.error}</p>}
-    {item.preview?.status==='confirmed'?<><p className="small muted">文件已确认，选择后直接用于当前任务；无需再次导入。</p><button type="button" className="button secondary" disabled={!existing||working||limitReached} onClick={()=>{if(existing){choose([...new Set([...selected.current.filter(id=>id!==item.replaceId),existing.id])]);patch(item.key,{confirmed:true});}}}>选用已有数据集</button></>:item.preview&&!item.confirmed&&<>
-     <div className="sm-import-fields"><label>工作表<select disabled={working} value={item.sheet} onChange={event=>{const s=item.preview!.sheets.find(s=>s.name===event.target.value);update(item,{sheet:event.target.value,mapping:suggested(s?.columns??[])});}}>{item.preview.sheets.map(s=><option key={s.name} value={s.name}>{s.name}（{s.recordCount} 条）</option>)}</select></label><label>资料用途<select disabled={working} value={item.purpose} onChange={event=>update(item,{purpose:event.target.value as ResearchImportPurpose})}>{purposes.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label></div>
-     <p className="small muted">{item.purpose==='source'?'信源清单需要名称或 URL。':item.purpose==='citation'?'引用线索需要 URL 和问题，导入行不计为已核验引用事件。':'补充资料需要内容字段，保留段落或页码定位。'} 重复键按映射后的完整语义记录计算；同一文件复用记录，不累计引用次数。</p>
-     <div className="sm-import-fields">{RESEARCH_IMPORT_FIELDS.map(field=><label key={field.key}>{field.label}<select disabled={working} value={item.mapping[field.key]??''} onChange={event=>update(item,{mapping:{...item.mapping,[field.key]:event.target.value||undefined}})}><option value="">不使用此字段</option>{current?.columns.map(column=><option key={column} value={column}>{column}</option>)}</select></label>)}</div>
-     <div className="table-wrap" tabIndex={0} aria-label={`${item.name} 数据预览，可横向滚动`}><table><caption>预览前 {current?.sample.length??0} 条，共 {current?.recordCount??0} 条；确认前需校验全部记录</caption><thead><tr><th>来源定位</th>{current?.columns.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{current?.sample.map((row,i)=><tr key={i}><td>{row.locator}{row.error&&<span className="block-error">{row.error}</span>}</td>{current.columns.map(column=><td key={column}>{(row.values[column]??'').slice(0,240)}{(row.values[column]?.length??0)>240?'…':''}</td>)}</tr>)}</tbody></table></div>
-     {item.preview.warnings.map((warning,i)=><p className="small muted" key={i}>{warning}</p>)}
-     <div className="actions"><button className="button secondary" type="button" disabled={working} onClick={()=>void validateItem(item)}>校验映射</button><button className="button primary" type="button" disabled={working||!item.validation?.counts.valid||limitReached} onClick={()=>void validateItem(item,true)}>确认导入并选用</button></div>
-     {limitReached&&<p className="block-error">已选满 10 个数据集，请先取消选择或使用替换。</p>}
-    </>}
-    {item.validation&&<><p role="status">有效 {item.validation.counts.valid} 条 · 重复跳过 {item.validation.counts.duplicate} 条 · 失败 {item.validation.counts.failed} 条{item.validation.counts.failed>0?'（部分成功，失败行不保存为有效记录）':''}</p>{item.validation.errors.length>0&&<details><summary>查看全部失败原因（{item.validation.errors.length}）</summary><ul>{item.validation.errors.map((row,i)=><li key={i}>{row.locator}：{row.message}</li>)}</ul></details>}</>}
-    <button className="link small" type="button" disabled={working} onClick={()=>{if(item.preview?.status==='preview'&&!item.confirmed)void request('/'+item.preview.id+'/remove',{method:'POST'}).catch(()=>undefined);setPending(list=>list.filter(p=>p.key!==item.key));}}>从本次列表移除</button>
-   </section>;})}</div>
-   <h3>已保存的数据集</h3>{loading?<p role="status">正在读取数据集…</p>:datasets.length===0?<p className="small muted">暂无已确认数据集。选择文件后，先校验映射再确认导入。</p>:<div className="sm-import-saved">{datasets.map(dataset=><div className="sm-import-saved-row" key={dataset.id}><label><input type="checkbox" checked={selectedIds.includes(dataset.id)} disabled={working} onChange={event=>choose(event.target.checked?[...new Set([...selected.current,dataset.id])]:selected.current.filter(id=>id!==dataset.id))}/><span><strong>{dataset.name}</strong><small>{dataset.recordCount} 条 · {new Date(dataset.createdAt).toLocaleString('zh-CN')} · {dataset.version}</small></span></label><div className="actions"><button type="button" className="link small" disabled={working} onClick={()=>{replace.current=dataset.id;input.current?.click();}}>替换</button>{confirmRemove===dataset.id?<><span className="small">确认移除？</span><button type="button" className="link small" disabled={working} onClick={()=>void removeDataset(dataset.id)}>{removing===dataset.id?'移除中…':'确认移除'}</button><button type="button" className="link small" disabled={working} onClick={()=>setConfirmRemove(null)}>取消</button></>:<button type="button" className="link small" disabled={working} onClick={()=>setConfirmRemove(dataset.id)}>移除</button>}</div></div>)}</div>}
-   <p className="small muted">移除和替换会更新当前任务的选择；失败时保留已有有效数据。已有生成结果需重新生成后更新。</p>
-  </div>
- </MatrixDialog>;
+  return parts.join(' · ');
+}
+
+/** A new owner (task/article/workspace) or a closed dialog cannot receive old callbacks. */
+export function ResearchImportDialog({ open, scopeKey, ...props }: Props) {
+  return open ? <ResearchImportSession key={scopeKey ?? 'imports'} {...props} /> : null;
+}
+
+function ResearchImportSession({ onClose, selectedIds, onChange, onRefresh }: Omit<Props, 'open' | 'scopeKey'>) {
+  const [datasets, setDatasets] = useState<ResearchDatasetSummary[]>([]);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const [error, setError] = useState(''), [message, setMessage] = useState('');
+  const [uploading, setUploading] = useState(false), [removing, setRemoving] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<ResearchDatasetSummary | null>(null);
+  const [removeError, setRemoveError] = useState('');
+  const input = useRef<HTMLInputElement>(null), id = useId();
+  const alive = useRef(false), mutation = useRef(false), serial = useRef(0);
+  const controllers = useRef(new Set<AbortController>()), replace = useRef<string | undefined>(undefined);
+  const selected = useRef(selectedIds), saved = useRef(datasets), queued = useRef(pending), callback = useRef(onChange);
+  const refresh = useRef(onRefresh);
+  selected.current = selectedIds; callback.current = onChange; refresh.current = onRefresh;
+  const working = uploading || removing !== null;
+
+  useLayoutEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; controllers.current.forEach(controller => controller.abort()); controllers.current.clear(); };
+  }, []);
+
+  async function request<T,>(path: string, init: RequestInit = {}): Promise<T> {
+    const controller = new AbortController(); controllers.current.add(controller);
+    const timer = setTimeout(() => controller.abort(), init.method === 'POST' ? 90_000 : 30_000);
+    try {
+      const response = await fetch(API + path, { ...init, credentials: 'same-origin', signal: controller.signal });
+      const data = await response.json().catch(() => null) as ({ message?: string } & T) | null;
+      if (!response.ok || !data) throw new Error(data?.message || '暂时无法读取结果，请重试。');
+      return data;
+    } catch (reason) {
+      if (controller.signal.aborted) throw new Error('请求超时，请重试核对结果。');
+      throw reason;
+    } finally { clearTimeout(timer); controllers.current.delete(controller); }
+  }
+  function writeSaved(items: ResearchDatasetSummary[]) { saved.current = items; setDatasets(items); }
+  function writePending(items: Pending[]) { queued.current = items; setPending(items); }
+  function patch(key: number, value: Partial<Pending>) { writePending(queued.current.map(item => item.key === key ? { ...item, ...value } : item)); }
+  function choose(ids: string[], items = saved.current) {
+    const unique = [...new Set(ids)], issue = selectionError(unique, items);
+    const reducing = unique.length < selected.current.length && unique.every(value => selected.current.includes(value));
+    if (issue && !reducing) { setError(issue); return false; }
+    selected.current = unique;
+    callback.current(unique, items.filter(item => unique.includes(item.id)));
+    return true;
+  }
+
+  useEffect(() => {
+    let current = true;
+    setLoadState('loading'); setLoadError('');
+    void request<{ datasets: ResearchDatasetSummary[] }>('').then(data => {
+      if (!current || !alive.current) return;
+      const items = [...new Map(data.datasets.filter(item => item.status === 'confirmed').map(item => [item.id, item])).values()];
+      writeSaved(items); setLoadState('ready');
+      const valid = selected.current.filter(value => items.some(item => item.id === value));
+      if (valid.length !== selected.current.length) {
+        choose(valid, items); setMessage('已取消失效文件的选用，请核对当前选择。');
+      } else {
+        // Refresh names/counts without marking an unchanged selection as a user edit.
+        refresh.current?.(items.filter(item => valid.includes(item.id)));
+      }
+    }).catch(reason => {
+      if (!current || !alive.current) return;
+      setLoadState('failed'); setLoadError(conciseError(reason, '文件列表读取失败，请重试。'));
+    });
+    return () => { current = false; };
+  }, [loadAttempt]);
+
+  async function runFiles(items: Pending[]) {
+    if (mutation.current || loadState !== 'ready' || !alive.current) return;
+    mutation.current = true; setUploading(true); setError(''); setMessage('');
+    try {
+      for (const item of items) {
+        if (!alive.current) break;
+        const file = item.file;
+        patch(item.key, { status: 'uploading', error: undefined });
+        if (file.size <= 0 || file.size > L.bytes) { patch(item.key, { status: 'failed', error: '请选择非空且不超过 8 MiB 的文件。' }); continue; }
+        const extension = '.' + (file.name.split('.').pop()?.toLowerCase() ?? '');
+        if (!RESEARCH_IMPORT_ACCEPT.split(',').includes(extension)) { patch(item.key, { status: 'failed', error: '不支持此格式，请选择下方列出的文件类型。' }); continue; }
+        try {
+          const body = new FormData();
+          body.append('file', file); body.append('original_name', file.name);
+          body.append('selected_ids', JSON.stringify([...new Set(selected.current.filter(value => value !== item.replaceId))]));
+          if (item.replaceId) body.append('replace_id', item.replaceId);
+          const result = await request<AutoImportResult>('/auto', { method: 'POST', body });
+          if (!alive.current) break;
+          // The server commits replacement atomically. Never issue a client-side remove here.
+          const dataset = { ...result.dataset, warnings: result.dataset.warnings ?? result.validation.warnings };
+          const next = [dataset, ...saved.current.filter(value => value.id !== dataset.id && value.id !== result.replacedId)];
+          writeSaved(next);
+          writePending(queued.current.filter(value => value.key !== item.key));
+          const retained = selected.current.filter(value => value !== result.replacedId);
+          if (choose([...retained, dataset.id], next)) setMessage(result.reused ? '已复用并选用已有文件。' : item.replaceId ? '文件已替换并选用。' : '文件已保存并选用。');
+          else {
+            // Selection may have changed elsewhere while the request was pending.
+            if (retained.length !== selected.current.length) choose(retained, next);
+            setMessage('文件已保存；请减少当前选择后选用。');
+          }
+        } catch (reason) {
+          if (alive.current) patch(item.key, { status: 'failed', error: conciseError(reason, '未收到导入结果，请重试核对。') });
+        }
+      }
+    } finally {
+      mutation.current = false;
+      if (alive.current) setUploading(false);
+    }
+  }
+
+  function addFiles(files: FileList | File[] | null, replaceId?: string) {
+    if (!files?.length || mutation.current || loadState !== 'ready' || confirmRemove) return;
+    const values = Array.from(files);
+    if (replaceId && values.length !== 1) { setError('替换时请选择一个文件。'); return; }
+    const previous = queued.current.filter(item => !replaceId || item.replaceId !== replaceId);
+    if (values.length > L.files || previous.length + values.length > L.files) { setError('一次最多处理 10 个文件，请先移除失败文件。'); return; }
+    const added = values.map(file => ({ key: ++serial.current, file, replaceId, status: 'queued' as const }));
+    writePending([...previous, ...added]);
+    void runFiles(added);
+  }
+  function pickFile(replaceId?: string) {
+    if (!input.current || mutation.current || loadState !== 'ready') return;
+    replace.current = replaceId;
+    input.current.multiple = !replaceId; input.current.value = ''; input.current.click();
+  }
+  function discardPending(key: number) { if (!mutation.current) writePending(queued.current.filter(item => item.key !== key)); }
+  function close() {
+    alive.current = false;
+    controllers.current.forEach(controller => controller.abort()); controllers.current.clear();
+    onClose();
+  }
+  async function removeDataset(dataset: ResearchDatasetSummary) {
+    if (mutation.current || !alive.current) return;
+    mutation.current = true; setRemoving(dataset.id); setRemoveError(''); setError('');
+    try {
+      await request('/' + encodeURIComponent(dataset.id) + '/remove', { method: 'POST' });
+      if (!alive.current) return;
+      const next = saved.current.filter(item => item.id !== dataset.id);
+      writeSaved(next); writePending(queued.current.filter(item => item.replaceId !== dataset.id));
+      choose(selected.current.filter(value => value !== dataset.id), next);
+      setConfirmRemove(null); setMessage('文件已删除，已有生成结果保留原快照。');
+    } catch (reason) { if (alive.current) setRemoveError(conciseError(reason, '未确认删除结果，请重试核对。')); }
+    finally { mutation.current = false; if (alive.current) setRemoving(null); }
+  }
+
+  function pendingActions(item: Pending) {
+    return <><button type="button" className="link small" disabled={working} onClick={() => void runFiles([item])}>重试</button><button type="button" className="link small" disabled={working} onClick={() => discardPending(item.key)}>{item.replaceId ? '取消替换' : '移除'}</button></>;
+  }
+  return <>
+    <MatrixDialog open={!confirmRemove} title="导入数据" width={920} onClose={close} footer={<button type="button" className="button primary" onClick={close}>完成</button>}>
+      <div className="sm-research-import">
+        <div className="sm-import-drop" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); addFiles(event.dataTransfer.files); }}>
+          <button className="button secondary" type="button" disabled={working || loadState !== 'ready'} onClick={() => pickFile()}>{uploading ? '正在导入…' : '选择文件 / 拖拽到此处'}</button>
+          <input ref={input} className="sr" type="file" multiple accept={RESEARCH_IMPORT_ACCEPT} aria-label="选择导入文件" aria-describedby={`${id}-limits`} disabled={working || loadState !== 'ready'} onChange={event => {
+            const files = Array.from(event.target.files ?? []), replaceId = replace.current;
+            replace.current = undefined; event.target.value = ''; addFiles(files, replaceId);
+          }}/>
+          <p className="small muted" id={`${id}-limits`}>每个文件不超过 8 MiB；任务最多选用 10 个文件、合计 10,000 条。</p>
+          <p className="small muted">CSV、TSV、Excel、JSON、JSONL、TXT、Markdown、DOCX、文字型 PDF</p>
+        </div>
+        <section className="sm-import-list-section" aria-label="导入文件">
+          <div className="sm-import-list-heading"><h3>文件列表</h3><span className="small muted">已选用 {selectedIds.length} / {L.files}</span></div>
+          <div className="sm-import-feedback" aria-live="polite">{error && <p className="block-error" role="alert">{error}</p>}{message && <p className="small" role="status">{message}</p>}</div>
+          {loadState === 'loading' && <p role="status">正在读取已保存文件…</p>}
+          {loadState === 'failed' && <div className="sm-import-load-error"><p className="block-error" role="alert">{loadError}</p><button className="link small" type="button" onClick={() => setLoadAttempt(value => value + 1)}>重新读取文件列表</button></div>}
+          {loadState === 'ready' && <>
+            {!datasets.length && !pending.length && <p className="small muted">暂无文件，选择文件后将自动保存并选用。</p>}
+            <ul className="sm-import-list">
+              {datasets.map(dataset => {
+                const replacement = pending.find(item => item.replaceId === dataset.id);
+                const status = replacement ? replacement.status === 'failed' ? `替换 ${replacement.file.name}：${replacement.error}` : `正在替换：${replacement.file.name}` : savedStatus(dataset);
+                const fullStatus = replacement ? status : savedStatus(dataset, false), shortened = fullStatus !== status;
+                return <li className="sm-import-row" key={dataset.id} aria-busy={replacement?.status === 'uploading'}>
+                  <label className="sm-import-selection"><input type="checkbox" checked={selectedIds.includes(dataset.id)} disabled={working} aria-label={`选用 ${dataset.name}`} onChange={event => { setError(''); choose(event.target.checked ? [...selected.current, dataset.id] : selected.current.filter(value => value !== dataset.id)); }}/><span className="sm-import-file-text"><strong>{dataset.name}</strong><small className={replacement?.status === 'failed' ? 'block-error' : 'muted'} title={shortened ? fullStatus : undefined} role={replacement?.status === 'failed' ? 'alert' : undefined}><span aria-hidden={shortened || undefined}>{status}</span>{shortened && <span className="sr">{fullStatus}</span>}</small></span></label>
+                  <div className="sm-import-actions">{replacement?.status === 'failed' ? pendingActions(replacement) : <><button type="button" className="link small" disabled={working} onClick={() => pickFile(dataset.id)}>替换</button><button type="button" className="link small" disabled={working} onClick={() => { setRemoveError(''); setConfirmRemove(dataset); }}>删除</button></>}</div>
+                </li>;
+              })}
+              {pending.filter(item => !item.replaceId).map(item => <li className="sm-import-row" key={`pending-${item.key}`} aria-busy={item.status !== 'failed'}>
+                <div className="sm-import-selection"><input type="checkbox" checked={false} disabled aria-label={`选用 ${item.file.name}`}/><span className="sm-import-file-text"><strong>{item.file.name}</strong><small className={item.status === 'failed' ? 'block-error' : 'muted'} role={item.status === 'failed' ? 'alert' : 'status'}>{item.status === 'failed' ? item.error : item.status === 'queued' ? '等待导入…' : '正在导入…'}</small></span></div>
+                <div className="sm-import-actions">{item.status === 'failed' && pendingActions(item)}</div>
+              </li>)}
+            </ul>
+            <p className="small muted">取消勾选仅停止在当前任务中选用。选用资料将在生成推荐时发送给当前服务商。</p>
+          </>}
+        </section>
+      </div>
+    </MatrixDialog>
+    <MediaDialog open={!!confirmRemove} title="删除文件" confirmLabel="删除文件" busy={removing !== null} onCancel={() => { if (!mutation.current) setConfirmRemove(null); }} onConfirm={() => { if (confirmRemove) void removeDataset(confirmRemove); }}>
+      <p>删除“{confirmRemove?.name}”后，将从已保存文件和当前任务选择中移除。已有生成结果保留原快照。</p>
+      {removeError && <p className="block-error" role="alert">{removeError}</p>}
+    </MediaDialog>
+  </>;
 }

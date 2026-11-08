@@ -5,6 +5,7 @@ import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import { inflateRawSync } from 'node:zlib';
 import { ResearchImportError } from './research-import-core.js';
+import { recognizeResearchColumns } from './research-import-recognition.js';
 import { RESEARCH_IMPORT_LIMITS as L,type ResearchImportRow } from '../../client/source-matrix/research-import-types.js';
 export interface ParsedResearchSheet { name:string; columns:string[]; rows:ResearchImportRow[]; }
 export interface ParsedResearchFile { sheets:ParsedResearchSheet[]; warnings:string[]; fingerprint:string; }
@@ -89,8 +90,19 @@ export async function parseResearchFile(name:string,buffer:Buffer,signal?:AbortS
   const workbook=XLSX.read(buffer,{type:'buffer',cellFormula:false,cellHTML:false,cellDates:false,bookVBA:false,bookDeps:false,sheetRows:L.rows+2});
   if(workbook.SheetNames.length>L.sheets)fail('超过 30 个工作表上限');
   sheets=workbook.SheetNames.map(name=>{const ws=workbook.Sheets[name];if(!ws)return sheet(name,[]);const full=String(ws['!fullref']??ws['!ref']??'A1'),range=XLSX.utils.decode_range(full);if(range.e.r-range.s.r>L.rows||range.e.c-range.s.c>=L.columns)fail('工作表超过 5,000 条记录或 64 列上限');
-   const grid=XLSX.utils.sheet_to_json<unknown[]>(ws,{header:1,raw:false,defval:'',blankrows:true});const header=grid.shift()??[],keys=header.map((x,i)=>scalar(x).trim()||`列${i+1}`);if(new Set(keys).size!==keys.length)fail(`工作表 ${name} 存在重复表头`);
-   return sheet(name,grid.flatMap((values,i)=>values.some(v=>String(v??'').trim())?[{value:Object.fromEntries(keys.map((key,j)=>[key,values[j]??''])),locator:`${name} · 行 ${range.s.r+i+2}`}]:[]));
+   const grid=XLSX.utils.sheet_to_json<unknown[]>(ws,{header:1,raw:false,defval:'',blankrows:true}),headerIndex=grid.findIndex(values=>values.some(value=>String(value??'').trim()));if(headerIndex<0)return sheet(name,[]);
+   const header=grid[headerIndex]!,width=Math.max(header.length,...grid.slice(headerIndex+1).map(values=>values.length)),keys=Array.from({length:width},(_,i)=>scalar(header[i]).trim()||`列${i+1}`);if(new Set(keys).size!==keys.length)fail(`工作表 ${name} 存在重复表头`);
+   if(headerIndex)warnings.push(`工作表「${name}」使用第 ${range.s.r+headerIndex+1} 行非空内容作为表头。`);
+   const parsed=sheet(name,grid.slice(headerIndex+1).flatMap((values,i)=>values.some(v=>String(v??'').trim())?[{value:Object.fromEntries(keys.map((key,j)=>[key,values[j]??''])),locator:`${name} · 行 ${range.s.r+headerIndex+i+2}`}]:[]));
+   if(!parsed.rows.length){
+    // A nonempty single row may be a note/title, not an empty table. Keep only
+    // recognized headers as an empty sheet; never silently discard other text.
+    const recognized=recognizeResearchColumns(keys);
+    if(recognized.ambiguous.length)fail(`工作表「${name}」表头存在歧义：${recognized.ambiguous.join('；')}。`);
+    if(!Object.keys(recognized.mapping).length&&!recognized.aggregate&&!recognized.glossary)fail(`工作表「${name}」第 ${range.s.r+headerIndex+1} 行非空内容无法识别为表头，请整理为包含明确列名和数据的表格。`);
+    return {...parsed,columns:keys};
+   }
+   return parsed;
   });warnings.push('仅读取已保存的单元格值，不计算公式、不执行宏；公式结果可能需要在原文件中更新。');
  }else if(extension==='txt'||extension==='md')sheets=[sheet('资料',paragraphs(decode(buffer),'正文'))];
  else if(extension==='docx'){

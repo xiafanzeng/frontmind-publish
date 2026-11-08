@@ -128,3 +128,16 @@ it('passes the saved industry snapshot to budget with at most three combined pla
   expect(payload.industry_context).toEqual(industry_context); expect(payload.selectable_candidates).toEqual([]);
   expect(messages[0].content).toContain('两数组合计最多3套');
 });
+
+it('delivers independent target to both planning stages without using the sample filter or selecting a model', async () => {
+ const send=vi.fn(async(_messages:Array<{role:string;content:string}>)=>({matrix_decisions:{items:[],fit_order:[]},budget_plans:[],content_plans:[]}));
+ const adapter=createDecisionAdapter(send),request={task:{target_platforms:['Kimi'],brand:{batch_id:'legacy',platforms:['百度文心-手机版']}},catalog:[]};
+ await adapter.matrix({...matrixInput,request});
+ const matrixPayload=JSON.parse(send.mock.calls[0]![0][1]!.content);
+ expect(matrixPayload.task.target_platforms).toEqual(['Kimi']);expect(matrixPayload.task.brand.platforms).toEqual(['百度文心-手机版']);
+ await adapter.budget({...matrixInput,request,matrix:{matrix_version:'v1',matrix:{candidates:[]}}});
+ const budgetPayload=JSON.parse(send.mock.calls[1]![0][1]!.content);
+ expect(budgetPayload.target_platforms).toEqual(['Kimi']);
+ expect(SOURCE_MATRIX_INSTRUCTIONS).toContain('目标平台引用依据待核验');
+ expect(SOURCE_MATRIX_INSTRUCTIONS).toContain('不得修改实际执行模型');
+});

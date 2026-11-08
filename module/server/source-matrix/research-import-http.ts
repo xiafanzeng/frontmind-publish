@@ -7,6 +7,8 @@ import { sourceMatrixResearchImports as imports } from '../../schema/source-matr
 import { clone,digest } from './common.js';
 import { parseResearchFile,type ParsedResearchFile } from './research-import-parser.js';
 import { ResearchImportError,scope,where,summary,validate,datasetId,missingTable } from './research-import-core.js';
+import { resolveResearchFilename,repairStoredResearchFilename } from './research-import-filename.js';
+import { saveAutomaticResearch } from './research-import-save.js';
 import { RESEARCH_IMPORT_LIMITS as L } from '../../client/source-matrix/research-import-types.js';
 /**
  * Upload router for private research imports. This module owns the heavy file
@@ -16,22 +18,37 @@ import { RESEARCH_IMPORT_LIMITS as L } from '../../client/source-matrix/research
  */
 const mappingSchema=z.object({source_name:z.string().max(200).optional(),url:z.string().max(200).optional(),platform:z.string().max(200).optional(),question:z.string().max(200).optional(),collected_at:z.string().max(200).optional(),text:z.string().max(200).optional()}).strict();
 const confirmSchema=z.object({id:z.string().uuid(),sheet:z.string().max(200),purpose:z.enum(['source','citation','context']),mapping:mappingSchema}).strict();
-function preview(row:{parsed:unknown;name:string;id:string;status:string}){const parsed=row.parsed as ParsedResearchFile;return {id:row.id,name:row.name,status:row.status,sheets:parsed.sheets.map(s=>({name:s.name,columns:s.columns,recordCount:s.rows.length,sample:s.rows.slice(0,12)})),warnings:parsed.warnings};}
+const autoSchema=z.object({original_name:z.string().min(1).max(1024),replace_id:z.string().uuid().optional(),selected_ids:z.string().max(4096).default('[]')}).strict();
+function preview(row:{parsed:unknown;name:string;id:string;status:string}){const parsed=row.parsed as ParsedResearchFile;return {id:row.id,name:repairStoredResearchFilename(row.name),status:row.status,sheets:parsed.sheets.map(s=>({name:s.name,columns:s.columns,recordCount:s.rows.length,sample:s.rows.slice(0,12)})),warnings:parsed.warnings};}
 export function createResearchImportRouter(core:ModuleHttpCore):Router {
  const router=Router();router.use('/matrix/imports',json({limit:'128kb'}));
  router.use('/matrix/imports',(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');try{scope(core,req);}catch(error){next(error);return;}if(req.method==='POST'){const origin=req.get('Origin'),host=req.get('Host');try{if(req.get('Sec-Fetch-Site')==='cross-site'||!origin||!host||new URL(origin).host!==host){res.status(403).json({status:'forbidden',message:'请从当前站点提交'});return;}}catch{res.status(403).json({status:'forbidden'});return;}}next();});
  const wrap=(fn:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response,next:NextFunction)=>{void fn(req,res).catch(next);};
- const upload=multer({storage:multer.memoryStorage(),limits:{files:1,fileSize:L.bytes,fields:0,parts:1}}).single('file');
+ const upload=multer({storage:multer.memoryStorage(),limits:{files:1,fileSize:L.bytes,fields:3,parts:4,fieldNameSize:100,fieldSize:4096}}).single('file');
  router.get('/matrix/imports',wrap(async(req,res)=>{const s=scope(core,req),db=await core.database();const rows=await db.select({id:imports.id,name:imports.name,version:imports.version,status:imports.status,createdAt:imports.createdAt,metadata:imports.metadata}).from(imports).where(and(where(s),eq(imports.status,'confirmed'))).orderBy(desc(imports.createdAt)).limit(101);if(rows.length>100)throw new ResearchImportError('已保存数据集超过 100 个，请移除旧数据集后重试',409);res.json({datasets:rows.map(row=>summary({...row,metadata:row.metadata} as never)),limits:L});}));
+ router.post('/matrix/imports/auto',upload,wrap(async(req,res)=>{
+  const s=scope(core,req),body=autoSchema.safeParse(req.body);if(!req.file)throw new ResearchImportError('请选择一个文件');if(!body.success)throw new ResearchImportError('上传信息无效，请重新选择文件');
+  let requestedIds:unknown;try{requestedIds=JSON.parse(body.data.selected_ids);}catch{throw new ResearchImportError('选用数据集信息无效，请刷新列表');}
+  const selection=z.array(z.string().uuid()).max(L.files).safeParse(requestedIds);if(!selection.success)throw new ResearchImportError('最多选用 10 个有效数据集');
+  const filename=resolveResearchFilename(body.data.original_name,req.file.originalname);if(!filename)throw new ResearchImportError('文件名不能为空');
+  const controller=new AbortController(),abort=()=>controller.abort();req.once('aborted',abort);res.once('close',abort);
+  try {
+   const parsed=await parseResearchFile(filename,req.file.buffer,controller.signal);if(controller.signal.aborted)return;
+   const db=await core.database(),saved=await saveAutomaticResearch(db,s,{id:datasetId(s,parsed.fingerprint),filename,parsed,selectedIds:selection.data,replaceId:body.data.replace_id},controller.signal);
+   if(controller.signal.aborted)return;
+   const dataset=summary(saved.dataset);
+   res.json({dataset,reused:saved.reused,...(saved.replacedId?{replacedId:saved.replacedId}:{}),validation:{counts:saved.dataset.confirmed.counts,warnings:dataset.warnings??[]}});
+  }finally{req.removeListener('aborted',abort);res.removeListener('close',abort);}
+ }));
  router.post('/matrix/imports/preview',upload,wrap(async(req,res)=>{
-  const s=scope(core,req);if(!req.file)throw new ResearchImportError('请选择一个文件');const filename=req.file.originalname.replace(/[/\\\u0000-\u001f]/g,'_').slice(0,255),controller=new AbortController();
+  const s=scope(core,req);if(!req.file)throw new ResearchImportError('请选择一个文件');if(req.body?.original_name!==undefined&&(typeof req.body.original_name!=='string'||req.body.original_name.length>1024))throw new ResearchImportError('文件名无效');const filename=resolveResearchFilename(req.body?.original_name,req.file.originalname),controller=new AbortController();
   const abort=()=>controller.abort();req.once('aborted',abort);res.once('close',abort);
   try{const parsed=await parseResearchFile(filename,req.file.buffer,controller.signal);if(controller.signal.aborted)return;
    const db=await core.database(),id=datasetId(s,parsed.fingerprint);
    await db.delete(imports).where(and(where(s),eq(imports.status,'preview'),lt(imports.createdAt,new Date(Date.now()-24*60*60*1000))));
    const existing=(await db.select().from(imports).where(where(s,id)).limit(1))[0];
-   if(existing&&existing.status!=='removed'){res.json({...preview(existing),existing:true});return;}
-   if(existing)await db.update(imports).set({status:'preview',confirmed:null,parsed:clone(parsed),version:'preview-'+digest(parsed),createdAt:new Date()}).where(where(s,id));
+   if(existing&&existing.status!=='removed'){if(existing.name!==filename)await db.update(imports).set({name:filename}).where(where(s,id));res.json({...preview({...existing,name:filename}),existing:true});return;}
+   if(existing)await db.update(imports).set({name:filename,status:'preview',confirmed:null,parsed:clone(parsed),version:'preview-'+digest(parsed),createdAt:new Date()}).where(where(s,id));
    else{const count=await db.select({id:imports.id}).from(imports).where(where(s)).limit(101);if(count.length>=100)throw new ResearchImportError('最多保存 100 个导入记录，请先移除旧记录',409);await db.insert(imports).values({...s,id,name:filename,fingerprint:parsed.fingerprint,status:'preview',version:'preview-'+digest(parsed),parsed:clone(parsed)}).onDuplicateKeyUpdate({set:{id}});}
    const saved=(await db.select().from(imports).where(where(s,id)).limit(1))[0];if(!saved)throw new ResearchImportError('预览保存失败，请重试',409);if(!controller.signal.aborted)res.json(preview(saved));
   }finally{req.removeListener('aborted',abort);res.removeListener('close',abort);}

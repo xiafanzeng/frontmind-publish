@@ -101,3 +101,32 @@ it('rejects typed publication identity errors instead of accepting a model fact'
  const r={...request(),budget:{currency:'CNY',total_cap:'1000'}},first=runPlanner(r,{matrix_decisions:md},'matrix',undefined,now);
  expect(runPlanner(r,{budget_plans:[{...plans[0],items:[{...item,article_id:12}]}]},'budget',first,now).status).toBe('invalid_input');
 });
+
+it('includes the independent target in semantic scope and invalidates old budget reuse',()=>{
+ const base=request(),targeted={...base,task:{...base.task,target_platforms:['Kimi']}};
+ const first=runPlanner(targeted,{matrix_decisions:md},'matrix',undefined,now);
+ expect(first.scope.task.target_platforms).toEqual(['Kimi']);
+ expect(first.limitations).toContain('目标平台引用依据待核验；现有资料不能证明本次投放将被收录或引用。');
+ expect(first.report.scope.task.target_platforms).toEqual(['Kimi']);
+ const changed={...targeted,budget:{currency:'CNY',total_cap:'1000'},task:{...targeted.task,target_platforms:['DeepSeek']}};
+ expect(runPlanner(changed,{budget_plans:plans},'budget',first,now).status).toBe('stale_matrix');
+ expect(runPlanner({...base,task:{...base.task,target_platforms:['unknown']}},undefined,'matrix',undefined,now).status).toBe('invalid_input');
+});
+
+it('matches both sides of pure province aliases without broadening city restrictions',()=>{
+ for(const [goal,coverage] of [['广东','广东省'],['广东省','广东']]){
+  const base=request(),r={...base,task:{...base.task,regions:[goal]},catalog:[{...base.catalog[0]!,restricted_regions:[coverage],region_coverage:[coverage]}]};
+  const regional=structuredClone(md);regional.items[0]!.primary_role='regional';
+  const out=runPlanner(r,{matrix_decisions:regional},'matrix',undefined,now);
+  expect(out.matrix.candidates[0].hard_failures).not.toContain('region_not_allowed');
+  expect(out.errors.map((error:any)=>error.code)).not.toContain('regional_coverage_unconfirmed');
+  expect(out.matrix.candidates[0].attributes.region_coverage).toEqual([coverage]);
+ }
+ for(const city of ['广州市','广东省 广州市','深圳']){
+  const base=request(),r={...base,task:{...base.task,regions:['广东']},catalog:[{...base.catalog[0]!,restricted_regions:[city],region_coverage:[city]}]};
+  const regional=structuredClone(md);regional.items[0]!.primary_role='regional';
+  const out=runPlanner(r,{matrix_decisions:regional},'matrix',undefined,now);
+  expect(out.matrix.candidates[0].hard_failures).toContain('region_not_allowed');
+  expect(out.errors.map((error:any)=>error.code)).toContain('regional_coverage_unconfirmed');
+ }
+});

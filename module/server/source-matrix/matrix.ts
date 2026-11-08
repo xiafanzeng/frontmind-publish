@@ -1,3 +1,4 @@
+import { normalizeMatrixRegion, normalizeMatrixTargetPlatform } from '../../shared/matrix-requirements.js';
 import { clone,digest,equal,identityFields,issue,list,object,priceFields,roles,rows,semantic,stableJson,strings,text,unique,type Issue,type Row } from './common.js';
 import { domain,matchIdentity } from './evidence.js';
 import { candidateCatalogMatches } from './export-research.js';
@@ -15,8 +16,8 @@ function channel(r:Row,t:Row):Row {
   }
   if(r.allowed_industries!=null&&!list(r.allowed_industries).includes(t.industry))fail.push('industry_not_allowed');
   if(list(r.prohibited_industries).includes(t.industry))fail.push('industry_prohibited');
-  const regions=list(t.regions);
-  if(regions.length&&!equal(regions,['nationwide'])&&r.restricted_regions!=null&&!regions.every(x=>list(r.restricted_regions).includes(x)))fail.push('region_not_allowed');
+  const regions=list(t.regions).map(normalizeMatrixRegion);
+  if(regions.length&&!equal(regions,['nationwide'])&&r.restricted_regions!=null&&!regions.every(x=>list(r.restricted_regions).map(normalizeMatrixRegion).includes(x)))fail.push('region_not_allowed');
   for(const check of r.hard_conditions??[]){if(!object(check))pending.push('invalid_hard_condition');else if(check.status==='fail')fail.push(check.rule_id??'hard_condition_failed');else if(check.status!=='pass')pending.push(check.rule_id??'hard_condition_unknown');}
   return {fail,pending};
 }
@@ -72,7 +73,9 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
     c.industry_aggregate_ids=[];
   }
   const version={task:semantic(task),analysis,catalog:unique<string>((request.catalog??[]).map((r:Row)=>stableJson(semantic(r)))).sort(),industry_recommendations:request.industry_recommendations??[],identity_config:request.identity_config??{},source_mappings:request.source_mappings??[]};
-  return {matrix_version:'matrix-'+digest(version),candidates,industry_aggregate_ids:industryAggregates.map(a=>a.aggregate_id),limitations:unique([...['product','audience','regions'].filter(k=>!task[k]).map(k=>'missing_'+k),...(!candidates.length?['no_source_data_configured']:[]),...(task.industry_context?.limitations??[]),...((task.manuscripts??[]).some((m:Row)=>m.content_excerpt_truncated)?['manuscript_content_excerpt_truncated']:[])])};
+  const targetPlatforms:string[]=task.target_platforms??[];
+  const targetObserved=!targetPlatforms.length||(analysis.detail_citations??[]).some((entry:Row)=>targetPlatforms.includes(normalizeMatrixTargetPlatform(typeof entry.scope?.platform==='string'?entry.scope.platform:''))&&task.questions.some((question:Row)=>question.question_id===entry.scope?.question_id));
+  return {matrix_version:'matrix-'+digest(version),candidates,industry_aggregate_ids:industryAggregates.map(a=>a.aggregate_id),limitations:unique([...['product','audience','regions'].filter(k=>!task[k]).map(k=>'missing_'+k),...(!candidates.length?['no_source_data_configured']:[]),...(task.industry_context?.limitations??[]),...(!targetObserved?['目标平台引用依据待核验；现有资料不能证明本次投放将被收录或引用。']:[]),...((task.manuscripts??[]).some((m:Row)=>m.content_excerpt_truncated)?['manuscript_content_excerpt_truncated']:[])])};
 }
 function paths(v:any,prefix='',out:Row={}):Row {
   if(object(v))for(const [k,x] of Object.entries(v))paths(x,prefix?prefix+'.'+k:k,out);
@@ -120,7 +123,7 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
       }else err('invalid_reference_type',rp);
     });
     if(all.includes('regional')){
-      const regions=list(r.task.regions),coverage=list(c.attributes.regions??c.attributes.region_coverage);
+      const regions=list(r.task.regions).map(normalizeMatrixRegion),coverage=list(c.attributes.regions??c.attributes.region_coverage).map(normalizeMatrixRegion);
       if(!regions.length||equal(regions,['nationwide']))err('regional_not_applicable',path);
       if(['regions','region_coverage'].some(k=>c.conflicting_attributes?.includes(k))||!regions.some(x=>coverage.includes(x)))err('regional_coverage_unconfirmed',path);
     }

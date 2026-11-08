@@ -317,7 +317,8 @@ it('projects legacy task identity without mutating the stored task or result sna
 
  canonicalReads();
 
- const stored={taskId:'task-1',industryId:'industry-1',state:'complete',task:{industry:'软件测试',private_actor:'private'},latest:{scope:{input_snapshot:{task:{industry:'软件测试'}}}}};
+ const originalName='仁南-信源分析.xlsx',legacyName=Buffer.from(originalName,'utf8').toString('latin1');
+ const stored={taskId:'task-1',industryId:'industry-1',state:'complete',task:{industry:'软件测试',private_actor:'private',research_dataset_refs:[{id:'dataset-1',name:legacyName,version:'research-v1'}]},latest:{scope:{input_snapshot:{task:{industry:'软件测试'}}}}};
 
  vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue(stored as any);
 
@@ -329,6 +330,7 @@ it('projects legacy task identity without mutating the stored task or result sna
 
  expect(body.task).toMatchObject({industry_id:'101',industry_dataset_id:'industry-1',industry_resolution:'mapped'});
 
+ expect(body.task.research_dataset_refs).toEqual([{id:'dataset-1',name:originalName,version:'research-v1'}]);
  expect(body.task.private_actor).toBeUndefined();expect(body.result).toEqual(stored.latest);expect(JSON.stringify(stored)).toBe(before);
 
 });
@@ -351,3 +353,33 @@ it('returns canonical choices even when recommendation storage cannot be opened'
 
 });
 
+
+it('rejects invalid target platforms and zero hours before accessing data', async () => {
+ let accessed=false;
+ const url=await host(core({database:async()=>{accessed=true;throw new Error('must not query');}}));
+ for(const fields of [{target_platforms:['unknown']},{target_platforms:['DeepSeek','Kimi']},{target_platforms:['百度文心-手机版']},{hours:'0'}]){
+  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],as_of:'2026-11-08T00:00:00Z',...fields})});
+  expect(response.status).toBe(400);
+ }
+ expect(accessed).toBe(false);
+});
+it('persists independent target, normalizes legacy coverage, retains old hours and projects the target on restore', async () => {
+ canonicalReads();
+ const create=vi.spyOn(MatrixRepository.prototype,'create').mockResolvedValue(undefined);
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',name:'软件测试',brandId:'brand-1',dataset:{}} as any);
+ vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ vi.spyOn(MatrixRepository.prototype,'progress').mockResolvedValue(undefined);
+ vi.spyOn(industryContext,'loadMatrixIndustryContext').mockResolvedValue({status:'empty',source:'molizhishu-public-industry',industry_id:'industry-1',industry_name:'软件测试',aggregates:[],limitations:[]} as any);
+ let decisionRequest:any;
+ vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async input=>{decisionRequest=input.request;return undefined;},budget:async()=>undefined}});
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'101',questions:['如何选型'],regions:['全国','广东省','旧城区'],hours:'48',target_platforms:['Kimi'],as_of:'2026-11-08T00:00:00Z'})});
+ expect(response.status).toBe(202);
+ const body=await response.json(),task=create.mock.calls[0]![3] as any;
+ expect(task).toMatchObject({target_platforms:['Kimi'],hours:'48',regions:['广东','旧城区']});
+ expect(task.brand).toBeUndefined();expect(decisionRequest.task.target_platforms).toEqual(['Kimi']);
+ expect(body.result.scope.task.target_platforms).toEqual(['Kimi']);
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-target',industryId:'industry-1',state:'complete',task,latest:null} as any);
+ const restored=await fetch(url+'/api/modules/publish/classify/task-target');
+ expect((await restored.json()).task).toMatchObject({target_platforms:['Kimi'],hours:'48',regions:['广东','旧城区']});
+});

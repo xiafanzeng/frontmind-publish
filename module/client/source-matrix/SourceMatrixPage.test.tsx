@@ -42,7 +42,7 @@ it('keeps configuration details out of permanent layout and offers a local indus
  vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>String(url).includes('/matrix/connection')?{connection:null,mode:'none',available:false}:{...canonicalCatalog(),status:'configuration_required',filters:null,catalogVersion:null,message:'信源规划存储尚未配置，请联系管理员完成模块迁移'}})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
- expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效（小时）')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('品牌引用数据')).toBeTruthy();expect(screen.getByLabelText('引用样本平台')).toBeTruthy();
+ expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('目标平台')).toBeTruthy();expect(screen.getAllByRole('button',{name:'导入数据'})).toHaveLength(1);expect(screen.queryByLabelText('品牌引用数据')).toBeNull();expect(screen.queryByLabelText('引用样本平台')).toBeNull();
 });
 it('shows platform status without personal API settings or the removed top shortcuts',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
@@ -80,6 +80,7 @@ const matrix:MatrixResult={status:'complete',plan_id:'plan-1',plan_version:'plan
 function liveDirectory(){
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
   const url=String(input);
+  if(url.endsWith('/matrix/form-scope'))return {ok:true,json:async()=>({scopeKey:'a'.repeat(64)})};
   if(url.includes('/matrix/identify/context')){const versionId=new URL(url,window.location.origin).searchParams.get('article_version_id')??'version-1';return {ok:true,json:async()=>({status:'not_configured',context:{scopeKey:'authorized-test-project',articleId:'article-1',articleVersionId:versionId,versionNumber:1,title:'当前稿件',contentDigest:'digest-'+versionId,connection:{available:false,mode:'environment',revision:'fixture-identification-unavailable'}},fields:{product:{value:null,source:'unidentified'},industry:{value:null,source:'unidentified'},audience:{value:null,source:'unidentified'},questions:{value:null,source:'unidentified'}}})};}
   return {ok:true,json:async()=>url.includes('/industries')?canonicalCatalog():url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
  }));
@@ -550,17 +551,17 @@ it('keeps the cart untouched and surfaces guidance when the server reports a sta
  expect(mediaGateway.getDraft).toHaveBeenCalledTimes(2);
 }, 60000);
 
-it('one click generates the matrix then automatically the budget combination with an explicitly entered budget and brand dataset',async()=>{
+it('one click generates an independent target platform task and automatically computes its explicit budget',async()=>{
  liveDirectory();
  const budgetBodies:unknown[]=[];
  const offerPlan={strategy:'保守覆盖',reason_summary:'费用与适配分别判断',status:'complete',currency:'CNY',total_cost:'100.00',exploration_cost:'0.00',known_total_cost:'100.00',total_cap:'3000.00',total_remaining:'2900.00',exploration_remaining:'0.00',budget_feasible:true,manuscript_status:'needs_manuscript_check',ready_to_publish:false,execution_recommended:false,is_estimate:false,unknown_items:[],items:[{candidate_id:'candidate-1',resource_id:'external-1',article_id:'article-1',version:'1',quantity:1,purpose:'standard',offer_id:'quote-1'}],errors:[],semantic_pending:[]};
  // 生成请求会把表单值回显进任务（真实服务行为），水合后输入与任务一致，链式预算才会自动触发
- const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
+ const echoedTask={...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'软件测试',target_platforms:['DeepSeek'],questions:[{question_id:'question-0',text:'软件测试公司怎么选'}]}}};
  const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
   if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'901',name:'软件测试'}],[{id:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d',label:'一航软件样本',version:'v1',sourceFile:'一航软件-信源分析-20260913-214944.xlsx',recordCount:502,period:{start:'2026-09-07',end:'2026-09-13'},models:['百度文心-手机版']}])};
-  if(url.endsWith('/matrix/generate')){const body=JSON.parse(String(init?.body));expect(body.brand_data).toBe('sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d');return {ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:echoedTask})};}
+  if(url.endsWith('/matrix/generate')){const body=JSON.parse(String(init?.body));expect(body.target_platforms).toEqual(['DeepSeek']);expect(body.brand_data).toBeUndefined();expect(body.sample_platforms).toBeUndefined();return {ok:true,json:async()=>({task_id:'matrix-1',state:'running',result:echoedTask})};}
   if(url.endsWith('/budget')){budgetBodies.push(JSON.parse(String(init?.body)));return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...echoedTask,budget_plans:[offerPlan]}})};}
   if(url.includes('/classify/matrix-1'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:echoedTask})};
   return base(input,init);
@@ -571,7 +572,7 @@ it('one click generates the matrix then automatically the budget combination wit
  await screen.findByRole('option',{name:'软件测试'});
  fireEvent.change(await screen.findByLabelText('目标行业 *'),{target:{value:'901'}});
  fireEvent.change(await screen.findByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
- fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:'sha256:639e43735887ff20852f99aa4bc643853259dbd7f44aba163598064720a60e0d'}});
+ fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'DeepSeek'}});
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'3000'}});
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
  // 一次点击后自动串联：预算请求以同一矩阵快照和用户明确填写的预算 3000 发出。
@@ -589,6 +590,7 @@ it('shows the actual saved sample without configured services and never writes a
  await screen.findByRole('button',{name:'重试读取行业'});
  expect(screen.getByText(/已保存的样本矩阵/)).toBeTruthy();
  expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
+ expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('');expect(screen.getByRole('button',{name:'覆盖地区'}).textContent).toContain('不限地区');expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
  expect(screen.getAllByRole('heading',{level:3}).filter(node=>/层$/.test(node.textContent??''))).toHaveLength(5);
  expect(document.querySelectorAll('[data-source-id]')).toHaveLength(matrixDemo.result.matrix.layers.reduce((sum,layer)=>sum+Math.min(3,layer.candidate_ids.length),0));
@@ -641,7 +643,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
  fireEvent.click(screen.getByRole('button',{name:'按当前要求在线生成'}));
  await screen.findByText('模型尚未配置，请稍后重试');
  expect(bodies).toHaveLength(1);expect(bodies[0]!.url).toContain('/matrix/generate');
- expect(bodies[0]!.body).toMatchObject({industry_id:'901',brand_data:matrixDemo.form.brandDataBatchId});
+ expect(bodies[0]!.body).toMatchObject({industry_id:'901'});expect(bodies[0]!.body).not.toHaveProperty('brand_data');expect(bodies[0]!.body).not.toHaveProperty('sample_platforms');expect(bodies[0]!.body).not.toHaveProperty('target_platforms');
  expect(bodies[0]!.body).not.toHaveProperty('connection_mode');expect(bodies[0]!.body).not.toHaveProperty('connection_revision');
  expect(bodies[0]!.body).not.toHaveProperty('budget');expect(bodies[0]!.body).not.toHaveProperty('plan_id');
  expect(screen.queryByText('一航软件 · 已保存样本')).toBeNull();expect(screen.getByText('等待生成矩阵')).toBeTruthy();
@@ -650,7 +652,7 @@ it('starts a new genuine task after editing the sample budget and never falls ba
 
 it('hydrates a different task instead of mixing its result with the prefilled demo or previous task',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海'],hours:'24',requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
+ const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海市'],hours:'48',target_platforms:id==='A'?['Kimi']:[],requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog([{id:'configured-industry',name:'已接入行业'}]):url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
@@ -660,10 +662,14 @@ it('hydrates a different task instead of mixing its result with the prefilled de
   await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});
   await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('产品 '+id));
   expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe('问题 '+id);
-  expect((screen.getByLabelText('期望发布时效（小时）') as HTMLInputElement).value).toBe('24');
-  expect((screen.getByLabelText('引用样本平台') as HTMLSelectElement).value).toBe('百度文心-手机版');
+  expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('48');expect(screen.getByRole('option',{name:'原设置：48 小时'})).toBeTruthy();expect(screen.getByRole('button',{name:'覆盖地区'}).textContent).toContain('上海');
+  expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe(id==='A'?'Kimi':'');expect(screen.queryByLabelText('引用样本平台')).toBeNull();
   expect(screen.queryByRole('heading',{name:'一航软件信源矩阵与研究组合'})).toBeNull();
  }
+ expect(screen.getByRole('button',{name:'取消选用历史样本'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'取消选用历史样本'}));
+ expect(screen.queryByRole('button',{name:'取消选用历史样本'})).toBeNull();
+ expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('Kimi');
  fireEvent.change(screen.getByLabelText('品牌 / 产品'),{target:{value:'未提交编辑'}});
  fireEvent.click(screen.getByRole('button',{name:'刷新结果'}));
  await waitFor(()=>expect((screen.getByRole('button',{name:'刷新结果'}) as HTMLButtonElement).disabled).toBe(false));
@@ -697,6 +703,7 @@ function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<strin
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
+  if(url.endsWith('/matrix/form-scope'))return {ok:true,json:async()=>({scopeKey:'a'.repeat(64)})};
   if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'industry-live',name:'真实行业'}])};
   if(url.endsWith('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
   if(url.endsWith('/matrix/generate')){const generated=await onGenerate?.(JSON.parse(String(init?.body)));return {ok:true,json:async()=>generated??{state:'complete',task_id:'new-task',result:task}};}
@@ -712,7 +719,7 @@ it('sends the selected CATEGORY range with lossless scope identity and no person
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
- fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
  await waitFor(()=>expect(bodies).toHaveLength(1));
  expect(bodies[0]).toMatchObject({industry_query:{scopeType:'CATEGORY',scopeId:'9007199254740993',periodType:'MONTH',date:'2026-10-01',modelCode:'public-model'}});
@@ -723,7 +730,7 @@ it('leaves an unscoped query to the server industry mapping instead of sending A
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siPeriod=MONTH&siDate=2026-10-01&siModel=all');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
 });
 it('shows limited industry evidence honestly and invalidates the matrix when the selected range changes',async()=>{
@@ -763,7 +770,7 @@ it('ignores a delayed generation poll after the industry query has changed',asyn
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.change(screen.getByLabelText('品牌引用数据'),{target:{value:''}});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(polling).toBe(true));
  await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siScope=42','siScope=43'));window.dispatchEvent(new PopStateEvent('popstate'));});
  await act(async()=>finish({state:'complete',task_id:'new-task',result:platformTask()}));
@@ -799,4 +806,46 @@ it('adopts only the verified first workbench assignment after generation and sti
  await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('workbenchTask=created-task','workbenchTask=other-task'));window.dispatchEvent(new PopStateEvent('popstate'));});
  fireEvent.click(screen.getByRole('button',{name:'刷新结果'}));
  expect(await screen.findByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeTruthy();
+});
+
+it('ignores a generation response after the independent target platform changes',async()=>{
+ let finish!:(value:unknown)=>void;
+ const pending=new Promise<unknown>(resolve=>{finish=resolve;});
+ const fetcher=platformFixture(platformTask(),async()=>pending);
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'DeepSeek'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/matrix/generate'))).toBe(true));
+ fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'Kimi'}});
+ await act(async()=>finish({task_id:'late-target-task',state:'complete',result:platformTask({target_platforms:['DeepSeek']})}));
+ expect(await screen.findByText(/投放需求已变化，先前生成结果未应用/)).toBeTruthy();
+ expect(new URLSearchParams(window.location.search).get('task')).toBeNull();
+ expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/budget'))).toHaveLength(0);
+});
+
+it('adopts the latest verified research draft when identity arrives before a pending generation result',async()=>{
+ let scopeReady!:(value:unknown)=>void,generated!:(value:unknown)=>void;
+ const scopePromise=new Promise(resolve=>{scopeReady=resolve;}),generationPromise=new Promise(resolve=>{generated=resolve;});
+ let submitted:Record<string,unknown>={};
+ const fetcher=platformFixture(platformTask(),async body=>{submitted=body;return generationPromise;});
+ const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/form-scope')?{ok:true,json:async()=>scopePromise}:base(input,init));
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'Kimi'}});
+ fireEvent.change(screen.getByLabelText('期望发布时效'),{target:{value:'12'}});
+ fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(submitted.target_platforms).toEqual(['Kimi']));
+ await act(async()=>scopeReady({scopeKey:'a'.repeat(64)}));
+ await waitFor(()=>expect(sessionStorage.length).toBeGreaterThan(0));
+ await act(async()=>generated({task_id:'verified-research-task',state:'running'}));
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('verified-research-task'));
+ expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('Kimi');
+ expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('12');
+ expect(screen.queryByText(/投放需求已变化，先前生成结果未应用/)).toBeNull();
 });
