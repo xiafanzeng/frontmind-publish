@@ -138,3 +138,22 @@ it('identifies the other three fields when the industry catalog is unavailable',
   expect(await result.json()).toMatchObject({ status: 'partial', fields: { product: { value: '星河软件' }, industry: { value: null, reason: 'catalog_unavailable' }, audience: { value: '零售企业' }, questions: { value: '如何管理门店' } } });
   expect(identify).toHaveBeenCalledOnce();
 });
+
+it('provides an opaque research form scope without accessing articles, storage or models',async()=>{
+ const database=vi.fn(async()=>{throw new Error('must not read storage');});
+ let current={...identity};const url=await host({context:()=>current,database});
+ const read=async()=>{const response=await fetch(url+'/api/modules/publish/matrix/form-scope?scopeKey=untrusted');expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('private, no-store');return response.json();};
+ const first=await read();expect(first).toEqual({scopeKey:expect.stringMatching(/^[a-f0-9]{64}$/)});
+ expect(await read()).toEqual(first);
+ for(const change of [{accountUserId:2},{actorUserId:2},{businessActorId:'other-actor'},{businessOwnerId:'other-owner'},{enterpriseProjectId:'other-project'}]){
+  current={...identity,...change};expect((await read()).scopeKey).not.toBe(first.scopeKey);
+ }
+ expect(database).not.toHaveBeenCalled();
+});
+it('refuses research draft identity when the project or authenticated actor is missing',async()=>{
+ for(const change of [{enterpriseProjectId:null},{businessOwnerId:null},{accountUserId:null},{actorUserId:null}]){
+  const url=await host({context:()=>({...identity,...change}) as any});
+  const response=await fetch(url+'/api/modules/publish/matrix/form-scope');expect(response.status).toBe(403);
+  expect(await response.json()).not.toHaveProperty('scopeKey');
+ }
+});

@@ -1,3 +1,4 @@
+import {normalizeMatrixRegions} from '../../shared/matrix-requirements';
 import savedDemo from '../../server/source-matrix/demo/yihang-demo.json';
 import type {Candidate,Json,MatrixResult} from './types';
 
@@ -20,14 +21,15 @@ export const matrixDemo=savedDemo as unknown as SavedMatrixDemo;
 export function assumptionName(item:SavedMatrixDemo['assumptions'][number]) {
  return ({product:'品牌 / 产品',industry:'目标行业',audience:'目标受众',regions:'覆盖地区',questions:'目标问题',budget:'投放预算',requirements:'时效与素材要求'} as Record<string,string>)[item.field]??item.label;
 }
-export interface DemoFormState {industryLabel:string;product:string;audience:string;regions:string;questions:string;hours:string;assetKind:string;samplePlatform:string;brandData:string}
+export interface DemoFormState {industryLabel:string;product:string;audience:string;regions:string;questions:string;hours:string;assetKind:string;samplePlatform:string;brandData:string;targetPlatform?:string}
 const lines=(value:string,separator:string)=>value.split(separator).map(item=>item.trim()).filter(Boolean);
 export function demoSemanticKey(value:DemoFormState) {
- return JSON.stringify([value.industryLabel.trim(),value.product.trim(),value.audience.trim(),lines(value.regions,'、'),lines(value.questions,'\n'),value.hours.trim(),value.assetKind,value.samplePlatform,value.brandData]);
+ return JSON.stringify([value.industryLabel.trim(),value.product.trim(),value.audience.trim(),normalizeMatrixRegions(value.regions),lines(value.questions,'\n'),value.hours.trim(),value.assetKind,value.samplePlatform,value.brandData,value.targetPlatform??'']);
 }
+/** Historical comparison only; new live forms do not automatically select its sample batch. */
 export function demoInitialForm(demo:SavedMatrixDemo):DemoFormState {
  const form=demo.form;
- return {industryLabel:form.industry,product:form.product,audience:form.audience,regions:form.region,questions:form.questions.join('\n'),hours:String(form.publicationHours??''),assetKind:form.materialRequirement,samplePlatform:form.platforms.length===1?form.platforms[0]??'':'',brandData:form.brandDataBatchId};
+ return {industryLabel:form.industry,product:form.product,audience:form.audience,regions:form.region,questions:form.questions.join('\n'),hours:String(form.publicationHours??''),assetKind:form.materialRequirement,samplePlatform:form.platforms.length===1?form.platforms[0]??'':'',brandData:form.brandDataBatchId,targetPlatform:''};
 }
 export function demoBudgetMatches(demo:SavedMatrixDemo,value:{currency:string;total:string;enabled:boolean;exploration:string;min:string;max:string}) {
  const sameAmount=(left:string,right:string)=>/^\d+(?:\.\d{1,2})?$/.test(left)&&Number(left)===Number(right);

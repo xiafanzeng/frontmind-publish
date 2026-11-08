@@ -57,6 +57,12 @@ const aiGroups: readonly AliasGroup[] = [
   ["通义千问", ["通义千问"]], ["文心一言", ["文心一言"]], ["豆包", ["豆包"]],
 ];
 
+/** Form choices share the catalogue's reviewed vocabulary, not observed counts.
+ * Combined/overseas supplier categories remain valid legacy data but are not provinces. */
+export const mediaCoverageProvinces: readonly string[] = provinceGroups.map(([value]) => value)
+  .filter(value => !['全国覆盖', '综合全国（待确认）', '港澳台', '海外'].includes(value));
+export const mediaAiPlatforms: readonly string[] = aiGroups.map(([value]) => value);
+
 // Preserve exact single-tag semantics. In particular, no weekend/festival equivalence,
 // no composite splitting, no generic AI/GEO -> platform inference, no raw 推荐 -> is_recommend.
 const recommendationGroups: readonly AliasGroup[] = [

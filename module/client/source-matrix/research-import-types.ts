@@ -4,7 +4,7 @@ export const RESEARCH_IMPORT_ACCEPT='.csv,.tsv,.xlsx,.xls,.json,.jsonl,.txt,.md,
 export type ResearchImportPurpose='source'|'citation'|'context';
 export type ResearchImportField='source_name'|'url'|'platform'|'question'|'collected_at'|'text';
 export type ResearchImportMapping=Partial<Record<ResearchImportField,string>>;
-export interface ResearchDatasetSummary { id:string; name:string; version:string; recordCount:number; createdAt:string; status:'preview'|'confirmed'; purpose?:ResearchImportPurpose; duplicateCount?:number; failedCount?:number; }
+export interface ResearchDatasetSummary { id:string; name:string; version:string; recordCount:number; createdAt:string; status:'preview'|'confirmed'; purpose?:ResearchImportPurpose; duplicateCount?:number; failedCount?:number; warnings?:string[]; }
 export interface ResearchImportRow { values:Record<string,string>; locator:string; error?:string; }
 export interface ResearchImportSheet { name:string; columns:string[]; recordCount:number; sample:ResearchImportRow[]; }
 export interface ResearchImportPreview { id:string; name:string; status:'preview'|'confirmed'; sheets:ResearchImportSheet[]; warnings:string[]; existing?:boolean; }

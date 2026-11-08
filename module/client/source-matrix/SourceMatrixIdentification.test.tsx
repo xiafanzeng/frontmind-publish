@@ -68,7 +68,8 @@ function installApi(options: {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'https://synthetic.invalid');
     let body: unknown;
-    if (url.pathname.endsWith('/matrix/identify/context')) body = await options.readContext(url.searchParams.get('article_version_id')!);
+    if (url.pathname.endsWith('/matrix/form-scope')) body = { scopeKey: 'a'.repeat(64) };
+    else if (url.pathname.endsWith('/matrix/identify/context')) body = await options.readContext(url.searchParams.get('article_version_id')!);
     else if (url.pathname.endsWith('/matrix/identify')) {
       if (!options.identify) throw new Error('Unexpected model request in this test');
       body = await options.identify();
@@ -178,7 +179,7 @@ it('fills the four real article fields and preserves manual typing and clearing 
   await waitFor(() => expect(field('品牌 / 产品').value).toBe('识别品牌'));
   expect(field('目标行业 *').value).toBe('102'); expect(field('目标受众').value).toBe('采购团队');
   expect(field('目标问题 / 内容需求 *').value).toBe('如何选型\n如何落地');
-  expect(field('覆盖地区').value).toBe(''); expect(field('期望发布时效（小时）').value).toBe('');
+  expect(screen.getByRole('button', { name: '覆盖地区' }).textContent).toContain('不限地区'); expect(field('期望发布时效').value).toBe('');
   fireEvent.click(screen.getByRole('button', { name: '重新识别' }));
   await screen.findByRole('button', { name: '识别中…' });
   fireEvent.change(field('品牌 / 产品'), { target: { value: '人工品牌' } });
@@ -281,11 +282,14 @@ it('resolves a saved industry after the catalog arrives without resetting other 
   await waitFor(() => expect(field('品牌 / 产品').value).toBe('识别品牌'));
   expect(field('目标行业 *').value).toBe('');
   fireEvent.change(field('品牌 / 产品'), { target: { value: '人工确认品牌' } });
-  fireEvent.change(field('覆盖地区'), { target: { value: '深圳' } });
+  fireEvent.click(screen.getByRole('button', { name: '覆盖地区' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '不限地区' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '广东' }));
+  fireEvent.click(screen.getByRole('button', { name: '覆盖地区' }));
   await act(async () => catalog.resolve(canonicalCatalog()));
   await waitFor(() => expect(field('目标行业 *').value).toBe('102'));
   expect(field('品牌 / 产品').value).toBe('人工确认品牌'); expect(field('目标受众').value).toBe('采购团队');
-  expect(field('目标问题 / 内容需求 *').value).toBe('旧任务已保存的问题'); expect(field('覆盖地区').value).toBe('深圳');
+  expect(field('目标问题 / 内容需求 *').value).toBe('旧任务已保存的问题'); expect(screen.getByRole('button', { name: '覆盖地区' }).textContent).toContain('广东');
   expect(modelCalls(fetcher)).toHaveLength(1);
   fireEvent.click(screen.getByRole('link', { name: '行业信源分布' }));
   await waitFor(() => expect(distributionCalls(fetcher)).toHaveLength(3));

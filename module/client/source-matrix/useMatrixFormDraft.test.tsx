@@ -62,3 +62,22 @@ describe('matrix ancillary form ownership', () => {
     expect(hook.result.current.values.total).toBe('500');
   });
 });
+
+// New fields remain optional so existing callers and stored v1 drafts remain readable.
+it('restores a pre-option draft without rounding hours or converting sample platform into a target', () => {
+  sessionStorage.setItem('frontmind.matrix.form.v1:old', JSON.stringify({ savedAt: Date.now(), values: { ...empty, regions: '全国、广东省、旧区域', hours: '48', samplePlatform: '百度文心-手机版', brandData: 'old-batch' } }));
+  const hook = renderHook(() => useMatrixFormDraft({}, 'old', { ...empty, targetPlatform: '', regionsUnrestricted: true }, 'old'));
+  expect(hook.result.current.values).toMatchObject({ regions: '广东、旧区域', regionsUnrestricted: false, hours: '48', samplePlatform: '百度文心-手机版', brandData: 'old-batch', targetPlatform: '' });
+});
+it('persists explicit empty provinces and independent target across remount and blocks late hydration', () => {
+  const hook = renderHook(() => useMatrixFormDraft({}, 'choice', empty, 'choice'));
+  act(() => { hook.result.current.setRegions('', false); hook.result.current.setField('targetPlatform', 'Kimi'); });
+  act(() => hook.result.current.hydrate({ regions: '全国', regionsUnrestricted: true, targetPlatform: 'DeepSeek' }));
+  expect(hook.result.current.values).toMatchObject({ regions: '', regionsUnrestricted: false, targetPlatform: 'Kimi' });
+  hook.unmount();
+  const restored = renderHook(() => useMatrixFormDraft({}, 'choice', empty, 'choice'));
+  expect(restored.result.current.values).toMatchObject({ regions: '', regionsUnrestricted: false, targetPlatform: 'Kimi' });
+  act(() => restored.result.current.setRegions('广东', false));
+  act(() => restored.result.current.setRegions('', true));
+  expect(restored.result.current.values).toMatchObject({ regions: '', regionsUnrestricted: true });
+});
