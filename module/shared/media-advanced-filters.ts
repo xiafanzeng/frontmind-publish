@@ -53,9 +53,10 @@ function literalNumber(text: string): number | null {
     let digit: number | undefined;
     let previousUnit = Infinity;
     for (const char of parts[0]) {
+      const unit = char in units ? units[char]! : undefined;
       if (char in digits) { if (digit !== undefined && digit !== 0) return null; digit = digits[char]; }
-      else if (char in units && units[char] < previousUnit) {
-        integer += (digit ?? 1) * units[char]; previousUnit = units[char]; digit = undefined;
+      else if (unit !== undefined && unit < previousUnit) {
+        integer += (digit ?? 1) * unit; previousUnit = unit; digit = undefined;
       } else return null;
     }
     integer += digit ?? 0;
@@ -89,16 +90,16 @@ export function normalizePublishTime(raw: string | null | undefined): {
     const bounds = range.exec(text);
     const single = duration.exec(text);
     if (bounds) {
-      const low = literalNumber(bounds[1]);
-      const high = literalNumber(bounds[3]);
+      const low = literalNumber(bounds[1]!);
+      const high = literalNumber(bounds[3]!);
       if (low === null || high === null) return unknown("unsupported_number");
-      const lowHours = low * unitHours(bounds[2] ?? bounds[4]);
-      upperHours = high * unitHours(bounds[4]);
+      const lowHours = low * unitHours(bounds[2] ?? bounds[4]!);
+      upperHours = high * unitHours(bounds[4]!);
       if (lowHours > upperHours) return unknown("invalid_range");
       reason = "literal_range_upper_bound";
     } else if (single) {
-      const amount = literalNumber(single[1]);
-      if (amount !== null) upperHours = amount * unitHours(single[2]);
+      const amount = literalNumber(single[1]!);
+      if (amount !== null) upperHours = amount * unitHours(single[2]!);
     }
   }
   if (upperHours === null || !Number.isFinite(upperHours) || upperHours < 0) return unknown("unconfirmed_basis");
@@ -120,15 +121,17 @@ export function publishTimeMatches(raw: string | null | undefined, selection: Pu
 export function normalizeEntry(raw: string | null | undefined) {
   const text = raw?.trim() ?? "";
   const aliases: Record<string, string> = { 没有入口: "none", 无入口: "none", 栏目页面: "column", 频道首页: "channel", 首页入口: "home", 网站首页: "home" };
+  const alias = Object.prototype.hasOwnProperty.call(aliases, text) ? aliases[text]! : undefined;
   const value = !text || ["未注明", "未提供", "未知", "—", "-"].includes(text) ? "unspecified"
-    : Object.prototype.hasOwnProperty.call(aliases, text) ? aliases[text] : `raw:${raw}`;
+    : alias ?? `raw:${raw}`;
   return { value, label: entryCategoryLabel(value) };
 }
 export function normalizeLink(raw: string | null | undefined) {
   const text = raw?.trim() ?? "";
   const aliases: Record<string, string> = { 不带: "not_allowed_unconfirmed", 可带: "allowed_unconfirmed", 电话: "phone", 可带电话: "phone" };
+  const alias = Object.prototype.hasOwnProperty.call(aliases, text) ? aliases[text]! : undefined;
   const value = !text || ["未注明", "未提供", "未知", "—", "-"].includes(text) ? "unspecified"
-    : Object.prototype.hasOwnProperty.call(aliases, text) ? aliases[text] : `raw:${raw}`;
+    : alias ?? `raw:${raw}`;
   return { value, label: linkCategoryLabel(value) };
 }
 export type RawAdvancedFacet = { value: string | null; count: number };
