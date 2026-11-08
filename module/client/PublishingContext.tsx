@@ -45,6 +45,25 @@ const queryCache = new WeakMap<
   Map<string, { data: unknown }>
 >();
 
+/**
+ * V7：作废查询缓存（可按前缀过滤）。删除稿件、重新识别覆盖等改变稿件集合的
+ * 操作后调用，避免其他页面（管理稿件/工作台/编辑器）继续读旧列表。
+ */
+export function invalidatePublisherQueries(
+  gateway: PublisherGateway,
+  keyPrefix?: string,
+) {
+  const entries = queryCache.get(gateway);
+  if (!entries) return;
+  if (!keyPrefix) {
+    entries.clear();
+    return;
+  }
+  for (const key of Array.from(entries.keys())) {
+    if (key.startsWith(keyPrefix)) entries.delete(key);
+  }
+}
+
 export function usePublisherQuery<T>(
   load: (signal: AbortSignal) => Promise<T>,
   cacheKey?: string,

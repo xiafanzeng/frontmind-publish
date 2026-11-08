@@ -32,6 +32,7 @@ import {
   like,
   lt,
   lte,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -635,6 +636,12 @@ class PublishingRepository {
     const conditions = [
       monitoringProjectOwnerPredicate(publisherArticles, ownerId),
     ];
+    // V7：默认不返回已删除（归档）稿件；仅显式请求 archived 时返回。
+    if (input.status) {
+      conditions.push(eq(publisherArticles.status, input.status));
+    } else {
+      conditions.push(ne(publisherArticles.status, "archived"));
+    }
     if (input.query) {
       conditions.push(
         like(
@@ -643,8 +650,6 @@ class PublishingRepository {
         ),
       );
     }
-    if (input.status)
-      conditions.push(eq(publisherArticles.status, input.status));
     if (input.cursor) conditions.push(gt(publisherArticles.id, input.cursor));
     const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
     return this.db
@@ -679,6 +684,39 @@ class PublishingRepository {
       .limit(1);
     if (!article) throw new RepositoryError("NOT_FOUND", "Article not found");
     return article;
+  }
+
+  /**
+   * V7：删除稿件（软删除=归档）。待继续的稿件均为未交付媒体的草稿：
+   * 归档后从工作台/管理稿件列表消失，历史发布批次与已冻结版本数据保留。
+   */
+  async archivePublisherArticle(ownerId: string, articleId: string) {
+    const [existing] = await this.db
+      .select({ status: publisherArticles.status })
+      .from(publisherArticles)
+      .where(
+        and(
+          eq(publisherArticles.id, articleId),
+          monitoringProjectOwnerPredicate(publisherArticles, ownerId),
+        ),
+      )
+      .limit(1);
+    if (!existing) throw new RepositoryError("NOT_FOUND", "Article not found");
+    if (existing.status === "archived")
+      throw new RepositoryError("INVALID_STATE", "稿件已删除");
+    if (existing.status !== "draft" && existing.status !== "ready")
+      throw new RepositoryError("INVALID_STATE", "当前状态不允许删除");
+    await this.db
+      .update(publisherArticles)
+      .set({ status: "archived" })
+      .where(
+        and(
+          eq(publisherArticles.id, articleId),
+          monitoringProjectOwnerPredicate(publisherArticles, ownerId),
+          inArray(publisherArticles.status, ["draft", "ready"]),
+        ),
+      );
+    return { archived: true as const };
   }
 
   async savePublisherArticle(

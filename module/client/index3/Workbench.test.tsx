@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -71,9 +71,14 @@ function renderWorkbench(data: {
   problemItems?: PublicationBatchSummary[];
   problemTotal?: number;
 }) {
+  // 删除测试需要“删除后列表变化”：用可变集合支撑 listArticles 的后续调用。
+  let liveArticles = [...(data.articles ?? articles)];
   const gateway = {
     getDashboard: vi.fn<PublisherGateway["getDashboard"]>(async () => dashboard(data.dashboard)),
-    listArticles: vi.fn<PublisherGateway["listArticles"]>(async () => data.articles ?? articles),
+    listArticles: vi.fn<PublisherGateway["listArticles"]>(async () => [...liveArticles]),
+    deleteArticle: vi.fn<PublisherGateway["deleteArticle"]>(async (articleId: string) => {
+      liveArticles = liveArticles.filter((article) => article.id !== articleId);
+    }),
     listBatches: vi.fn<PublisherGateway["listBatches"]>(async (filters) => ({
       items: (filters?.status && filters.status !== "failed" ? [] : data.problemItems ?? [failedBatch()]),
       total: filters?.status === "failed" ? data.problemTotal ?? 1 : 0,
@@ -120,13 +125,44 @@ it("lists one row per article ordered by recent update with folded step indicato
     step: row.querySelector(".mini-steps")?.getAttribute("aria-label"),
     action: row.querySelector("a.btn")?.textContent,
     href: row.querySelector("a.btn")?.getAttribute("href"),
+    hasDelete: !!row.querySelector("button.btn.danger-solid"),
   }));
   expect(summary).toEqual([
     // 唯一匹配的已就绪草稿把步骤推进到配置标题，并直达配置标题页。
-    { title: "待投放的稿件", step: "当前步骤：配置标题", action: "继续配置", href: "/publishing/drafts/draft%2Fready-1/titles" },
+    { title: "待投放的稿件", step: "当前步骤：配置标题", action: "继续配置", hasDelete: true, href: "/publishing/drafts/draft%2Fready-1/titles" },
     // 同名歧义：不折叠，保持选择媒体，入口按冻结版本定位。
-    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", href: "/publishing/media?articleVersion=version-twin-a" },
-    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", href: "/publishing/media?articleVersion=version-twin-b" },
-    { title: "编辑中的稿件", step: "当前步骤：编辑稿件", action: "继续编辑", href: "/publishing/articles/article-draft/edit" },
+    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", hasDelete: true, href: "/publishing/media?articleVersion=version-twin-a" },
+    { title: "同名冻结稿", step: "当前步骤：选择媒体", action: "继续投放", hasDelete: true, href: "/publishing/media?articleVersion=version-twin-b" },
+    { title: "编辑中的稿件", step: "当前步骤：编辑稿件", action: "继续编辑", hasDelete: true, href: "/publishing/articles/article-draft/edit" },
   ]);
+});
+
+it("deletes a draft article after confirmation and refreshes the list", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const { gateway } = renderWorkbench({});
+  await waitFor(() => expect(screen.getByText("编辑中的稿件")).toBeTruthy());
+  // 删除第一行（待投放的稿件）
+  const firstRow = document.querySelector(".task-list article")!;
+  const title = firstRow.querySelector("h3")?.textContent ?? "";
+  fireEvent.click(firstRow.querySelector("button.btn.danger-solid")!);
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect((confirm.mock.calls[0] as unknown[])[0]).toContain(title);
+  await waitFor(() => expect(gateway.deleteArticle).toHaveBeenCalledTimes(1));
+  // 删除后列表刷新：该行消失，计数同步减少。
+  await waitFor(() => expect(screen.queryByText(title)).toBeNull());
+  const statusItems = Array.from(document.querySelectorAll(".work-status .status-item")).map(node => node.textContent);
+  expect(statusItems[0]).toContain("3");
+  confirm.mockRestore();
+});
+
+it("keeps the draft when the delete confirmation is cancelled", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const { gateway } = renderWorkbench({});
+  await waitFor(() => expect(screen.getByText("编辑中的稿件")).toBeTruthy());
+  const firstRow = document.querySelector(".task-list article")!;
+  const title = firstRow.querySelector("h3")?.textContent ?? "";
+  fireEvent.click(firstRow.querySelector("button.btn.danger-solid")!);
+  expect(gateway.deleteArticle).not.toHaveBeenCalled();
+  expect(screen.getByText(title)).toBeTruthy();
+  confirm.mockRestore();
 });

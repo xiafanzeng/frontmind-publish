@@ -57,3 +57,14 @@ body:has(.fm3-root){background:#fff;margin:0}
 .fm3-root .publish-fail-badge {display:inline-flex;align-items:center;gap:5px;border-radius:4px;padding:2px 8px;font-size:12px;line-height:1.6;white-space:nowrap;background:#d92d42;color:#fff;font-weight:600}
 .fm3-root .publish-fail-badge::before {content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
 .fm3-root .task-submeta {margin-top:5px;font-size:12px;color:var(--muted)}
+
+/* ---------- V7 工作台按钮层级与右缘对齐 ---------- */
+/* 查看全部（全局入口）比行内按钮大一号；覆盖响应式内边距差异，保证与行内按钮右缘同线 */
+.fm3-root .btn.panel-action {font-size:14px;min-height:36px;padding:7px 16px}
+.fm3-root .workbench-panel .panel-header {padding:17px 20px}
+.fm3-root .workbench-panel .task-list {padding:0 20px}
+/* 行内动作组：继续投放/继续编辑/继续配置 + 删除稿件 */
+.fm3-root .task-actions {display:flex;align-items:center;gap:8px;justify-content:flex-end}
+/* 删除稿件：红底白字，与行内主按钮同尺寸 */
+.fm3-root .btn.danger-solid {background:#d92d42;border-color:#d92d42;color:#fff}
+.fm3-root .btn.danger-solid:hover:not(:disabled) {background:#b81f37;border-color:#b81f37;color:#fff}

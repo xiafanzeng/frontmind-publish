@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import { Link } from "wouter";
 
-import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
+import { invalidatePublisherQueries, usePublisherGateway, usePublisherQuery } from "../PublishingContext";
 import { PublishingError } from "../components/PublishingUi";
 import { DEFAULT_PUBLICATION_FILTERS } from "../queryState";
 import { publishingDateTime } from "../types";
 import { batchBadge } from "./adapters";
-import { Badge, Icon, MiniFlowSteps, PageHeading, money } from "./ui";
+import { Badge, Icon, MiniFlowSteps, PageHeading, money, toast } from "./ui";
 
 /** 工作台“待继续的稿件”最多展示的行数；完整列表经“查看全部”进入管理稿件。 */
 const RESUME_DISPLAY_LIMIT = 6;
@@ -15,6 +15,8 @@ const PROBLEM_BATCH_STATUSES = ["failed", "partial_success", "action_required"] 
 
 type ResumeRow = {
   key: string;
+  /** 用于删除（归档）操作。 */
+  articleId: string;
   title: string;
   /** 0=编辑稿件；1=选择媒体（已冻结待投放）；2=配置标题（该稿有已就绪的投放草稿）。 */
   step: 0 | 1 | 2;
@@ -88,6 +90,7 @@ export default function Index3Workbench() {
     const readyDraft = article.status === "frozen" ? draftFor(article) : undefined;
     return {
       key: `article-${article.id}`,
+      articleId: article.id,
       title: article.title,
       step: article.status === "frozen" ? (readyDraft ? 2 : 1) : 0,
       version: article.currentVersion,
@@ -113,6 +116,22 @@ export default function Index3Workbench() {
   rows.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   const visibleRows = rows.slice(0, RESUME_DISPLAY_LIMIT);
 
+  // V7：删除稿件（软删除=归档）。待继续稿件均为未交付草稿，删除不影响发布记录。
+  const removeArticle = async (row: ResumeRow) => {
+    const okDelete = window.confirm(
+      `确定删除《${row.title}》吗？该草稿尚未交付媒体，删除后不再显示（已产生的发布记录不受影响）。`,
+    );
+    if (!okDelete) return;
+    try {
+      await gateway.deleteArticle(row.articleId);
+      invalidatePublisherQueries(gateway);
+      toast("已删除稿件。");
+      query.reload();
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "删除失败，请重试。");
+    }
+  };
+
   return (
     <>
       <PageHeading title="发布工作台">
@@ -127,10 +146,10 @@ export default function Index3Workbench() {
         <div className="status-item">正在发布 <strong>{processingCount}</strong></div>
       </div>
 
-      <section className="panel" aria-label="待继续的稿件">
+      <section className="panel workbench-panel" aria-label="待继续的稿件">
         <div className="panel-header">
           <h2>待继续的稿件</h2>
-          <Link className="btn small primary" href="/publishing/articles">查看全部</Link>
+          <Link className="btn small primary panel-action" href="/publishing/articles">查看全部</Link>
         </div>
         {visibleRows.length ? (
           <div className="task-list">
@@ -145,9 +164,18 @@ export default function Index3Workbench() {
                     <span>{publishingDateTime(row.updatedAt)}</span>
                   </div>
                 </div>
-                <Link className="btn small primary" href={row.href}>
-                  {row.actionLabel}
-                </Link>
+                <div className="task-actions">
+                  <Link className="btn small primary" href={row.href}>
+                    {row.actionLabel}
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn small danger-solid"
+                    onClick={() => { void removeArticle(row); }}
+                  >
+                    删除稿件
+                  </button>
+                </div>
               </article>
             ))}
           </div>
@@ -159,7 +187,7 @@ export default function Index3Workbench() {
         )}
       </section>
 
-      <section className="panel" aria-label="需处理的投放">
+      <section className="panel workbench-panel" aria-label="需处理的投放">
         <div className="panel-header">
           <h2>需处理的投放</h2>
           <Link className="btn small primary" href="/publishing/articles/records">全部发布记录</Link>

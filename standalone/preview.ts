@@ -30,6 +30,8 @@ export function createPreviewGateway():PublisherGateway {
     async importDocx(file){const value={...clone(article),id:crypto.randomUUID(),title:`本地预览：${file.name}`,updatedAt:now()};articles.set(value.id,value);return {importId:`preview:${value.id}`,articleId:value.id};},
     async uploadArticleImage(){return unavailable();},
     async saveArticle(input){const value=getArticle(input.articleId);if(value.revision!==input.expectedRevision)throw new PublisherGatewayError('预览稿件版本冲突','conflict');Object.assign(value,{title:input.title,bodyText:input.bodyText,bodyHtml:input.bodyHtml,editorJson:input.editorJson,images:input.images,revision:value.revision+1,updatedAt:now(),wordCount:input.bodyText.length});return clone(value);},
+    // V7：本地预览的删除直接移除合成数据。
+    async deleteArticle(id){articles.delete(id);},
     async freezeArticle(id,revision){const value=getArticle(id);if(value.revision!==revision)throw new PublisherGatewayError('预览稿件版本冲突','conflict');value.currentVersion++;value.currentVersionId=crypto.randomUUID();value.currentVersionHash='preview-version';value.versions.push({id:value.currentVersionId,version:value.currentVersion,hash:'preview-version',containsImages:false,frozen:true,createdAt:now(),createdBy:'本地预览'});value.status='frozen';value.revision++;return clone(value);},
     async getMediaFacets(){return clone(facets);},
     async listMedia(filters){const items=media.filter(m=>(!filters.query||m.name.includes(filters.query))&&(!filters.kind||m.kind===filters.kind));return {items:clone(items),total:items.length,page:filters.page,pageSize:filters.pageSize,catalog};},
