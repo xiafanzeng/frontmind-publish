@@ -135,10 +135,12 @@ describe("real media page, routes and standalone task integration",()=>{
   it("selects and removes media, returns to the version overview and restores the same draft after refresh",async()=>{
     const data=fixture();
     const session=mount(data.gateway);
-    await screen.findByRole("heading",{name:"信源矩阵",level:2});
+    // jsdom renders the heavier advanced-filter panel on every media page; the
+    // default 1s heading lookup flakes right after a full module-suite run.
+    await screen.findByRole("heading",{name:"信源矩阵",level:2},{timeout:8000});
     const owner=session.flow().taskId;
     fireEvent.click(screen.getByRole("link",{name:"进入媒体库 →"}));
-    await screen.findByRole("heading",{name:"媒体库",level:1});
+    await screen.findByRole("heading",{name:"媒体库",level:1},{timeout:8000});
     fireEvent.click(await ready("a"));
     await waitFor(()=>expect(data.createDraft).toHaveBeenCalledTimes(1));
     await waitFor(()=>expect(session.location.history.at(-1)).toContain("/publishing/drafts/draft-1/media/third?"));
@@ -156,7 +158,9 @@ describe("real media page, routes and standalone task integration",()=>{
     expect(checkbox("b").checked).toBe(true);
 
     await act(async()=>{session.location.navigate(homePath);});
-    await screen.findByRole("heading",{name:"信源矩阵",level:2});
+    // jsdom renders the heavier advanced-filter panel on every media page; the
+    // default 1s heading lookup flakes right after a full module-suite run.
+    await screen.findByRole("heading",{name:"信源矩阵",level:2},{timeout:8000});
     await waitFor(()=>expect(homeSummary().textContent).toMatch(/1 家/));
     expect(homeSummary().textContent).toContain("100.00");
     expect(session.flow().taskId).toBe(owner);
@@ -186,7 +190,9 @@ describe("real media page, routes and standalone task integration",()=>{
   it("retains the exact server draft if registering its task reference fails",async()=>{
     const data=fixture();
     let session=mount(data.gateway);
-    await screen.findByRole("heading",{name:"信源矩阵",level:2});
+    // jsdom renders the heavier advanced-filter panel on every media page; the
+    // default 1s heading lookup flakes right after a full module-suite run.
+    await screen.findByRole("heading",{name:"信源矩阵",level:2},{timeout:8000});
     fireEvent.click(screen.getByRole("link",{name:"进入媒体库 →"}));
     await ready("a");
     const nativeSetItem=Storage.prototype.setItem;
@@ -215,7 +221,9 @@ describe("real media page, routes and standalone task integration",()=>{
     expect(data.createDraft).toHaveBeenCalledTimes(1);
     expect(data.saved()?.id).toBe("draft-1");
     await act(async()=>{session.location.navigate(homePath);});
-    await screen.findByRole("heading",{name:"信源矩阵",level:2});
+    // jsdom renders the heavier advanced-filter panel on every media page; the
+    // default 1s heading lookup flakes right after a full module-suite run.
+    await screen.findByRole("heading",{name:"信源矩阵",level:2},{timeout:8000});
     await waitFor(()=>expect(homeSummary().textContent).toMatch(/2 家/));
     expect(homeSummary().textContent).toContain("200.00");
     fireEvent.click(within(homeSummary()).getByRole("button",{name:/购物车 2 家/}));
