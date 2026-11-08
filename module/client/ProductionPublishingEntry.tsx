@@ -523,6 +523,15 @@ export function createServerBackedPublisherGateway(
       });
     },
 
+    // V7：删除稿件（服务端为归档软删除）。
+    deleteArticle(articleId) {
+      captureOperation();
+      return translateGatewayErrors(async () => {
+        await client.publisher.articles.archive.mutate({ articleId });
+        articleCache.delete(articleId);
+      });
+    },
+
     getMediaFacets(filters, signal) {
       captureOperation();
       return translateGatewayErrors(async () => {

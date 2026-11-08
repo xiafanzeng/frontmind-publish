@@ -1,7 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 
-import { usePublisherGateway, usePublisherQuery } from "../PublishingContext";
+import {
+  invalidatePublisherQueries,
+  usePublisherGateway,
+  usePublisherQuery,
+} from "../PublishingContext";
 import { PublishingError } from "../components/PublishingUi";
 import {
   publisherHtmlToPlainText,
@@ -220,6 +224,39 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
     }
   };
 
+  // V7：已有稿件的“从文档重新识别”——用新文档的标题/正文/图片替换当前编辑区，
+  // 点“保存稿件”才真正覆盖（Q1 语义）；解析产生的临时稿立即归档，不留重复稿件。
+  const importReplaceDocument = async (file: File) => {
+    if (busy) return;
+    if (!/\.docx$/i.test(file.name)) {
+      setUploadNote("重新识别仅支持 .docx 文件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const imported = await gateway.importDocx(file);
+      const parsed = await gateway.getArticle(imported.articleId);
+      patchUnit({
+        title: parsed.title,
+        content: {
+          html: parsed.bodyHtml ?? publisherPlainTextToHtml(parsed.bodyText),
+          text: parsed.bodyText,
+          json: parsed.editorJson ?? { type: "doc", content: [] },
+        },
+        images: parsed.images,
+      });
+      await gateway.deleteArticle(imported.articleId);
+      invalidatePublisherQueries(gateway);
+      void articleQuery.reload();
+      setUploadNote(`已按「${file.name}」重新识别标题与正文，保存后才会覆盖当前稿件。`);
+      toast("已重新识别，保存后生效。");
+    } catch (reason) {
+      setUploadNote(reason instanceof Error ? reason.message : "重新识别失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const goMatrix = async () => {
     if (busy) return;
     try {
@@ -350,7 +387,27 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
             <section className="panel">
               <div className="panel-body">
                 <form className="editor-form" noValidate onSubmit={(event) => { event.preventDefault(); void saveUnits(); }}>
-                  {!unit.articleId ? (
+                  {unit.articleId ? (
+                    <div className="upload-line">
+                      <div>
+                        <strong>从文档重新识别</strong>
+                        <p>用新文档替换当前稿件的标题与正文，保存后生效</p>
+                      </div>
+                      <label className="btn small">
+                        <Icon name="upload" />选择文档
+                        <input
+                          type="file"
+                          accept=".docx"
+                          hidden
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) void importReplaceDocument(file);
+                            event.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : (
                     <div className="upload-line">
                       <div>
                         <strong>从文档开始</strong>
@@ -370,7 +427,7 @@ export default function Index3Editor({ articleId }: { articleId: string }) {
                         />
                       </label>
                     </div>
-                  ) : null}
+                  )}
                   {uploadNote ? <p className="small muted">{uploadNote}</p> : null}
                   <div className="field">
                     <label htmlFor="article-title">稿件标题 <span className="danger-text" aria-hidden="true">*</span></label>

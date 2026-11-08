@@ -44,6 +44,8 @@ export type PublisherGateway = {
     articleId: string,
     expectedRevision: number,
   ): Promise<ArticleDetail>;
+  /** V7：删除稿件（软删除=归档，草稿从列表消失，历史数据保留）。 */
+  deleteArticle(articleId: string): Promise<void>;
   getMediaFacets(
     filters?: MediaFilters,
     signal?: AbortSignal,

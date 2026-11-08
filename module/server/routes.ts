@@ -239,6 +239,18 @@ const publisherRouter = t.router({
           ),
         ),
       ),
+    // V7：删除稿件（软删除=归档，草稿从列表消失，历史数据保留）。
+    archive: publisherCustomerProcedure
+      .input(z.object({ articleId: idSchema }))
+      .output(z.object({ archived: z.literal(true) }))
+      .mutation(({ ctx, input }) =>
+        translateRepositoryErrors(async () =>
+          ctx.publishingRepository.archivePublisherArticle(
+            ctx.user.id,
+            input.articleId,
+          ),
+        ),
+      ),
     save: publisherCustomerProcedure
       .input(publisherSaveArticleInputSchema)
       .output(publisherArticleOutputSchema)

@@ -421,11 +421,32 @@ function requireFile(
 
 function toUpload(file: Express.Multer.File): PublisherUpload {
   return {
-    originalName: file.originalname,
+    // V7：busboy/multer 把 multipart 文件名按 latin-1 解码，浏览器实际发送 UTF-8，
+    // 中文文件名会变成“æµ‹è¯•”式乱码并成为稿件标题。这里按 UTF-8 重新解码还原。
+    originalName: decodeMulterFilename(file.originalname),
     contentType: file.mimetype,
     body: Uint8Array.from(file.buffer),
     size: file.size,
   };
+}
+
+/**
+ * 还原 UTF-8 文件名。仅当原名不含中文、而 latin-1→UTF-8 重解码得到含中文的合法文本时
+ * 才采用（即浏览器 UTF-8 文件名被 multer/busboy 按 latin-1 读出的典型乱码形态）；
+ * 纯 ASCII 名与本就正确的中文文件名不受影响。
+ */
+export function decodeMulterFilename(name: string): string {
+  const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+  if (!/[^\x00-\x7f]/u.test(name) || CJK.test(name)) return name;
+  try {
+    const decoded = Buffer.from(name, "latin1").toString("utf8");
+    if (decoded && decoded !== name && !decoded.includes("\uFFFD") && CJK.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+    // 保守起见保留原始名称
+  }
+  return name;
 }
 
 function safeCsvFilename(value: string): string {
