@@ -41,6 +41,25 @@ function fixture(complete = true) {
 }
 
 describe("catalog query scope and snapshot semantics", () => {
+  it("uses indexed exact identities without names and keeps active/kind predicates", () => {
+    const { repository } = fixture();
+    for (const scope of [
+      { mediaIds: ["00000000-0000-4000-8000-000000000001"] },
+      { exactExternalResourceIds: ["24247", "24247"] },
+    ]) {
+      const query = new MySqlDialect().sqlToQuery(and(...repository.mediaConditions(scope))!);
+      expect(query.sql).not.toContain("like");
+      expect(query.sql).not.toContain("`name`");
+      expect(query.sql).toContain("`is_active`");
+      expect(query.sql).toContain("`media_kind`");
+    }
+    const exact = new MySqlDialect().sqlToQuery(and(...repository.mediaConditions({ exactExternalResourceIds: ["24247", "24247"] }))!);
+    expect(exact.params.filter(value => value === "24247")).toHaveLength(1);
+    expect(exact.sql).toContain("`external_resource_id` in");
+    const empty = new MySqlDialect().sqlToQuery(and(...repository.mediaConditions({ exactExternalResourceIds: [] }))!);
+    expect(empty.sql).toContain("FALSE");
+  });
+
   it("uses exact area aliases, independent AI/recommendation AND and alias OR", () => {
     const { repository } = fixture();
     const query = new MySqlDialect().sqlToQuery(and(...repository.mediaConditions({

@@ -190,7 +190,7 @@ export function writeMediaRouteState(
   params.set("kind", filters.kind ?? "all");
   const defaults = DEFAULT_MEDIA_FILTERS as Record<string, unknown>;
   for (const [key, raw] of Object.entries(normalizeMediaCoverageFilters(filters))) {
-    if (key === "kind" || key === "mediaIds") continue;
+    if (key === "kind" || key === "mediaIds" || key === "exactExternalResourceIds") continue;
     if (raw === undefined || raw === "" || raw === defaults[key]) continue;
     params.set(key, String(raw));
   }

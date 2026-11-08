@@ -37,6 +37,18 @@ function setup(page: Record<string, unknown> = blankPage) {
 }
 
 describe("media inventory and filter adapter contracts", () => {
+  it("passes exact resource identity and signal through the same authorized list adapter", async () => {
+    const { gateway, list } = setup({ ...blankPage, exactResourceLookupVersion: 1 });
+    const signal = new AbortController().signal;
+    const result = await gateway.listMedia({ query: "", exactExternalResourceIds: ["24247"], page: 1, pageSize: 100 }, signal);
+    expect(list.mock.calls[0]).toEqual([{ page: 1, pageSize: 100, limit: 100, sort: "recommended", exactExternalResourceIds: ["24247"] }, { signal }]);
+    expect(result.exactResourceLookupVersion).toBe(1);
+    expect(list.mock.calls[0]?.[0]).not.toHaveProperty("includeInactive");
+    expect(list.mock.calls[0]?.[0]).not.toHaveProperty("batchQuery");
+    await expect(setup().gateway.listMedia({ query: "", exactExternalResourceIds: ["24247"], page: 1, pageSize: 100 }))
+      .rejects.toMatchObject({ code: "unavailable" });
+  });
+
   it("keeps one full inventory snapshot across all category results and empty filtered results", async () => {
     const { gateway } = setup({ ...blankPage, total: 2 });
     for (const kind of [undefined, "news", "self_media"] as const) {
@@ -155,12 +167,15 @@ describe("media catalogue route and task persistence", () => {
       ...DEFAULT_MEDIA_FILTERS, kind: undefined, searchScope: "name", priceMin: "100",
       priceMax: "150", priceMinExclusive: true, recommendationTag: "可带表格", mobileWeight: "2",
       mediaIds: ["account-private-resource"],
+      exactExternalResourceIds: ["provider-private-resource"],
     };
     const url = writeMediaRouteState("/publishing/media", filters, "article-v3");
     const state = readMediaRouteState(url.split("?")[1] ?? "");
     expect(state.filters).toMatchObject({ kind: undefined, priceMinExclusive: true, recommendationTag: "可带表格", mobileWeight: "2", searchScope: "name" });
     expect(state.articleVersionId).toBe("article-v3");
     expect(url).not.toContain("mediaIds");
+    expect(url).not.toContain("exactExternalResourceIds");
+    expect(url).not.toContain("provider-private-resource");
     expect(url).not.toContain("account-private-resource");
     expect(readMediaRouteState("").filters.kind).toBe("news");
     expect(writeMediaRouteState("/publishing/media", DEFAULT_MEDIA_FILTERS)).toContain("kind=news");

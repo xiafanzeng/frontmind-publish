@@ -87,7 +87,7 @@ function liveDirectory(){
   if(url.includes('/matrix/identify/context')){const versionId=new URL(url,window.location.origin).searchParams.get('article_version_id')??'version-1';return {ok:true,json:async()=>({status:'not_configured',context:{scopeKey:'authorized-test-project',articleId:'article-1',articleVersionId:versionId,versionNumber:1,title:'当前稿件',contentDigest:'digest-'+versionId,connection:{available:false,mode:'environment',revision:'fixture-identification-unavailable'}},fields:{product:{value:null,source:'unidentified'},industry:{value:null,source:'unidentified'},audience:{value:null,source:'unidentified'},questions:{value:null,source:'unidentified'}}})};}
   return {ok:true,json:async()=>url.includes('/industries')?canonicalCatalog():url.includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:url.includes('/matrix/imports')?{datasets:[]}:url.includes('/classify/')?{task_id:'matrix-1',state:'complete',result:matrix}:url.endsWith('/status')?{configured:true}:{items:[{id:media.id,externalResourceId:media.externalResourceId,rules:{rules:[],rawRemark:'',unresolved:[]}}]}};
  }));
- mediaGateway.listMedia.mockResolvedValue({items:[media],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
+ mediaGateway.listMedia.mockResolvedValue({items:[media],total:1,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  mediaGateway.getArticleVersion.mockResolvedValue({id:'version-1',version:1,hash:'hash-1',containsImages:false,frozen:true,createdAt:'2026-10-24T00:00:00Z',createdBy:'当前账号'});
  mediaGateway.getDraft.mockResolvedValue(draft());
 }
@@ -157,7 +157,7 @@ it('preserves a failed draft binding, exposes retry, and never creates a replace
 
 it('blocks unknown frozen versions and legitimate image restrictions without creating drafts',async()=>{
  liveDirectory();mediaGateway.getArticleVersion.mockRejectedValueOnce(new Error('冻结版本读取失败')).mockResolvedValue({id:'version-1',version:1,frozen:true,containsImages:true});
- mediaGateway.listMedia.mockResolvedValue({items:[{...media,capability:'text'}],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
+ mediaGateway.listMedia.mockResolvedValue({items:[{...media,capability:'text'}],total:1,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  openMatrix('articleVersion=version-1');
  await screen.findByRole('button',{name:'重试读取稿件上下文'});
  expect((await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(true);
@@ -170,7 +170,7 @@ it('blocks unknown frozen versions and legitimate image restrictions without cre
 it('selects unknown image capability for an image version and removes it from the same saved matrix cart',async()=>{
  liveDirectory();const owner=flow();const pending={...media,capability:'image_pending' as const};
  mediaGateway.getArticleVersion.mockResolvedValue({id:'version-1',version:1,hash:'hash-1',frozen:true,containsImages:true});
- mediaGateway.listMedia.mockResolvedValue({items:[pending],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
+ mediaGateway.listMedia.mockResolvedValue({items:[pending],total:1,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  mediaGateway.createDraft.mockImplementation(async()=>{const saved={...draft('draft-1',1,[pending]),articleContainsImages:true};mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
  mediaGateway.updateDraftMedia.mockResolvedValue({...draft('draft-1',2,[]),articleContainsImages:true});
  openMatrix('articleVersion=version-1&mode=multi',owner);
@@ -285,7 +285,7 @@ it('blocks additions at twenty media without disabling legitimate removal elsewh
 });
 
 it('retries the same failed media mapping without discarding the draft context',async()=>{
- liveDirectory();mediaGateway.listMedia.mockRejectedValueOnce(new Error('媒体映射暂不可用')).mockResolvedValue({items:[media],total:1,page:1,pageSize:100,catalog:{activeRevision:'catalog-1'}});
+ liveDirectory();mediaGateway.listMedia.mockRejectedValueOnce(new Error('媒体映射暂不可用')).mockResolvedValue({items:[media],total:1,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  openMatrix('draftId=draft-1&articleVersion=version-1&mode=multi');
  fireEvent.click(await screen.findByRole('button',{name:'重试读取媒体映射'}));
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
@@ -443,7 +443,7 @@ it('retains semantic edits and blocks budget generation when an old budget termi
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe('改变后的业务问题');
  expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(true);
- expect(screen.getByText(/需求、任务或稿件版本已变化，当前矩阵仅供对照/)).toBeTruthy();
+ expect(screen.getByText('内容已更新，请重新生成。')).toBeTruthy();
 });
 
 it('shows a retryable budget failure and retries using its saved revision without regenerating the matrix',async()=>{
@@ -657,7 +657,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
  const resultFor=(id:string):MatrixResult=>({...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'已接入行业',product:'产品 '+id,audience:'受众 '+id,regions:['上海市'],hours:'48',target_platforms:id==='A'?['Kimi']:[],requirements:{links:true},brand:{batch_id:matrixDemo.form.brandDataBatchId,platforms:['百度文心-手机版']},questions:[{question_id:'q-'+id,text:'问题 '+id}]}}});
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog([{id:'configured-industry',name:'已接入行业'}]):url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
- mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
+ mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByText(/已保存的样本矩阵/);
  fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
@@ -703,7 +703,7 @@ it('does not send the automatic budget stage to another task after leaving a run
 
 // Source-only platform/industry regressions; do not execute in this handoff workspace.
 function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<string,unknown>)=>unknown|Promise<unknown>,rows=[{id:'industry-live',name:'真实行业'}]){
- mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
+ mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
   if(url.endsWith('/matrix/form-scope'))return {ok:true,json:async()=>({scopeKey:'a'.repeat(64)})};
@@ -736,18 +736,20 @@ it('leaves an unscoped query to the server industry mapping instead of sending A
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
 });
-it('shows limited industry evidence honestly and invalidates the matrix when the selected range changes',async()=>{
+it('keeps industry evidence in reports and still invalidates a changed range',async()=>{
  const query={scopeType:'CATEGORY',scopeId:'industry-live',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
  platformFixture(platformTask({industry_query:query,industry_context:{status:'partial',message:'发布时间分布暂缺',query,fetched_at:'2026-11-07T00:00:00Z',data_version:'version-42',limitations:['仅有类型分布']}}));
  openMatrix('siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
- await screen.findByText(/行业数据不完整/);expect(screen.getByText(/仅有类型分布/)).toBeTruthy();
+ await waitFor(()=>expect((screen.getByLabelText('目标行业 *') as HTMLSelectElement).value).toBe('industry-live'));
+ expect(screen.queryByText(/行业数据不完整|仅有类型分布/)).toBeNull();
  expect(screen.queryByText(/需求、任务或稿件版本已变化/)).toBeNull();
  await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siDate=2026-10-28','siDate=2026-10-27'));window.dispatchEvent(new PopStateEvent('popstate'));});
- expect(await screen.findByText(/需求、任务或稿件版本已变化/)).toBeTruthy();
+ expect(await screen.findByText('内容已更新，请重新生成。')).toBeTruthy();
 });
 it('requires historical personal-model tasks to regenerate without offering connection settings',async()=>{
  platformFixture(platformTask({model_source:'user'}));openMatrix('');
- expect(await screen.findByText(/此历史矩阵需要使用平台推荐服务/)).toBeTruthy();
+ expect(await screen.findByText('内容已更新，请重新生成。')).toBeTruthy();
+ expect(screen.queryByText(/此历史矩阵需要使用平台推荐服务/)).toBeNull();
  expect(screen.queryByRole('button',{name:'连接 API'})).toBeNull();expect(screen.queryByText(/请先连接|打开连接设置/)).toBeNull();
  expect((screen.getByRole('button',{name:'生成组合'}) as HTMLButtonElement).disabled).toBe(true);
 });
@@ -932,4 +934,45 @@ it('ignores version changes of unselected server files and historical references
  otherVersion='later-unselected';fireEvent.click(screen.getByRole('button',{name:'导入数据'}));await screen.findByRole('checkbox',{name:'选用 Unselected.csv'});
  fireEvent.click(screen.getByRole('button',{name:'完成'}));
  expect(screen.queryByText('选用文件的版本已变化，请重新生成矩阵。')).toBeNull();expect(screen.getByText('已选用 1 份导入数据')).toBeTruthy();
+});
+
+
+it('uses compact server readiness for a restored task without copying the industry snapshot into the form projection',async()=>{
+ const query={scopeType:'CATEGORY',scopeId:'industry-live',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
+ const saved=platformTask({industry_query:query});
+ const fetcher=platformFixture(saved),base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>String(input).includes('/classify/')?Promise.resolve({ok:true,json:async()=>({state:'complete',task_id:'matrix-1',task:{industry:'真实行业',industry_id:'industry-live',questions:[{text:'真实问题'}],model_source:'environment',platform_regeneration_required:false,industry_query:query},result:saved})}):base(input,init));
+ openMatrix('siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
+ await waitFor(()=>expect((screen.getByRole('button',{name:'生成组合'}) as HTMLButtonElement).disabled).toBe(false));
+ expect(screen.queryByText('内容已更新，请重新生成。')).toBeNull();
+ expect(screen.queryByText(/此历史矩阵需要使用平台推荐服务/)).toBeNull();
+});
+
+it('shows a failed semantic pool honestly and retains the matrix regenerate action',async()=>{
+ const invalid={...platformTask(),status:'invalid_decisions',matrix:{...matrix.matrix,status:'invalid_decisions',candidates:matrix.matrix.candidates.map(row=>({...row,primary_role:null})),layers:[],fit_order:[]},errors:[{code:'invalid_aggregate_reference',path:'matrix_decisions.items[0]',message:'invalid reference'}]};
+ platformFixture(invalid);openMatrix('');
+ await screen.findAllByText('推荐分层未通过校验，请重新生成矩阵。');
+ expect(screen.getByText(/候选池 1 · 已分层 —/)).toBeTruthy();
+ expect(screen.queryByText('0 个候选')).toBeNull();
+ expect(screen.getByRole('button',{name:'重新生成矩阵'})).toBeTruthy();
+ expect((screen.getByRole('button',{name:'生成组合'}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+
+it('counts only candidates rendered in recommendation layers as available to add',async()=>{
+ liveDirectory();
+ const hiddenMedia:MediaResource={...media,id:'media-2',externalResourceId:'external-2',name:'尚未分层媒体'};
+ const withPool:MatrixResult={...matrix,matrix:{...matrix.matrix,candidates:[...matrix.matrix.candidates,{...matrix.matrix.candidates[0],candidate_id:'candidate-2',resource_id:'external-2',attributes:{source_name:'尚未分层媒体'},primary_role:null,selection:'undecided'}]}};
+ mediaGateway.listMedia.mockResolvedValue({items:[media,hiddenMedia],total:2,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
+ const fetcher=vi.mocked(fetch),base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.includes('/classify/'))return {ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:withPool})} as Response;
+  if(url.includes('/media-requirements'))return {ok:true,json:async()=>({items:[media,hiddenMedia].map(row=>({id:row.id,rules:{rules:[],rawRemark:'',unresolved:[]}}))})} as Response;
+  return base(input,init);
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ expect(await screen.findByText(/候选池 2 · 已分层 1 · 已匹配 2\/2 · 可加入 1/)).toBeTruthy();
+ expect(screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'})).toBeTruthy();
+ expect(screen.queryByRole('checkbox',{name:'选择 尚未分层媒体 新闻'})).toBeNull();
 });

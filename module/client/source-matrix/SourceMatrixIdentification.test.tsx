@@ -267,8 +267,9 @@ it('fills the other three fields of a legacy questions-only saved task without o
   await waitFor(() => expect(field('品牌 / 产品').value).toBe('识别品牌'));
   expect(field('目标受众').value).toBe('采购团队'); expect(field('目标行业 *').value).toBe('102');
   expect(field('目标问题 / 内容需求 *').value).toBe('旧任务已保存的问题');
-  expect(screen.getByText('已保存要求')).toBeTruthy();
-  expect(screen.getByRole('button', { name: '采用建议' })).toBeTruthy();
+  expect(screen.queryByText('已保存要求')).toBeNull();
+  expect(screen.queryByRole('button', { name: '采用建议' })).toBeNull();
+  expect(screen.getAllByText('AI 建议')).toHaveLength(3);
   expect(modelCalls(fetcher)).toHaveLength(1);
   expect((host.gateway as ReturnType<typeof gateway>).createDraft).not.toHaveBeenCalled();
 });
@@ -370,4 +371,42 @@ it('keeps a manual distribution industry when the initial recognition finishes l
  expect((screen.getByRole('combobox',{name:'行业'}) as HTMLSelectElement).value).toBe('103');
  fireEvent.click(screen.getByRole('link',{name:'信源矩阵推荐'}));await waitFor(()=>expect(field('目标行业 *').value).toBe('103'));
  expect(distributionCalls(fetcher)).toHaveLength(3);
+});
+
+
+it('adopts a current real industry suggestion with one click without submitting or generating and permits later manual selection', async () => {
+  const ctx = context(), response = identified(ctx); response.status = 'partial';
+  response.fields.product.source = 'article'; response.fields.product.evidence = 'Private article excerpt';
+  response.fields.industry = { value: null, source: 'unidentified', reason: 'ambiguous_industry', candidate: 'Free-form private matching diagnostics', suggestions: [
+    { id: '103', name: '模型行业名不得展示' }, { id: '102', name: '医疗科技' }, { id: 'invented', name: '伪造行业' },
+  ] };
+  const fetcher = installApi({ readContext: () => contextResponse(ctx), identify: () => response });
+  open('tab=matrix&articleVersion=version-a');
+  const choice = await screen.findByRole('button', { name: '工业软件' });
+  expect(field('目标行业 *').value).toBe(''); expect(screen.getByText('未识别')).toBeTruthy();
+  expect(screen.queryByText('Private article excerpt')).toBeNull(); expect(screen.queryByText('稿件信息')).toBeNull();
+  expect(screen.queryByRole('button', { name: '伪造行业' })).toBeNull();
+  choice.focus(); expect(document.activeElement).toBe(choice);
+  fireEvent.click(choice);
+  await waitFor(() => expect(field('目标行业 *').value).toBe('103'));
+  expect(document.activeElement).toBe(field('目标行业 *'));
+  expect(screen.queryByText('未识别')).toBeNull(); expect(screen.queryByRole('button', { name: '工业软件' })).toBeNull();
+  expect(screen.getAllByText('AI 建议')).toHaveLength(4);
+  expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/matrix/generate'))).toBe(false);
+  expect((host.gateway as ReturnType<typeof gateway>).createDraft).not.toHaveBeenCalled();
+  fireEvent.change(field('目标行业 *'), { target: { value: '102' } });
+  expect(field('目标行业 *').value).toBe('102'); expect(screen.getAllByText('AI 建议')).toHaveLength(3);
+});
+it('restores value-bound AI origins from a saved task while preserving a manual origin and omitting unknown legacy origins', async () => {
+  const ctx = context(), result = matrixResult('保存品牌');
+  result.scope.task.industry_id = '102';
+  result.scope.task.identification_provenance = {
+    product: { value: '保存品牌', origin: 'article' }, industry: { value: '102', origin: 'inferred', protected: true },
+    audience: { value: '保存的受众', origin: 'manual', protected: true }, questions: { value: '不匹配的旧值', origin: 'inferred' },
+  };
+  installApi({ readContext: () => contextResponse(ctx), identify: () => identified(ctx), taskResponse: () => ({ task_id: 'task-a', state: 'complete', task: result.scope.task, result }) });
+  open('tab=matrix&task=task-a&articleVersion=version-a');
+  await waitFor(() => expect(field('目标行业 *').value).toBe('102'));
+  expect(field('品牌 / 产品').value).toBe('保存品牌'); expect(field('目标受众').value).toBe('保存的受众');
+  expect(screen.getAllByText('AI 建议')).toHaveLength(2); expect(screen.queryByText('已保存要求')).toBeNull();
 });

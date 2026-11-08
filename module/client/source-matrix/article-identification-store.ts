@@ -1,4 +1,4 @@
-import type { IdentificationContext, IdentificationContextResponse, IdentificationField, IdentificationFieldKey, IdentificationFields, IdentifyArticleRequest, IdentifyArticleResponse } from '../../shared/article-identification';
+import type { IdentificationContext, IdentificationContextResponse, IdentificationField, IdentificationFieldKey, IdentificationFields, IdentifyArticleRequest, IdentifyArticleResponse, IdentificationProvenance, IdentificationIndustrySuggestion } from '../../shared/article-identification';
 import { matrixApi } from './api';
 
 export const identificationFieldKeys: IdentificationFieldKey[] = ['product', 'industry', 'audience', 'questions'];
@@ -6,6 +6,7 @@ export type IdentificationValues = Record<IdentificationFieldKey, string>;
 export interface IdentificationHydrationOptions {
   /** Only persisted explicit-clear metadata may claim an empty saved field. */
   explicitEmpty?: IdentificationFieldKey[];
+  provenance?: unknown;
   /** Trusted saved-value remaps; a manual edit always wins. */
   replaceSaved?: IdentificationFieldKey[];
 }
@@ -22,6 +23,9 @@ export interface IdentificationFieldState {
   reason?: IdentificationField['reason'];
   canonicalId?: string;
   savedEmpty?: boolean;
+  /** Saved state must not replace true content provenance. */
+  saved?: boolean;
+  suggestions?: IdentificationIndustrySuggestion[];
 }
 export interface IdentificationSnapshot {
   values: IdentificationValues;
@@ -78,7 +82,7 @@ const valuesOf = (fields: IdentificationSnapshot['fields']): IdentificationValue
 const messages: Record<IdentificationStatus, string> = {
   no_article: '请先选择稿件，可继续手动填写。', loading: '正在读取稿件信息…', ready: '可根据当前稿件识别投放要求。',
   not_configured: 'AI 识别暂未配置，可先手动填写。', identifying: '正在根据当前稿件识别…',
-  complete: '识别完成，请核对稿件信息和 AI 建议。', partial: '部分识别完成，其余字段仍待填写。',
+  complete: '识别完成，请核对以下信息。', partial: '部分识别完成，其余字段仍待填写。',
   unidentified: '未识别出可安全填写的内容，请手动填写。', failed: '识别失败，已保留填写内容，可重试。',
 };
 // The existing matrixApi exposes only Error(message). Accept only exact public
@@ -136,12 +140,15 @@ function validField(value: IdentificationField): boolean {
     && (value.source !== 'unidentified' || value.value === null)
     && (value.evidence === undefined || typeof value.evidence === 'string' && value.evidence.length <= 12000)
     && (value.candidate === undefined || typeof value.candidate === 'string' && value.candidate.length <= 12000)
-    && (value.canonicalId === undefined || typeof value.canonicalId === 'string' && value.canonicalId.length <= 12000);
+    && (value.canonicalId === undefined || typeof value.canonicalId === 'string' && value.canonicalId.length <= 12000)
+    && (value.suggestions === undefined || Array.isArray(value.suggestions) && value.suggestions.length <= 5 && value.suggestions.every(item => item && typeof item.id === 'string' && item.id.length <= 128 && typeof item.name === 'string' && item.name.length <= 500));
 }
 function validFields(fields: IdentificationFields): boolean { return !!fields && identificationFieldKeys.every(key => validField(fields[key])); }
-function publicField(field: IdentificationField): IdentificationField { return { value: field.value, source: field.source, evidence: field.evidence, candidate: field.candidate, canonicalId: field.canonicalId, reason: safeReason(field.reason) }; }
+function publicField(field: IdentificationField): IdentificationField { return { value: field.value, source: field.source, evidence: field.evidence, candidate: field.candidate, canonicalId: field.canonicalId, reason: safeReason(field.reason), suggestions: field.suggestions?.map(item => ({ ...item })) }; }
 function publicFields(fields: IdentificationFields): IdentificationFields { return { product: publicField(fields.product), industry: publicField(fields.industry), audience: publicField(fields.audience), questions: publicField(fields.questions) }; }
 function checkedIndustry(record: RecordState, incoming: IdentificationField): IdentificationField {
+  const suggestions = record.industryCatalog ? incoming.suggestions?.filter(item => record.industryCatalog!.ids.has(item.id)) : incoming.suggestions;
+  incoming = { ...incoming, suggestions };
   if (incoming.value === null) return incoming;
   const canonical = incoming.canonicalId ?? incoming.value;
   if (!record.industryCatalog || canonical === null) return incoming;
@@ -151,10 +158,10 @@ function checkedIndustry(record: RecordState, incoming: IdentificationField): Id
 function applyField(record: RecordState, key: IdentificationFieldKey, raw: IdentificationField) {
   const incoming = key === 'industry' ? checkedIndustry(record, raw) : raw;
   const current = record.fields[key];
-  if (current.edited || current.origin === 'saved') {
+  if (current.edited || current.saved || current.origin === 'saved') {
     record.fields[key] = { ...current, candidate: incoming.candidate, reason: safeReason(incoming.reason), suggestion: incoming.value !== null && incoming.value !== current.value ? { ...incoming, reason: safeReason(incoming.reason) } : undefined };
   } else {
-    record.fields[key] = { value: incoming.value ?? '', origin: incoming.source, edited: false, evidence: incoming.evidence, candidate: incoming.candidate, canonicalId: incoming.canonicalId, reason: safeReason(incoming.reason) };
+    record.fields[key] = { value: incoming.value ?? '', origin: incoming.source, edited: false, evidence: incoming.evidence, candidate: incoming.candidate, canonicalId: incoming.canonicalId, reason: safeReason(incoming.reason), suggestions: incoming.suggestions };
   }
 }
 function applyFields(record: RecordState, fields: IdentificationFields, metadataOnly = false) {
@@ -195,7 +202,7 @@ export class ArticleIdentificationStore {
       // A new model connection invalidates AI outputs, not the user's same-article input.
       const previous = !restored ? [...this.records.values()].reverse().find(item => item.workspace === workspace && item.formScope === formScope && sameArticle(item.context, context) && this.now() - item.updatedAt <= IDENTIFICATION_SESSION_TTL) ?? this.restorePreviousConnection(context, workspace, formScope) : undefined;
       if (previous) {
-        for (const field of identificationFieldKeys) if (previous.fields[field].edited || previous.fields[field].origin === 'saved') record.fields[field] = { ...previous.fields[field], suggestion: undefined, candidate: undefined };
+        for (const field of identificationFieldKeys) if (previous.fields[field].edited || previous.fields[field].saved || previous.fields[field].origin === 'saved') record.fields[field] = { ...previous.fields[field], suggestion: undefined, candidate: undefined };
         record.hydrations = [...previous.hydrations];
       }
       this.records.set(key, record);
@@ -233,6 +240,8 @@ export class ArticleIdentificationStore {
             && (item.evidence === undefined || typeof item.evidence === 'string') && (item.candidate === undefined || typeof item.candidate === 'string')
             && (item.suggestion === undefined || validField(item.suggestion))
             && (item.savedEmpty === undefined || typeof item.savedEmpty === 'boolean')
+            && (item.saved === undefined || typeof item.saved === 'boolean')
+            && (item.suggestions === undefined || validField({ value: null, source: 'unidentified', suggestions: item.suggestions }))
             && (item.canonicalId === undefined || typeof item.canonicalId === 'string');
         })) { storage.removeItem(SESSION_PREFIX + key); return null; }
       let repairedEmpty = false;
@@ -427,7 +436,7 @@ export class ArticleIdentificationRouteStore {
         applyFields(this.record, response.fields, true);
         if (this.industryCatalog) this.applyIndustryCatalog(this.industryCatalog);
         for (const hydration of this.hydrations) this.applyHydration(hydration);
-        for (const key of identificationFieldKeys) if (this.edits[key] !== undefined) this.record.fields[key] = { ...this.record.fields[key], value: this.edits[key]!, origin: 'manual', edited: true, evidence: undefined, savedEmpty: undefined, canonicalId: undefined, reason: undefined };
+        for (const key of identificationFieldKeys) if (this.edits[key] !== undefined) this.record.fields[key] = { ...this.record.fields[key], value: this.edits[key]!, origin: 'manual', edited: true, saved: undefined, evidence: undefined, savedEmpty: undefined, canonicalId: undefined, reason: undefined, candidate: undefined, suggestion: undefined, suggestions: undefined };
         this.edits = {}; this.hydrations = [];
         this.owner.changed(this.record, this.route.workspace); this.maybeIdentify();
       } catch (error) {
@@ -441,7 +450,7 @@ export class ArticleIdentificationRouteStore {
   setField = (key: IdentificationFieldKey, value: string) => {
     if (!this.active) return;
     if (this.verified && this.record) {
-      this.record.fields[key] = { ...this.record.fields[key], value, origin: 'manual', edited: true, evidence: undefined, savedEmpty: undefined, canonicalId: undefined, reason: undefined };
+      this.record.fields[key] = { ...this.record.fields[key], value, origin: 'manual', edited: true, saved: undefined, evidence: undefined, savedEmpty: undefined, canonicalId: undefined, reason: undefined, candidate: undefined, suggestion: undefined, suggestions: undefined };
       this.owner.changed(this.record, this.route.workspace);
     } else {
       this.edits[key] = value;
@@ -462,11 +471,13 @@ export class ArticleIdentificationRouteStore {
       const explicitEmpty = options?.explicitEmpty?.includes(key) === true && !value.trim();
       // An absent, historical or unresolved empty is not a saved user choice.
       // In particular, a late missing-industry hydration cannot erase AI output.
-      if (!value.trim() && !explicitEmpty) continue;
+      if (!value.trim() && !explicitEmpty && !readIdentificationProvenance(options?.provenance, key, value)?.explicitEmpty) continue;
       const current = this.record.fields[key];
       if (current.savedEmpty === true) continue;
-      if (current.origin === 'saved' && !options?.replaceSaved?.includes(key)) continue;
-      this.record.fields[key] = { value, origin: 'saved', edited: false, savedEmpty: explicitEmpty || undefined,
+      if ((current.saved || current.origin === 'saved') && !options?.replaceSaved?.includes(key)) continue;
+      const metadata = readIdentificationProvenance(options?.provenance, key, value);
+      const sameKnownValue = current.value === value && (current.origin === 'article' || current.origin === 'inferred' || current.origin === 'manual');
+      this.record.fields[key] = { value, origin: metadata?.origin ?? (sameKnownValue ? current.origin : 'saved'), edited: metadata?.protected === true, saved: true, savedEmpty: explicitEmpty || metadata?.explicitEmpty || undefined,
         suggestion: current.value && current.value !== value && (current.origin === 'article' || current.origin === 'inferred') ? { value: current.value, source: current.origin, evidence: current.evidence, canonicalId: current.canonicalId, reason: current.reason } : current.suggestion };
       this.record.hydrations.push(stamp);
       changed = true;
@@ -498,16 +509,17 @@ export class ArticleIdentificationRouteStore {
     const field = this.record.fields.industry;
     // Revalidate AI output and suggestions, while leaving manual/saved text for
     // the owning page's explicit identity migration or user confirmation.
-    if (!field.edited && field.origin !== 'saved' && field.value) {
+    if (!field.edited && !field.saved && field.origin !== 'saved' && field.value) {
       applyField(this.record, 'industry', { value: field.value, source: field.origin === 'article' ? 'article' : 'inferred', evidence: field.evidence, candidate: field.candidate, canonicalId: field.canonicalId, reason: field.reason });
       if (!this.record.fields.industry.value && this.record.status === 'complete') this.record.status = 'partial';
     }
+    this.record.fields.industry = { ...this.record.fields.industry, suggestions: field.suggestions?.filter(item => catalog.ids.includes(item.id)) };
     const suggestion = this.record.fields.industry.suggestion;
     if (suggestion && checkedIndustry(this.record, suggestion).value === null) this.record.fields.industry = { ...this.record.fields.industry, suggestion: undefined, candidate: suggestion.candidate ?? suggestion.value ?? undefined, reason: 'catalog_changed' };
     // A directory arriving after a failed/empty load can make a prior result
     // usable again; apply only this field and keep manual ownership intact.
     const latest = this.record.latestFields?.industry;
-    if (latest?.value && checkedIndustry(this.record, latest).value !== null && !this.record.fields.industry.value && !this.record.fields.industry.edited && this.record.fields.industry.origin !== 'saved') applyField(this.record, 'industry', latest);
+    if (latest?.value && checkedIndustry(this.record, latest).value !== null && !this.record.fields.industry.value && !this.record.fields.industry.edited && !this.record.fields.industry.saved && this.record.fields.industry.origin !== 'saved') applyField(this.record, 'industry', latest);
   }
   identify = async () => {
     if (!this.active) return;
@@ -532,6 +544,15 @@ export class ArticleIdentificationRouteStore {
     this.record.fields[key] = { value: suggested.value, origin: suggested.source, edited: true, evidence: suggested.evidence, candidate: suggested.candidate, canonicalId: suggested.canonicalId, reason: safeReason(suggested.reason) };
     this.owner.changed(this.record, this.route.workspace);
   };
+  adoptIndustry = (id: string) => {
+    if (!this.active || !this.verified || !this.record || !this.industryCatalog?.ids.includes(id)) return false;
+    const field = this.record.fields.industry;
+    if (field.value === id) return true;
+    if (field.value || field.edited || field.saved || !field.suggestions?.some(option => option.id === id)) return false;
+    this.record.fields.industry = { value: id, canonicalId: id, origin: 'inferred', edited: true };
+    this.owner.changed(this.record, this.route.workspace);
+    return true;
+  };
   adoptFormScope = (nextScope: string) => {
     if (this.active && this.verified && this.record && nextScope) this.owner.adoptFormScope(this.record, this.route.workspace, nextScope);
   };
@@ -542,4 +563,24 @@ export function articleIdentificationStoreFor(gateway: object) {
   let store = gatewayStores.get(gateway);
   if (!store) { store = new ArticleIdentificationStore(); gatewayStores.set(gateway, store); }
   return store;
+}
+
+export function readIdentificationProvenance(input: unknown, key: IdentificationFieldKey, value: string): IdentificationProvenance[IdentificationFieldKey] | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
+  const entry = (input as Record<string, unknown>)[key];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+  const row = entry as Record<string, unknown>;
+  if (row.value !== value || !['article', 'inferred', 'manual'].includes(String(row.origin))) return;
+  return { value, origin: row.origin as 'article' | 'inferred' | 'manual', protected: row.protected === true || row.origin === 'manual', explicitEmpty: row.explicitEmpty === true && !value.trim() };
+}
+export function identificationProvenance(fields: IdentificationSnapshot['fields']): IdentificationProvenance {
+  const result: IdentificationProvenance = {};
+  for (const key of identificationFieldKeys) {
+    const field = fields[key];
+    if (field.origin === 'article' || field.origin === 'inferred' || field.origin === 'manual') result[key] = {
+      value: key === 'questions' ? field.value.split('\n').map(value => value.trim()).filter(Boolean).join('\n') : field.value,
+      origin: field.origin, protected: field.edited, explicitEmpty: !field.value.trim() && field.edited || undefined,
+    };
+  }
+  return result;
 }

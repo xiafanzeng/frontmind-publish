@@ -1091,6 +1091,10 @@ class PublishingRepository {
       const ids = [...new Set(input.mediaIds)];
       conditions.push(ids.length ? inArray(publisherMediaResources.id, ids) : sql`FALSE`);
     }
+    if (input.exactExternalResourceIds !== undefined) {
+      const ids = [...new Set(input.exactExternalResourceIds)];
+      conditions.push(ids.length ? inArray(publisherMediaResources.externalResourceId, ids) : sql`FALSE`);
+    }
     if (input.recommendationTag)
       conditions.push(sql`JSON_TYPE(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')) = 'ARRAY' AND JSON_CONTAINS(JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags'), JSON_QUOTE(${input.recommendationTag}))`);
     // Exact alias membership is OR within one dimension; the two conditions are AND.
@@ -1180,6 +1184,7 @@ class PublishingRepository {
     const available = runtime?.catalogKindComplete === true && Boolean(runtime.activeCatalogRevision) && Boolean(runtime.catalogSyncedAt);
     const catalogSyncedAt = runtime?.catalogSyncedAt ?? null;
     return {
+      exactResourceLookupVersion: 1 as const,
       filterSchemaVersion: 2 as const,
       advancedFilterVersion: ADVANCED_FILTER_VERSION,
       catalogCounts: available ? { all: news + selfMedia, news, selfMedia } : null,

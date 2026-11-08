@@ -16,6 +16,7 @@ export interface ArticleIdentification extends IdentificationSnapshot {
   identify: () => Promise<void>;
   retry: () => Promise<void>;
   adopt: (key: IdentificationFieldKey) => void;
+  adoptIndustry: (id: string) => boolean;
   /** Transfer the current new-task form immediately before navigating to its saved ID. */
   adoptFormScope: (nextScope: string) => void;
 }
@@ -34,6 +35,7 @@ export function useArticleIdentification({ gateway, workspace, articleVersionId,
     remapIndustry: (fromId: string, toId: string) => route?.remapIndustry(fromId, toId),
     identify: async () => { await route?.identify(); }, retry: async () => { await route?.retry(); },
     adopt: (key: IdentificationFieldKey) => route?.adopt(key),
+    adoptIndustry: (id: string) => route?.adoptIndustry(id) ?? false,
     adoptFormScope: (nextScope: string) => route?.adoptFormScope(nextScope),
   }), [route]);
   return useMemo(() => ({ ...state, ...actions }), [state, actions]);

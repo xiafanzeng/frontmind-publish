@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import type { MediaRules } from '../server/providers/kol/media-rules';
 import { usePublishingWorkspaceKey } from './host';
 import { mediaReadError } from './mediaReadError';
+import { usePartialBatchRead } from './usePartialBatchRead';
 
 const api = '/api/modules/publish/media-requirements';
 
@@ -19,62 +20,31 @@ type MarketRulesState = {
   error: string;
   loading: boolean;
 };
+const messages = { timeout: '媒体要求读取超时，请重试。', failure: '投稿要求暂时无法读取，请重试。' };
+type RuleRecord = { id: string; rules: MediaRules };
 
 /** Read authenticated catalogue evidence without importing the media-library UI.
  * `revision` identifies the caller's current draft/catalogue/refresh scope, while
  * `owner` invalidates data when the host changes gateway/account in-place. These
  * are request boundaries, not a claim that the endpoint returns a frozen quote.
  */
-export function useMarketRules(ids: string[], revision = '', owner?: unknown): MarketRulesState & { reload: () => void } {
+export function useMarketRules(ids: string[], revision = '', owner?: unknown): MarketRulesState & { reload: () => void; completedIds?: string[]; failedIds?: string[] } {
   const workspace = usePublishingWorkspaceKey();
-  const idsKey = [...new Set(ids)].sort().join(',');
-  const key = `${workspace}:${revision}:${idsKey}`;
-  const [reloadToken, setReloadToken] = useState(0);
-  const reload = useCallback(() => setReloadToken(value => value + 1), []);
-  const [state, setState] = useState<MarketRulesState & { reloadToken: number; owner: unknown }>({ key: '', reloadToken: 0, owner, rules: {}, ready: false, error: '', loading: true });
-
-  useEffect(() => {
-    if (!idsKey) {
-      setState({ key, reloadToken, owner, rules: {}, ready: false, error: '', loading: false });
-      return;
-    }
-    const abort = new AbortController();
-    let active = true;
-    const current = () => active && !abort.signal.aborted;
-    setState({ key, reloadToken, owner, rules: {}, ready: false, error: '', loading: true });
-    const timeout = setTimeout(() => {
-      if (!current()) return;
-      abort.abort();
-      setState({ key, reloadToken, owner, rules: {}, ready: false, error: '媒体要求读取超时，请重试。', loading: false });
-    }, 20_000);
-    // The endpoint checks the same authenticated runtime capability. Do not add
-    // a serial /status round trip or reuse rules across owners/workspaces.
-    void Promise.resolve().then(async () => {
-      if (!current()) return;
-      const items: Array<{ id: string; rules: MediaRules }> = [];
-      const all = idsKey.split(',');
-      for (let i = 0; i < all.length; i += 100) {
-        const data = await rulesRequest<{ items: Array<{ id: string; rules: MediaRules }> }>('?ids=' + encodeURIComponent(all.slice(i, i + 100).join(',')), abort.signal);
-        if (!current()) return;
-        items.push(...data.items);
-      }
-      if (current()) {
-        clearTimeout(timeout);
-        // Missing/inactive catalogue rows intentionally remain absent. A caller
-        // must not replace them with an "unknown" rule or a default title cap.
-        setState({ key, reloadToken, owner, rules: Object.fromEntries(items.map(item => [item.id, item.rules])), ready: true, error: '', loading: false });
-      }
-    }).catch(error => {
-      if (!current()) return;
-      clearTimeout(timeout);
-      setState({ key, reloadToken, owner, rules: {}, ready: false, error: mediaReadError(error, '投稿要求暂时无法读取，请重试。'), loading: false });
-    });
-    return () => { active = false; clearTimeout(timeout); abort.abort(); };
-  }, [key, idsKey, reloadToken, owner]);
-
-  // Hide a previous scope/attempt/owner synchronously, before its effect cleanup.
-  const visible = state.key === key && state.reloadToken === reloadToken && state.owner === owner
-    ? state
-    : { key, rules: {}, ready: false, error: '', loading: Boolean(idsKey) };
-  return { ...visible, reload };
+  const key = JSON.stringify([workspace, revision]);
+  const load = useCallback(async (batch: string[], signal: AbortSignal) => {
+    // The endpoint keeps its authenticated runtime check; no serial /status read.
+    const data = await rulesRequest<{ items: RuleRecord[] }>('?ids=' + encodeURIComponent(batch.join(',')), signal);
+    const wanted = new Set(batch);
+    if (!Array.isArray(data.items) || data.items.some(item => !wanted.has(item.id) || !item.rules) ||
+      new Set(data.items.map(item => item.id)).size !== data.items.length) throw new Error(messages.failure);
+    return data.items;
+  }, []);
+  const batch = usePartialBatchRead(ids, key, owner, load, messages);
+  const wanted = new Set(ids);
+  const completed = new Set(batch.completedIds);
+  // Missing/inactive rows stay absent; success never fabricates default rules.
+  const rules = Object.fromEntries(batch.items.filter(item => wanted.has(item.id) && completed.has(item.id)).map(item => [item.id, item.rules]));
+  return { key, rules, ready: ids.length > 0 && batch.ready, loading: batch.loading,
+    error: batch.error ? mediaReadError(batch.error, messages.failure) : '', reload: batch.retry,
+    completedIds: batch.completedIds, failedIds: batch.failedIds };
 }

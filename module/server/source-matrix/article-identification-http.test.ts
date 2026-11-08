@@ -157,3 +157,23 @@ it('refuses research draft identity when the project or authenticated actor is m
   expect(await response.json()).not.toHaveProperty('scopeKey');
  }
 });
+
+
+it('returns genuine directory industry choices for uncertain recognition without creating a task or selecting one', async () => {
+  reads(); const create = vi.spyOn(MatrixRepository.prototype, 'create');
+  const identify = vi.fn(async () => ({ fields: { industry: { value: null, source: 'unidentified', suggestions: ['retail', 'invented', 'retail'] } } }));
+  const url = await host({ sourceMatrixDecisions: { matrix: async () => undefined, budget: async () => undefined, identify } });
+  const { body } = await contextAt(url), response = await identifyAt(url, body.context), result = await response.json();
+  expect(result.fields.industry.value).toBeNull(); expect(result.fields.industry.suggestions).toEqual([{ id: 'retail', name: '零售' }]);
+  expect(create).not.toHaveBeenCalled();
+});
+it('removes suggestions retired while identification was running', async () => {
+  reads();
+  const identify = vi.fn(async () => {
+    vi.mocked(canonicalCatalog.loadIndustryCatalog).mockResolvedValue({ status: 'ok', source: 'molizhishu-public-industry', fetchedAt: '2026-11-08T00:00:00Z', data: { catalogVersion: 'catalog-2', industries: [], filters: { models: [], industryTree: [], minDate: null, maxDate: null, sourceTypes: [] } } });
+    return { fields: { industry: { value: null, source: 'unidentified', suggestions: ['retail'] } } };
+  });
+  const url = await host({ sourceMatrixDecisions: { matrix: async () => undefined, budget: async () => undefined, identify } });
+  const { body } = await contextAt(url), response = await identifyAt(url, body.context), result = await response.json();
+  expect(result.fields.industry.value).toBeNull(); expect(result.fields.industry.suggestions).toEqual([]);
+});

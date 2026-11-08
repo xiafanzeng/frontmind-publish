@@ -1,7 +1,7 @@
 // Source-only regression cases; run in the final merged ZCode workspace.
 import { describe, expect, it, vi } from 'vitest';
 import type { IdentificationContext, IdentificationContextResponse, IdentificationFields, IdentifyArticleResponse } from '../../shared/article-identification';
-import { ArticleIdentificationStore, IDENTIFICATION_SESSION_TTL, type IdentificationTransport, type IdentificationValues } from './article-identification-store';
+import { ArticleIdentificationStore, identificationProvenance, readIdentificationProvenance, IDENTIFICATION_SESSION_TTL, type IdentificationTransport, type IdentificationValues } from './article-identification-store';
 
 const emptyFields = (): IdentificationFields => ({ product: { value: null, source: 'unidentified' }, industry: { value: null, source: 'unidentified' }, audience: { value: null, source: 'unidentified' }, questions: { value: null, source: 'unidentified' } });
 const values = (product = ''): IdentificationValues => ({ product, industry: '', audience: '', questions: '' });
@@ -443,5 +443,61 @@ describe('authenticated article identification state', () => {
     const current = new ArticleIdentificationStore(api.transport, () => null).route(route);
     const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
     await current.identify(); expect(current.getSnapshot().message).toBe('识别失败，已保留填写内容，可重试。'); stop();
+  });
+});
+
+
+describe('value-bound provenance and real industry suggestions (source-only)', () => {
+  const uncertain = (): IdentifyArticleResponse => ({ ...identified(), fields: { ...identified().fields, industry: {
+    value: null, source: 'unidentified', reason: 'ambiguous_industry',
+    suggestions: [{ id: '101', name: 'Catalog industry A' }, { id: '102', name: 'Catalog industry B' }],
+  } } });
+  it('adopts one real current-catalog option, clears unresolved diagnostics and protects its AI source through retry and restore', async () => {
+    const storage = memoryStorage(), api = wire(async path => path.includes('/context?') ? ready() : uncertain());
+    const current = new ArticleIdentificationStore(api.transport, () => storage).route(route);
+    const stop = current.mount(); await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.setIndustryCatalog({ ids: ['101', '102'], version: 'v1' }); await current.identify();
+    expect(current.getSnapshot().values.industry).toBe(''); expect(current.adoptIndustry('invented')).toBe(false);
+    expect(current.adoptIndustry('102')).toBe(true);
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '102', canonicalId: '102', origin: 'inferred', edited: true });
+    expect(current.getSnapshot().fields.industry.suggestions).toBeUndefined(); expect(current.getSnapshot().fields.industry.reason).toBeUndefined();
+    const calls = api.send.mock.calls.length; expect(current.adoptIndustry('102')).toBe(true); expect(api.send.mock.calls).toHaveLength(calls);
+    await current.identify(); expect(current.getSnapshot().values.industry).toBe('102');
+    const metadata = identificationProvenance(current.getSnapshot().fields); stop();
+    const restored = new ArticleIdentificationStore(api.transport, () => null).route(route), stopRestored = restored.mount();
+    await vi.waitFor(() => expect(restored.getSnapshot().status).toBe('ready'));
+    restored.hydrate({ industry: '102' }, 'saved-task', { provenance: metadata }); await restored.identify();
+    expect(restored.getSnapshot().fields.industry).toMatchObject({ value: '102', origin: 'inferred', edited: true, saved: true });
+    restored.setField('industry', '101'); expect(restored.getSnapshot().fields.industry.origin).toBe('manual'); stopRestored();
+  });
+  it('omits legacy and mismatched provenance and preserves explicit saved clears', async () => {
+    const api = wire(async path => path.includes('/context?') ? ready() : identified());
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route), stop = current.mount();
+    await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.hydrate({ product: 'Historical value', audience: '', questions: 'Saved question' }, 'task', { provenance: {
+      product: { value: 'Other value', origin: 'article' }, audience: { value: '', origin: 'manual', explicitEmpty: true },
+    } });
+    await current.identify(); expect(current.getSnapshot().fields.product.origin).toBe('saved');
+    expect(identificationProvenance(current.getSnapshot().fields).product).toBeUndefined();
+    expect(current.getSnapshot().fields.audience).toMatchObject({ value: '', origin: 'manual', edited: true, savedEmpty: true });
+    expect(readIdentificationProvenance({ product: { value: 'A', origin: 'saved' } }, 'product', 'A')).toBeUndefined(); stop();
+  });
+  it('revalidates options at click time and never replaces a manual choice or explicit clear with a late response', async () => {
+    const model = deferred<IdentifyArticleResponse>(), api = wire(async path => path.includes('/context?') ? ready() : model.promise);
+    const current = new ArticleIdentificationStore(api.transport, () => null).route(route), stop = current.mount();
+    await vi.waitFor(() => expect(current.getSnapshot().status).toBe('ready'));
+    current.setIndustryCatalog({ ids: ['101', '102'], version: 'v1' }); const pending = current.identify();
+    await vi.waitFor(() => expect(current.getSnapshot().status).toBe('identifying'));
+    current.setField('industry', '101'); model.resolve(uncertain()); await pending;
+    expect(current.getSnapshot().fields.industry).toMatchObject({ value: '101', origin: 'manual' });
+    expect(current.adoptIndustry('102')).toBe(false);
+    current.setField('industry', ''); await current.identify(); expect(current.getSnapshot().values.industry).toBe('');
+    expect(current.adoptIndustry('102')).toBe(false); stop();
+    const cleanApi = wire(async path => path.includes('/context?') ? ready() : uncertain());
+    const clean = new ArticleIdentificationStore(cleanApi.transport, () => null).route(route), stopClean = clean.mount();
+    await vi.waitFor(() => expect(clean.getSnapshot().status).toBe('ready'));
+    clean.setIndustryCatalog({ ids: ['101', '102'], version: 'v1' }); await clean.identify();
+    clean.setIndustryCatalog({ ids: ['101'], version: 'v2' }); expect(clean.adoptIndustry('102')).toBe(false);
+    expect(clean.getSnapshot().fields.industry.suggestions).toEqual([{ id: '101', name: 'Catalog industry A' }]); stopClean();
   });
 });

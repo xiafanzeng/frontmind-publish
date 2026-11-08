@@ -5,8 +5,9 @@ import { display, label, quote, roleNames,industryContextSnapshot,referencedIndu
 import { formatPublishingMoney, type MediaResource } from '../types';
 import type { BudgetPlan, Candidate, Json, MatrixResult,ResourceSelection } from './types';
 import {PlanExplanation,formalItemDetail,planMoney,plainValue,planQuantity,mandatoryFeeText,pricingReason,PlanUnknowns,samePublicationSpec} from './PlanningDetails';
+import {matrixCandidateGroups,matrixReadiness} from './matrix-readiness';
 
-export const matrixRoles = ['authority', 'industry', 'regional', 'supplement', 'exploration'] as const;
+export {matrixRoles} from './matrix-readiness';
 const purposes: Record<string, string> = {authority:'提供可信参考与背景',industry:'覆盖目标行业的核心问题',regional:'补充目标地区的信息覆盖',supplement:'补足核心层之外的触达',exploration:'小范围验证尚待确认的机会'};
 const roleHelp:Record<string,{sources:string;usage:string}>={authority:{sources:'行业背景、技术概念、研究资料、标准解释等有来源的内容。',usage:'先建立事实背景，再衔接核心层的选型内容。参考阅读来源不等于可购买发布位。'},industry:{sources:'与目标行业和当前问题直接相关的专业介绍、选型问答、技术文章。',usage:'解释需求、比较条件、实施方法和交付内容，构成整套方案的主线。'},regional:{sources:'与目标地区场景相关、实际覆盖范围有依据的媒体或栏目。',usage:'说明本地服务和采购情境；没有匹配依据时保留空层，不按名称推断地域覆盖。'},supplement:{sources:'能补充核心问题或阅读场景的问答、比较图文、流程内容。',usage:'先明确补充哪一项，再安排内容分工，避免重复核心层的相同内容。'},exploration:{sources:'有明确假设、待验证的新表达方式、受众或查询场景。',usage:'限定验证内容、观察方式和停止条件；探索预算包含在总预算之内。'}};
 function LayerHelp({role}:{role:string}) {
@@ -77,9 +78,8 @@ export function MatrixRecommendation({result,highlightedPlan,highlightedCandidat
  useEffect(()=>setExpanded([]),[result.matrix_version]);
  const highlighted=new Set([...(highlightedPlan?.items.map(item=>candidateForItem(item,result.matrix.candidates)?.candidate_id).filter(Boolean)??[]),...highlightedCandidateIds]);
  const referenceOnly=new Set(referenceCandidateIds);
- const ordered=[...result.matrix.candidates].sort((a,b)=>{const left=result.matrix.fit_order.indexOf(a.candidate_id),right=result.matrix.fit_order.indexOf(b.candidate_id);return (left<0?Infinity:left)-(right<0?Infinity:right);});
- const assigned=new Set<string>();
- const groups=matrixRoles.map(role=>{const layer=result.matrix.layers.find(value=>value.role===role);const items=ordered.filter(candidate=>!assigned.has(candidate.candidate_id)&&(candidate.primary_role===role||!candidate.primary_role&&layer?.candidate_ids.includes(candidate.candidate_id)));items.forEach(candidate=>assigned.add(candidate.candidate_id));return {role,items,gap:layer?.reason_summary};});
+ const groups=matrixCandidateGroups(result.matrix);
+ const readiness=matrixReadiness(result.matrix);
  const card=(candidate:Candidate)=>{
   const media=mediaFor(candidate.resource_id),blocked=referenceOnly.has(candidate.candidate_id)?'参考阅读，非购买发布位':media?issue(candidate,media):'尚未映射可售资源，仅供研究';
   const source=candidate.attributes.domain??candidate.attributes.media_domain??candidate.attributes.source_url??candidate.attributes.url;
@@ -92,6 +92,7 @@ export function MatrixRecommendation({result,highlightedPlan,highlightedCandidat
    {media&&blocked&&<small className="sm-candidate-issue">{blocked}</small>}
   </article>;
  };
+ if(!readiness.complete)return <div className="x-empty" role="status"><strong>{readiness.message}</strong></div>;
  return <div className="table-wrap sm-layer-table-wrap"><table className="sm-layer-table"><caption className="sr-only">信源矩阵推荐：每层一行，层内为候选列表</caption><tbody>{groups.map(({role,items,gap})=><tr className="sm-layer-tr" key={role}><th scope="row" className="sm-layer-label"><div className="sm-layer-title"><h3>{roleNames[role]}层</h3><LayerHelp role={role}/></div><span>{items.length} 个候选</span>{items.some(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!isSelected(media)&&!issue(candidate,media);})&&<button className="link small" onClick={()=>onLayer(items)}>选择本层可投媒体</button>}</th><td className="sm-layer-cell"><div className="sm-layer-candidates" id={'sm-layer-'+role} aria-label={roleNames[role]+'层候选'}>{items.length?(expanded.includes(role)?items:items.slice(0,3)).map(card):<p className="sm-layer-gap">{gap||'暂无合适候选；当前依据不足，保留本层缺口。'}</p>}</div>{items.length>3&&<button className="link small sm-more-candidates" aria-expanded={expanded.includes(role)} aria-controls={'sm-layer-'+role} onClick={()=>setExpanded(current=>current.includes(role)?current.filter(value=>value!==role):[...current,role])}>{expanded.includes(role)?'收起候选':`更多候选（${items.length-3}）`}</button>}</td></tr>)}</tbody></table></div>;
 }
 

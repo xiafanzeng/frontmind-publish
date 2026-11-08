@@ -2,10 +2,107 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { BRAND_DATA_BATCHES, brandCitationRecords } from './brand-data.js';
 import { compactCandidates, createDecisionAdapter, createEnvDecisionAdapter, environmentChatEndpoint } from './decisions.js';
 import { SOURCE_MATRIX_INSTRUCTIONS, SOURCE_MATRIX_SKILL } from './instructions.js';
+import { runPlanner } from './planner.js';
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 const platform = { FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'fixture-server-key', FRONTMIND_SOURCE_MATRIX_LLM_MODEL: 'configured-model', FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL: 'https://api.xty.app/v1', FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS: 'https://api.xty.app/v1' };
 const matrixInput = { request: { task: {}, catalog: [] }, prepared: {}, as_of: '2026-11-07T00:00:00Z', skill: SOURCE_MATRIX_SKILL, instructions: SOURCE_MATRIX_INSTRUCTIONS };
 const envelope = (content: unknown, extra: Record<string, unknown> = {}) => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content }, ...extra }] }), { headers: { 'Content-Type': 'application/json' } });
+
+// Production-shaped fixtures exercise the real industry-context and decision
+// validators; the prompt-transport fixtures further below are deliberately partial.
+function validatedMatrixInput(count=1) {
+  const query={scopeType:'CATEGORY',scopeId:'123',periodType:'ALL',modelCode:'fixture-model'};
+  const aggregate={aggregate_id:'industry-aggregate-fixture-verified',aggregate_scope:'industry_distribution',source_type:'external_data',source_id:'fixture-industry-provider',data_version:'fixture-industry-v1',dimension:'source_type',bucket:{code:'news',name:'新闻'},count:'12',unit:'citation_count',scope:{industry:'零售',...query},applicability:{kind:'industry_context',industry:'零售'}};
+  const request={task:{industry:'零售',industry_id:'123',questions:[{question_id:'q1',text:'如何选择零售管理方案？'}],industry_context:{status:'ok',source:'molizhishu-public-industry',industry_id:'123',industry_name:'零售',query,fetched_at:matrixInput.as_of,data_version:'fixture-industry-v1',aggregates:[aggregate],limitations:[]}},catalog:Array.from({length:count},(_,index)=>({resource_id:'r'+(index+1),source_name:'测试行业媒体 '+(index+1),publication_status:'available'}))};
+  const prepared=runPlanner(request,undefined,'matrix',undefined,matrixInput.as_of);
+  return {...matrixInput,request,prepared};
+}
+function semanticDecision(id='resource:r1',aggregateId='industry-aggregate-fixture-verified') {
+  return {candidate_id:id,primary_role:'authority',auxiliary_roles:[],matched_questions:['q1'],selection:'recommended',reason_summary:'结合真实行业背景提供问题研究入口',reason_details:['仅作为行业背景，不证明媒体引用或可采购身份'],unconfirmed_items:['媒体账号及稿件要求待核验'],references:[{type:'aggregate',aggregate_id:aggregateId,usage:'industry_context'}],media_intro:'测试行业研究媒体',content_direction:'比较零售管理方案的适用条件',layer_rank:1,ranking_reason:'与目标问题相关'};
+}
+
+it('repairs an invalid aggregate reference once using exact kernel feedback and verified IDs', async()=>{
+  const input=validatedMatrixInput(),bad={matrix_decisions:{items:[semanticDecision('resource:r1','invented-bucket-name')],fit_order:['resource:r1']}},good={matrix_decisions:{items:[semanticDecision()],fit_order:['resource:r1']}};
+  const prompts:Array<Array<{role:string;content:string}>>=[];
+  const adapter=createDecisionAdapter(async messages=>{prompts.push(messages);return prompts.length===1?bad:good;});
+  const decisions=await adapter.matrix(input),result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(result.matrix.status).toBe('complete');
+  expect(result.matrix.layers.find((layer:any)=>layer.role==='authority').candidate_ids).toEqual(['resource:r1']);
+  expect(result.matrix.candidates[0].references).toEqual([{type:'aggregate',aggregate_id:'industry-aggregate-fixture-verified',usage:'industry_context'}]);
+  const payload=JSON.parse(prompts[0]![1]!.content);
+  expect(payload.reference_contract.global_aggregate_ids).toEqual(['industry-aggregate-fixture-verified']);
+  const repair=JSON.parse(prompts[1]![2]!.content);
+  expect(repair.validation_errors).toContainEqual({code:'invalid_aggregate_reference',path:'decisions.items[0].references[0]',message:'invalid_aggregate_reference'});
+  expect(repair.previous_decisions).toEqual(bad.matrix_decisions);
+  expect(prompts).toHaveLength(2);
+});
+
+it('keeps invalid decisions rejected after one failed correction instead of stripping evidence', async()=>{
+  const input=validatedMatrixInput(),bad={matrix_decisions:{items:[semanticDecision('resource:r1','invented')],fit_order:['resource:r1']}};
+  let attempts=0;const adapter=createDecisionAdapter(async()=>{attempts++;return bad;});
+  const decisions=await adapter.matrix(input),result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(attempts).toBe(2);expect(result.matrix.status).toBe('invalid_decisions');
+  expect(result.errors).toContainEqual({code:'invalid_aggregate_reference',path:'decisions.items[0].references[0]',message:'invalid_aggregate_reference'});
+  expect(result.matrix.fit_order).toEqual([]);expect(result.matrix.candidates[0].primary_role).toBeNull();
+  expect(decisions?.matrix_decisions.items[0].references[0].aggregate_id).toBe('invented');
+});
+
+it('preserves the invalid first response when correction transport fails', async()=>{
+  const input=validatedMatrixInput(),bad={matrix_decisions:{items:[semanticDecision('resource:r1','invented')],fit_order:['resource:r1']}};
+  let attempts=0;const adapter=createDecisionAdapter(async()=>{if(++attempts===1)return bad;throw new Error('provider_timeout');});
+  const decisions=await adapter.matrix(input),result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(result.matrix.status).toBe('invalid_decisions');expect(result.errors.some((error:any)=>error.code==='invalid_aggregate_reference')).toBe(true);
+});
+
+it('does not turn a failed candidate set into success by dropping its invalid member during repair', async()=>{
+  const input=validatedMatrixInput(2),first=semanticDecision('resource:r1','invented'),second={...semanticDecision('resource:r2'),layer_rank:2};
+  const bad={matrix_decisions:{items:[first,second],fit_order:['resource:r1','resource:r2']}},subset={matrix_decisions:{items:[{...second,layer_rank:1}],fit_order:['resource:r2']}};
+  let attempts=0;const decisions=await createDecisionAdapter(async()=>++attempts===1?bad:subset).matrix(input);
+  expect(runPlanner(input.request,decisions,'matrix',undefined,input.as_of).matrix.status).toBe('invalid_decisions');
+  expect(decisions?.matrix_decisions.items.map((item:any)=>item.candidate_id)).toEqual(['resource:r1','resource:r2']);
+});
+
+it('keeps a large candidate pool distinct from the bounded prompt and a real validated decision subset', async()=>{
+  const input=validatedMatrixInput(822);let payload:any;
+  const decisions=await createDecisionAdapter(async messages=>{payload=JSON.parse(messages[1]!.content);return {matrix_decisions:{items:[semanticDecision()],fit_order:['resource:r1']}};}).matrix(input);
+  const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(payload.candidates).toHaveLength(120);expect(result.matrix.candidates).toHaveLength(822);
+  expect(result.matrix.status).toBe('complete');expect(result.matrix.fit_order).toEqual(['resource:r1']);
+  expect(result.matrix.candidates.filter((candidate:any)=>candidate.semantic_decision_validated)).toHaveLength(1);
+});
+
+it('never advertises invalid global industry IDs as kernel-approved references', async()=>{
+  const input=validatedMatrixInput();input.request.task.industry_context.status='unavailable';
+  let payload:any;await createDecisionAdapter(async messages=>{payload=JSON.parse(messages[1]!.content);return {matrix_decisions:{items:[],fit_order:[]}};}).matrix(input);
+  expect(payload.reference_contract.global_aggregate_ids).toEqual([]);
+});
+
+it('keeps a verified candidate-local aggregate usable when shared industry context is unavailable', async()=>{
+  const input=validatedMatrixInput(),request={...input.request,
+    task:{...input.request.task,industry_context:{...input.request.task.industry_context,status:'upstream_error',aggregates:[]}},
+    catalog:[{...input.request.catalog[0]!,domain:'fixture.example'}],
+    citations:[{aggregate_id:'media-only-verified',data_kind:'aggregate',source_type:'external_data',source_id:'fixture-local-study',data_version:'local-v1',count:3,unit:'mentions',source_name:'测试行业媒体 1',domain:'fixture.example',scope:{industry:'零售'},applicability:{kind:'industry_context',industry:'零售'}}],
+  };
+  const prepared=runPlanner(request,undefined,'matrix',undefined,input.as_of);let payload:any;
+  const decisions=await createDecisionAdapter(async messages=>{payload=JSON.parse(messages[1]!.content);return {matrix_decisions:{items:[semanticDecision('resource:r1','media-only-verified')],fit_order:['resource:r1']}};}).matrix({...input,request,prepared});
+  expect(payload.reference_contract.global_aggregate_ids).toEqual([]);
+  expect(payload.reference_contract.candidate_aggregate_ids).toEqual({'resource:r1':['media-only-verified']});
+  expect(runPlanner(request,decisions,'matrix',undefined,input.as_of).matrix.status).toBe('complete');
+});
+
+it('shares the platform deadline with correction and retains the invalid result when the remainder expires', async()=>{
+  vi.useFakeTimers();const input=validatedMatrixInput(),bad={matrix_decisions:{items:[semanticDecision('resource:r1','invented')],fit_order:['resource:r1']}};
+  let attempts=0,correctionSignal:AbortSignal|undefined,settled=false;
+  vi.stubGlobal('fetch',vi.fn((_url:unknown,init:RequestInit)=>new Promise<Response>((resolve,reject)=>{
+    if(++attempts===1)setTimeout(()=>resolve(envelope(JSON.stringify(bad))),200_000);
+    else {correctionSignal=init.signal??undefined;init.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});}
+  })));
+  const pending=createEnvDecisionAdapter(platform)!.matrix(input).then(value=>{settled=true;return value;});
+  await vi.advanceTimersByTimeAsync(239_999);expect(settled).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);const decisions=await pending;
+  expect(attempts).toBe(2);expect(correctionSignal?.aborted).toBe(true);
+  expect(runPlanner(input.request,decisions,'matrix',undefined,input.as_of).matrix.status).toBe('invalid_decisions');
+});
 
 it('preserves yihang sample provenance and honest unknown dates', () => {
   const batch = BRAND_DATA_BATCHES[0]!;

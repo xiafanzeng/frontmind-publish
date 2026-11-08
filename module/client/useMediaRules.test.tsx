@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseMediaRules } from '../server/providers/kol/media-rules';
 import { titleRequirementDisplay } from './titleRequirements';
@@ -74,5 +74,53 @@ describe('shared media rule read scope', () => {
     await waitFor(() => expect(view.current().ready).toBe(true));
     expect(view.current().rules[mediaId]).toBeUndefined();
     expect(titleRequirementDisplay(view.current().rules[mediaId]).state).toBe('unavailable');
+  });
+
+  it('keeps successful rules on a partial failure and reloads only the failed batch', async () => {
+    const ids = Array.from({ length: 201 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+    let failed = false;
+    const fetcher = vi.fn(async (url: string) => {
+      const requested = new URL(url, 'https://example.test').searchParams.get('ids')!.split(',');
+      if (requested.includes(ids[100]!) && !failed) { failed = true; throw new Error('batch unavailable'); }
+      return response(requested.map(id => ({ id, rules })));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const owner = {};
+    const view = renderHook(() => useMarketRules(ids, 'matrix-1', owner));
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.ready).toBe(false);
+    expect(Object.keys(view.result.current.rules)).toHaveLength(101);
+    expect(view.result.current.rules[ids[100]!]).toBeUndefined();
+    act(() => view.result.current.reload());
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(new URL(fetcher.mock.calls.at(-1)![0], 'https://example.test').searchParams.get('ids')!.split(',')).toEqual(ids.slice(100, 200));
+    expect(Object.keys(view.result.current.rules)).toHaveLength(201);
+  });
+
+  it('retains successful evidence when progressive mappings add IDs in the same matrix scope', async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      const requested = new URL(url, 'https://example.test').searchParams.get('ids')!.split(',');
+      return response(requested.map(id => ({ id, rules })));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const owner = {};
+    const view = renderHook(({ ids }) => useMarketRules(ids, 'matrix-1', owner), { initialProps: { ids: ['media-a'] } });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    view.rerender({ ids: ['media-a', 'media-b'] });
+    expect(view.result.current.rules['media-a']).toEqual(rules);
+    expect(view.result.current.ready).toBe(false);
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(new URL(fetcher.mock.calls[1]![0], 'https://example.test').searchParams.get('ids')).toBe('media-b');
+  });
+
+  it('rejects duplicate rule identities instead of choosing the last evidence row', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response([{ id: mediaId, rules }, { id: mediaId, rules }])));
+    const view = harness();
+    await waitFor(() => expect(view.current().loading).toBe(false));
+    expect(view.current().ready).toBe(false);
+    expect(view.current().rules).toEqual({});
+    expect(view.current().error).toBeTruthy();
   });
 });

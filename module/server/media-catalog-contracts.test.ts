@@ -57,6 +57,11 @@ describe("module media catalog contracts", () => {
 
   it("limits batch names and resource scope without converting an empty scope to all", () => {
     expect(mediaCatalogListInputSchema.parse({ mediaIds: [] }).mediaIds).toEqual([]);
+    expect(mediaCatalogListInputSchema.parse({ exactExternalResourceIds: [] }).exactExternalResourceIds).toEqual([]);
+    expect(mediaCatalogListInputSchema.parse({ exactExternalResourceIds: [" 24247 "] }).exactExternalResourceIds).toEqual(["24247"]);
+    expect(mediaCatalogListInputSchema.safeParse({ exactExternalResourceIds: Array(101).fill("24247") }).success).toBe(false);
+    expect(mediaCatalogListInputSchema.safeParse({ exactExternalResourceIds: [" "] }).success).toBe(false);
+    expect(mediaCatalogListInputSchema.safeParse({ exactExternalResourceIds: ["x".repeat(129)] }).success).toBe(false);
     expect(mediaCatalogListInputSchema.safeParse({ nameBatchQuery: Array(51).fill("媒体") }).success).toBe(false);
     expect(mediaCatalogListInputSchema.safeParse({ mediaIds: Array(501).fill("00000000-0000-4000-8000-000000000000") }).success).toBe(false);
     expect(mediaCatalogListInputSchema.safeParse({ minimumMobileWeight: -1 }).success).toBe(false);

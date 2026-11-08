@@ -41,6 +41,7 @@ type ApiArticleVersion =
 type ApiMedia = ApiOutputs["publisher"]["media"]["list"]["items"][number];
 type ApiMediaPage = ApiOutputs["publisher"]["media"]["list"];
 type CatalogInventoryResponse = {
+  exactResourceLookupVersion?: number;
   advancedFilterVersion?: number;
   filterSchemaVersion?: number;
   catalogCounts?: { all: number; news: number; selfMedia: number } | null;
@@ -695,6 +696,7 @@ export function createServerBackedPublisherGateway(
         const result = await rawMediaPage(filters, signal);
         return {
           items: result.items.map((item) => mapMedia(item)),
+          ...(result.exactResourceLookupVersion === 1 ? { exactResourceLookupVersion: 1 as const } : {}),
           ...(result.advancedFilterVersion === 1 ? { advancedFilterVersion: 1 } : {}),
           ...(result.filterSchemaVersion === 2 ? { filterSchemaVersion: 2 } : {}),
           total: result.total,
@@ -1494,6 +1496,7 @@ function mediaInput(filters: MediaFilters) {
     ...(batchQuery.length ? (nameOnly ? { nameBatchQuery: batchQuery } : { batchQuery }) : {}),
     ...(!nameOnly && (query || batchQuery.length) ? { includeInactive: true } : {}),
     ...(filters.mediaIds !== undefined ? { mediaIds: filters.mediaIds } : {}),
+    ...(filters.exactExternalResourceIds !== undefined ? { exactExternalResourceIds: filters.exactExternalResourceIds } : {}),
     ...(filters.platform ? { platform: filters.platform } : {}),
     ...(filters.taxonomy || filters.channel
       ? { taxonomy: filters.taxonomy || filters.channel }
@@ -1582,6 +1585,9 @@ function assertMediaFilterSupport(
 ) {
   // mediaInput returns a per-branch object literal union; probe it as a record.
   const provided = input as Record<string, unknown>;
+  if (provided.exactExternalResourceIds !== undefined && result.exactResourceLookupVersion !== 1) {
+    throw new PublisherGatewayError("当前媒体服务尚未接入资源编号精确读取，请更新服务后重试", "unavailable");
+  }
   const requiresAdvancedContract = provided.publishTimeBand !== undefined || provided.entryCategory !== undefined ||
     provided.linkCategory !== undefined || provided.festivalStatus !== undefined;
   if (requiresAdvancedContract && result.advancedFilterVersion !== 1) {

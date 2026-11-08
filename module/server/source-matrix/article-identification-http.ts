@@ -132,9 +132,11 @@ export function mountArticleIdentificationRoutes(router: Router, core: ModuleHtt
     if (!latest.article || latest.article.articleId !== current.article.articleId || latest.article.articleVersionId !== current.article.articleVersionId || latest.article.versionNumber !== current.article.versionNumber || identificationDigest(latest.article) !== current.context.contentDigest || latest.article.contentHash !== current.article.contentHash) throw failure(409, 'stale_content', '稿件或版本权限已变化，本次结果未采用，请重新读取。');
     const nextDecision = await resolveIdentificationAdapter(core, req);
     if (connectionOf(core, nextDecision).revision !== current.context.connection.revision || !nextDecision.adapter?.identify) throw failure(409, 'connection_changed', 'AI 连接已变化，本次结果未采用，请重新识别。');
-    if (fields.industry.value) {
+    if (fields.industry.value || fields.industry.suggestions?.length) {
       const latestCatalog = await loadIndustryCatalog(core, req);
-      if (latestCatalog.status !== 'ok' || !latestCatalog.data.industries.some(item => item.id === fields.industry.value && current.industries.some(original => original.id === item.id && original.name === item.name))) fields.industry = { value: null, source: 'unidentified', reason: latestCatalog.status === 'ok' ? 'catalog_changed' : 'catalog_unavailable' };
+      if (fields.industry.value && (latestCatalog.status !== 'ok' || !latestCatalog.data.industries.some(item => item.id === fields.industry.value && current.industries.some(original => original.id === item.id && original.name === item.name)))) fields.industry = { value: null, source: 'unidentified', reason: latestCatalog.status === 'ok' ? 'catalog_changed' : 'catalog_unavailable' };
+      if (latestCatalog.status !== 'ok') fields.industry = { value: null, source: 'unidentified', reason: 'catalog_unavailable' };
+      else if (fields.industry.suggestions) fields.industry.suggestions = fields.industry.suggestions.filter(option => latestCatalog.data.industries.some(item => item.id === option.id && item.name === option.name));
     }
     if (authorizedScope(core, req).scopeKey !== current.scope.scopeKey) throw failure(409, 'scope_changed', '当前工作区或身份已变化，请重新读取稿件。');
     const count = Object.values(fields).filter(field => field.value !== null).length;
