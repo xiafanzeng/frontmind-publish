@@ -4,6 +4,8 @@ import type { PublisherQuantityPreflightOutput } from './publication-contracts.j
 import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
 import { MediaCatalogPromiseCache } from "./media-catalog-cache.js";
 import { aiPlatformRawValues, coverageRawValues, normalizedCoverageFacets, normalizedTagFacets, recommendationRawValues } from "../shared/media-catalog-filters.js";
+import { ADVANCED_FILTER_VERSION, normalizeEntry, normalizeLink, normalizedEntryFacets, normalizedLinkFacets,
+  normalizedPublishTimeFacets, publishTimeMatches, type RawAdvancedFacet } from "../shared/media-advanced-filters.js";
 import { mediaRulesTitleLimit, mediaRulesEvidence, mediaRulesImageBlocker } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -45,6 +47,7 @@ import { RepositoryError } from "@frontmind/module-contracts/errors";
 import type { PublishApiCore, PublishDatabase as Database, PublishTransaction as Transaction } from "./persistence-core.js";
 
 type RealPublicationMode = Exclude<PublicationMode, "mock">;
+type AdvancedFilterGroups = { publishTimes: RawAdvancedFacet[]; entries: RawAdvancedFacet[]; links: RawAdvancedFacet[] };
 type PublisherExecutionOptions =
   | Date
   | {
@@ -64,6 +67,8 @@ class PublishingRepository {
   // The kind-count SUM scans every active resource row; it is invariant for one
   // catalogue identity, so reuse it instead of rescanning on every list call.
   mediaCatalogCountsCache = new MediaCatalogPromiseCache<{ news: number; selfMedia: number }>();
+  // Full-catalog raw memberships only. Never fill this cache from a scoped facet.
+  mediaAdvancedGroupsCache = new MediaCatalogPromiseCache<AdvancedFilterGroups>();
 
   async createPublisherObjectLease(
     ownerId: string,
@@ -922,8 +927,29 @@ class PublishingRepository {
     });
   }
 
-  mediaConditions(input: Partial<MediaCatalogListInput>) {
+  mediaConditions(input: Partial<MediaCatalogListInput>, groups?: AdvancedFilterGroups) {
+    // Internal callers get the same conflict protection as the public schema.
+    if ((input.publishTimeBand !== undefined && input.publishSpeed !== undefined) ||
+        (input.entryCategory !== undefined && (input.entryType !== undefined || input.entryLevel !== undefined)) ||
+        (input.linkCategory !== undefined && input.linkType !== undefined) ||
+        (input.festivalStatus !== undefined && input.festivalPublishable !== undefined)) {
+      throw new RepositoryError("INVALID_STATE", "Choose either the normalized filter or its legacy exact value");
+    }
     const conditions = [inArray(publisherMediaResources.mediaKind, ["news", "self_media"])];
+    const rawMembership = (
+      column: typeof publisherMediaResources.publishSpeed | typeof publisherMediaResources.entryLevel | typeof publisherMediaResources.linkType,
+      rows: readonly RawAdvancedFacet[] | undefined,
+      matches: (value: string | null) => boolean,
+    ) => {
+      const selected = (rows ?? []).filter((row) => matches(row.value));
+      const values = [...new Set(selected.flatMap(({ value }) => value === null ? [] : [value]))];
+      const clauses = [
+        ...(values.length ? [inArray(column, values)] : []),
+        ...(selected.some(({ value }) => value === null) ? [isNull(column)] : []),
+      ];
+      // Missing/invalid membership must never silently remove a selected filter.
+      return clauses.length ? or(...clauses)! : sql`FALSE`;
+    };
     if (!input.includeInactive) {
       conditions.push(eq(publisherMediaResources.isActive, true));
     }
@@ -979,11 +1005,20 @@ class PublishingRepository {
       conditions.push(
         eq(publisherMediaResources.publishSpeed, input.publishSpeed),
       );
+    if (input.publishTimeBand !== undefined)
+      conditions.push(rawMembership(publisherMediaResources.publishSpeed, groups?.publishTimes,
+        (raw) => publishTimeMatches(raw, input.publishTimeBand!)));
     const entryLevel = input.entryLevel ?? input.entryType;
     if (entryLevel)
       conditions.push(eq(publisherMediaResources.entryLevel, entryLevel));
+    if (input.entryCategory !== undefined)
+      conditions.push(rawMembership(publisherMediaResources.entryLevel, groups?.entries,
+        (raw) => normalizeEntry(raw).value === input.entryCategory));
     if (input.linkType)
       conditions.push(eq(publisherMediaResources.linkType, input.linkType));
+    if (input.linkCategory !== undefined)
+      conditions.push(rawMembership(publisherMediaResources.linkType, groups?.links,
+        (raw) => normalizeLink(raw).value === input.linkCategory));
     if (input.minimumPcWeight !== undefined)
       conditions.push(
         gte(publisherMediaResources.pcWeight, input.minimumPcWeight),
@@ -1035,6 +1070,11 @@ class PublishingRepository {
           input.festivalPublishable,
         ),
       );
+    if (input.festivalStatus !== undefined) {
+      conditions.push(input.festivalStatus === "unspecified" ? isNull(publisherMediaResources.festivalPublishable)
+        : input.festivalStatus === "publishable" ? eq(publisherMediaResources.festivalPublishable, true)
+        : input.festivalStatus === "not_publishable" ? eq(publisherMediaResources.festivalPublishable, false) : sql`FALSE`);
+    }
     if (input.nameQuery?.trim())
       conditions.push(like(publisherMediaResources.name, `%${escapeLike(input.nameQuery.trim())}%`));
     if (input.nameBatchQuery?.length) {
@@ -1058,6 +1098,39 @@ class PublishingRepository {
     if (input.minimumMobileWeight !== undefined)
       conditions.push(gte(publisherMediaResources.mobileWeight, input.minimumMobileWeight));
     return conditions;
+  }
+
+  async loadAdvancedFilterGroups(
+    database: Database | Transaction,
+    catalog: { catalogRevision: string | null; catalogSyncedAt: Date | null; kindComplete: boolean },
+    includeInactive = false,
+  ): Promise<AdvancedFilterGroups> {
+    const load = async () => {
+      const where = and(inArray(publisherMediaResources.mediaKind, ["news", "self_media"]),
+        includeInactive ? undefined : eq(publisherMediaResources.isActive, true));
+      const grouped = async (column: typeof publisherMediaResources.publishSpeed | typeof publisherMediaResources.entryLevel | typeof publisherMediaResources.linkType) => {
+        const rows = await database.select({ value: column, total: count() }).from(publisherMediaResources)
+          .where(where).groupBy(column);
+        return rows.map((row) => ({ value: row.value, count: Number(row.total) }));
+      };
+      const [publishTimes, entries, links] = await Promise.all([
+        grouped(publisherMediaResources.publishSpeed), grouped(publisherMediaResources.entryLevel), grouped(publisherMediaResources.linkType),
+      ]);
+      // Pool-backed facets can span a sync. Validate BEFORE publishing this
+      // shared promise; an outer facet rejection alone would leave a mixed raw
+      // membership cached for a concurrent list transaction on the old revision.
+      const [runtime] = await database.select().from(publisherRuntimeState)
+        .where(eq(publisherRuntimeState.id, "kol")).limit(1);
+      if ((runtime?.activeCatalogRevision ?? null) !== catalog.catalogRevision ||
+          runtime?.catalogSyncedAt?.getTime() !== catalog.catalogSyncedAt?.getTime() ||
+          (runtime?.catalogKindComplete ?? false) !== catalog.kindComplete) {
+        throw new RepositoryError("CONFLICT", "媒体目录已更新，请重试读取筛选项。");
+      }
+      return { publishTimes, entries, links };
+    };
+    if (!catalog.kindComplete || !catalog.catalogRevision || !catalog.catalogSyncedAt) return load();
+    const key = JSON.stringify([ADVANCED_FILTER_VERSION, catalog.catalogRevision, catalog.catalogSyncedAt.getTime(), catalog.kindComplete, includeInactive]);
+    return this.mediaAdvancedGroupsCache.getOrLoad(key, load);
   }
 
   async listPublisherMedia(input: Partial<MediaCatalogListInput> = {}) {
@@ -1104,6 +1177,7 @@ class PublishingRepository {
     const catalogSyncedAt = runtime?.catalogSyncedAt ?? null;
     return {
       filterSchemaVersion: 2 as const,
+      advancedFilterVersion: ADVANCED_FILTER_VERSION,
       catalogCounts: available ? { all: news + selfMedia, news, selfMedia } : null,
       // Compatibility observation only: callers must honor kindComplete before
       // treating these as complete inventory. Never manufacture zero on missing sync.
@@ -1117,8 +1191,10 @@ class PublishingRepository {
   }
 
   async loadPublisherMedia(input: Partial<MediaCatalogListInput>, database: Database | Transaction) {
-    const conditions = this.mediaConditions(input);
     const catalog = await this.loadPublisherCatalogSnapshot(database);
+    const groups = input.publishTimeBand || input.entryCategory || input.linkCategory
+      ? await this.loadAdvancedFilterGroups(database, catalog, input.includeInactive) : undefined;
+    const conditions = this.mediaConditions(input, groups);
     const pageSize = Math.min(
       Math.max(input.pageSize ?? input.limit ?? 20, 1),
       100,
@@ -1216,6 +1292,7 @@ class PublishingRepository {
       .sort(([left], [right]) => left.localeCompare(right)));
     const key = JSON.stringify([
       2,
+      ADVANCED_FILTER_VERSION,
       runtime?.activeCatalogRevision,
       runtime?.catalogSyncedAt,
       runtime?.catalogKindComplete,
@@ -1246,13 +1323,16 @@ class PublishingRepository {
     input: Partial<MediaCatalogListInput> = {},
     database: Database | Transaction = this.db,
   ) {
-    const conditions = this.mediaConditions(input);
+    const initialCatalog = await this.loadPublisherCatalogSnapshot(database);
+    const groups = input.publishTimeBand || input.entryCategory || input.linkCategory
+      ? await this.loadAdvancedFilterGroups(database, initialCatalog, input.includeInactive) : undefined;
+    const conditions = this.mediaConditions(input, groups);
     const where = and(...conditions);
     // Only the imageSupport condition reads the capability table. Elsewhere the
     // 1:1 unique join cannot change any grouped count, so skip it: the join
     // cost per full-catalog aggregation was a large share of the facet load.
     const needsCapabilityJoin = input.imageSupport !== undefined;
-    const facet = async (
+    const facetRows = async (
       column:
         | typeof publisherMediaResources.platform
         | typeof publisherMediaResources.taxonomy
@@ -1262,6 +1342,7 @@ class PublishingRepository {
         | typeof publisherMediaResources.publishSpeed
         | typeof publisherMediaResources.entryLevel
         | typeof publisherMediaResources.linkType,
+      includeMissing = false,
     ) => {
       const facetBase = database
         .select({ value: column, total: count() })
@@ -1270,15 +1351,14 @@ class PublishingRepository {
         ? facetBase.leftJoin(publisherMediaCapabilities, eq(publisherMediaCapabilities.mediaResourceId, publisherMediaResources.id))
         : facetBase;
       const rows = await facetQuery
-        .where(and(where, isNotNull(column)))
+        .where(includeMissing ? where : and(where, isNotNull(column)))
         .groupBy(column)
         .orderBy(desc(count()), asc(column));
-      return rows
-        .filter((row): row is typeof row & { value: string } =>
-          Boolean(row.value),
-        )
+      return rows.filter((row) => includeMissing || Boolean(row.value))
         .map((row) => ({ value: row.value, count: Number(row.total) }));
     };
+    const facet = async (column: Parameters<typeof facetRows>[0]) => (await facetRows(column))
+      .filter((row): row is { value: string; count: number } => Boolean(row.value));
     const imageSupportValue = sql<string>`COALESCE(${publisherMediaCapabilities.imageSupport}, 'unknown')`;
     const recommendationTagsValue = sql<unknown>`JSON_EXTRACT(${publisherMediaResources.rawPayload}, '$.recommendationTags')`;
     const [
@@ -1287,9 +1367,9 @@ class PublishingRepository {
       mediaTypes,
       areas,
       includeTypes,
-      publishSpeeds,
-      entryLevels,
-      linkTypes,
+      publishTimeRows,
+      entryRows,
+      linkRows,
       imageSupportRows,
       aggregateRows,
       recommendationTagRows,
@@ -1299,9 +1379,9 @@ class PublishingRepository {
       facet(publisherMediaResources.mediaType),
       facet(publisherMediaResources.area),
       facet(publisherMediaResources.includeType),
-      facet(publisherMediaResources.publishSpeed),
-      facet(publisherMediaResources.entryLevel),
-      facet(publisherMediaResources.linkType),
+      facetRows(publisherMediaResources.publishSpeed, true),
+      facetRows(publisherMediaResources.entryLevel, true),
+      facetRows(publisherMediaResources.linkType, true),
       database
         .select({ value: imageSupportValue, total: count() })
         .from(publisherMediaResources)
@@ -1346,6 +1426,7 @@ class PublishingRepository {
           authenticatedFalse: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.authenticated} = FALSE THEN 1 ELSE 0 END), 0)`,
           festivalTrue: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = TRUE THEN 1 ELSE 0 END), 0)`,
           festivalFalse: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} = FALSE THEN 1 ELSE 0 END), 0)`,
+          festivalUnspecified: sql<number>`COALESCE(SUM(CASE WHEN ${publisherMediaResources.festivalPublishable} IS NULL THEN 1 ELSE 0 END), 0)`,
         })
         .from(publisherMediaResources);
       const aggregateQuery = needsCapabilityJoin
@@ -1365,6 +1446,17 @@ class PublishingRepository {
       })(),
     ]);
     const catalog = await this.loadPublisherCatalogSnapshot(database);
+    if (catalog.catalogRevision !== initialCatalog.catalogRevision ||
+        catalog.catalogSyncedAt?.getTime() !== initialCatalog.catalogSyncedAt?.getTime() ||
+        catalog.kindComplete !== initialCatalog.kindComplete) {
+      throw new RepositoryError("CONFLICT", "媒体目录已更新，请重试读取筛选项。");
+    }
+    // Legacy facets omit NULL/empty values as before. New facets include them
+    // directly from grouped rows, never from inventory minus a partial scope.
+    const rawOptions = (rows: RawAdvancedFacet[]) => rows.filter((row): row is { value: string; count: number } => Boolean(row.value));
+    const publishSpeeds = rawOptions(publishTimeRows);
+    const entryLevels = rawOptions(entryRows);
+    const linkTypes = rawOptions(linkRows);
     const advancedCounts = aggregateRows[0];
     const prices = advancedCounts;
     const tagCounts = new Map<string, number>();
@@ -1401,6 +1493,14 @@ class PublishingRepository {
       entryTypes: entryLevels,
       entryLevels,
       linkTypes,
+      publishTimeBands: normalizedPublishTimeFacets(publishTimeRows),
+      entryCategories: normalizedEntryFacets(entryRows),
+      linkCategories: normalizedLinkFacets(linkRows),
+      festivalStatuses: [
+        { value: "publishable", count: Number(advancedCounts?.festivalTrue ?? 0) },
+        { value: "not_publishable", count: Number(advancedCounts?.festivalFalse ?? 0) },
+        { value: "unspecified", count: Number(advancedCounts?.festivalUnspecified ?? 0) },
+      ],
       recommendationTags: [...tagCounts].map(([value, count]) => ({ value, count }))
         .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
       imageSupports: imageSupportRows.map((row) => ({

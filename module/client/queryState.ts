@@ -34,6 +34,10 @@ export const DEFAULT_MEDIA_FILTERS: MediaFilters = {
   priceMax: "",
   priceMinExclusive: false,
   includeType: "",
+  publishTimeBand: "",
+  entryCategory: "",
+  linkCategory: "",
+  festivalStatus: "",
   publishSpeed: "",
   entryType: "",
   linkType: "",
@@ -137,6 +141,10 @@ export function readMediaRouteState(search: string): {
     priceMax: decimalInput(one(params, "priceMax")),
     priceMinExclusive: one(params, "priceMinExclusive") === "true",
     includeType: one(params, "includeType"),
+    // Preserve unsupported selections visibly; the gateway rejects them instead of silently dropping a constraint.
+    publishTimeBand: one(params, "publishTimeBand"),
+    entryCategory: one(params, "entryCategory"),
+    linkCategory: one(params, "linkCategory"),
     publishSpeed: one(params, "publishSpeed"),
     entryType: one(params, "entryType"),
     linkType: one(params, "linkType"),
@@ -155,7 +163,10 @@ export function readMediaRouteState(search: string): {
       "95",
     ]),
     authenticated: one(params, "authenticated") === "true" ? "true" : "",
-    festival: one(params, "festival") === "true" ? "true" : "",
+    // The old true flag is exactly equivalent to the new publishable state.
+    // If both are supplied, retain the conflict for explicit validation.
+    festivalStatus: (one(params, "festivalStatus") || (one(params, "festival") === "true" ? "publishable" : "")) as MediaFilters["festivalStatus"],
+    festival: one(params, "festivalStatus") && one(params, "festival") === "true" ? "true" : "",
     capability: (["text", "image", "image_pending"] as string[]).includes(
       one(params, "capability"),
     )

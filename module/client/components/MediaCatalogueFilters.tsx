@@ -1,15 +1,40 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cataloguePriceLabel, cataloguePriceRanges, validateCatalogueNames, validateCataloguePrice } from "../mediaCatalogue";
 import type { MediaFacetOption, MediaFacets, MediaFilters } from "../types";
 import CatalogueChipRow from "./CatalogueChipRow";
 import { mediaReadError } from "../mediaReadError";
 import { isUnrestrictedMediaCoverage, normalizeMediaCoverageFilters } from "../mediaCoverage";
+import { ADVANCED_FILTER_VERSION, PUBLISH_TIME_OPTIONS, ENTRY_OPTIONS, LINK_OPTIONS, FESTIVAL_OPTIONS } from "../../shared/media-advanced-filters";
+import PublishingFieldHelp from "./PublishingFieldHelp";
 import "../publishing.catalogue.css";
 
 const channels = "新闻资讯 财经商业 IT科技 健康医疗 汽车网站 亲子母婴 生活消费 教育培训 食品餐饮 工业贸易 房产家居 女性时尚 游戏动漫 酒店旅游 娱乐休闲 能源环保 文化艺术 体育运动 公益三农 低价专区 一口价 优惠套餐 报纸 海外媒体".split(" ");
 const portals = "新浪网 网易 凤凰网 搜狐网 腾讯网 中华网 千龙网 中国网 中国日报网 中国新闻网 国际在线 北青网 环球网 光明网 中国青年网 中国经济网 央广网 人民网 央视网 新华网 东方网 大众网 和讯网 其他门户".split(" ");
 const recommendations = "急速出稿 高收录 包收录 带视频 百科可用 无免责声明 周末可发 站内搜索 可显示阅读量 可带署名 可发GEO 白名单来源 可带表格".split(" ");
 const aiPlatforms = ["DeepSeek", "豆包", "通义千问", "腾讯元宝", "文心一言", "Kimi"];
+
+const advancedExplanations = {
+  publishTimeBand: "供应商目录的预计时效，起算条件以媒体要求为准，不是完成时间承诺。“内”包含更快时效和边界；范围取较慢端，“3天以上”按标注上限超过72小时归类。普通天/日按24小时名义换算；当天、半天、工作日、截稿后顺延、无单位或缺失等口径未确认，列为时效待确认并保留原值。",
+  entryCategory: "指文章通常从媒体网站哪个页面进入：栏目页面是具体栏目，频道首页是频道起始页，网站首页是网站主页。“无入口”仅表示目录注明不提供对应展示入口，不代表文章没有访问链接；未注明是缺少信息。入口不代表永久推荐、固定展示时长或流量保证。",
+  linkCategory: "供应商目录中的正文链接/联系方式要求。“可带电话”表示可含电话号码，其他形式需另行确认；不代表只能带电话。“可带”是否为网址文本、可点击链接或其他内容尚未确认；“不带”的限制范围未确认，不能推断禁止所有联系方式。未注明是缺少信息，具体形式以媒体发布要求为准。",
+  pcWeight: "供应商自报的电脑端搜索表现参考指标，不是百度官方评分，不保证实际排名、流量或发布效果。按不低于所选值筛选；未提供为未知，不按0计算，真实0仍保留。",
+  mobileWeight: "供应商自报的移动端搜索表现参考指标，不是百度官方评分，不保证实际排名、流量或发布效果。按不低于所选值筛选；未提供为未知，不按0计算，真实0仍保留。",
+  includeRate: "供应商自报的文章被搜索引擎收录比例；具体搜索引擎、统计周期、样本量及完整口径未提供，不代表本次稿件必然被收录的概率。按不低于所选百分比筛选，缺失为未知，真实0仍保留。",
+  successRate: "供应商自报的发布成功比例，与搜索收录率不同，非本系统统计；统计周期、样本量及完整口径未提供，不保证本次投稿成功。按不低于所选百分比筛选，缺失为未知，真实0仍保留。",
+  festivalStatus: "按供应商目录的节假日发布字段筛选：明确为是、明确为否、未提供，分别对应可发布、不可发布、未注明。节假日不直接等同于周末；具体日期与接单安排需供应商确认。",
+};
+
+type AdvancedOption = { value: string; label: string; count?: number };
+type AdvancedField = {
+  key: keyof MediaFilters; label: string; options: readonly AdvancedOption[];
+  help?: string; normalized?: boolean; legacyKey?: "publishSpeed" | "entryType" | "linkType" | "festival";
+};
+
+// Fixed choices may have a real zero count; missing counts are never invented.
+function fixedOptions(definitions: readonly AdvancedOption[], facets: MediaFacetOption[] = []): AdvancedOption[] {
+  return [...definitions.filter(option => option.value).map(option => ({ ...option, count: facets.find(item => item.value === option.value)?.count })),
+    ...facets.filter(option => option.value && !definitions.some(item => item.value === option.value))];
+}
 
 function orderedOptions(options: MediaFacetOption[] = [], order: string[] = []) {
   return [...options].sort((a, b) => {
@@ -50,6 +75,7 @@ export default function MediaCatalogueFilters(props: Props) {
   const [maximum, setMaximum] = useState(filters.priceMax ?? "");
   const [priceError, setPriceError] = useState("");
   const [advanced, setAdvanced] = useState(false);
+  const fieldId = useId();
   const input = useRef<HTMLInputElement>(null);
   const latest = useRef(props);
   latest.current = { ...props, filters };
@@ -90,19 +116,21 @@ export default function MediaCatalogueFilters(props: Props) {
     change({ priceMin: validated.min, priceMax: validated.max, priceMinExclusive: false, price: "" });
   };
 
-  const advancedFields: Array<{ key: keyof MediaFilters; label: string; options: MediaFacetOption[] }> = [
+  const advancedSupported = facets?.advancedFilterVersion === ADVANCED_FILTER_VERSION && !facetsVersionMismatch;
+  const advancedFields: AdvancedField[] = [
     { key: "mediaType", label: "媒体类型", options: facets?.mediaTypes ?? [] },
     { key: "includeType", label: "收录类型", options: facets?.includeTypes ?? [] },
-    { key: "publishSpeed", label: "发布速度", options: facets?.publishSpeeds ?? [] },
-    { key: "entryType", label: "入口类型", options: facets?.entryTypes ?? [] },
-    { key: "linkType", label: "链接类型", options: facets?.linkTypes ?? [] },
-    { key: "pcWeight", label: "百度 PC 权重", options: facets?.pcWeightThresholds ?? [] },
-    { key: "mobileWeight", label: "百度移动权重", options: facets?.mobileWeightThresholds ?? [] },
-    { key: "includeRate", label: "收录率", options: facets?.includeRateThresholds ?? [] },
-    { key: "successRate", label: "通过率（发布成功率）", options: facets?.successRateThresholds ?? [] },
+    { key: "publishTimeBand", label: "预计发布时效", options: fixedOptions(PUBLISH_TIME_OPTIONS, facets?.publishTimeBands), normalized: true, legacyKey: "publishSpeed", help: advancedExplanations.publishTimeBand },
+    { key: "entryCategory", label: "文章展示入口", options: fixedOptions(ENTRY_OPTIONS, facets?.entryCategories), normalized: true, legacyKey: "entryType", help: advancedExplanations.entryCategory },
+    { key: "linkCategory", label: "链接与联系方式", options: fixedOptions(LINK_OPTIONS, facets?.linkCategories), normalized: true, legacyKey: "linkType", help: advancedExplanations.linkCategory },
+    { key: "pcWeight", label: "百度电脑端权重", options: facets?.pcWeightThresholds ?? [], help: advancedExplanations.pcWeight },
+    { key: "mobileWeight", label: "百度移动端权重", options: facets?.mobileWeightThresholds ?? [], help: advancedExplanations.mobileWeight },
+    { key: "includeRate", label: "收录率", options: facets?.includeRateThresholds ?? [], help: advancedExplanations.includeRate },
+    { key: "successRate", label: "发布成功率", options: facets?.successRateThresholds ?? [], help: advancedExplanations.successRate },
+    { key: "festivalStatus", label: "节假日发布", options: fixedOptions(FESTIVAL_OPTIONS, facets?.festivalStatuses), normalized: true, legacyKey: "festival", help: advancedExplanations.festivalStatus },
   ];
   const selected: Array<{ key: string; label: string; remove: () => void }> = [];
-  const selectedField = (key: keyof MediaFilters, label: string, options: MediaFacetOption[] = []) => {
+  const selectedField = (key: keyof MediaFilters, label: string, options: readonly AdvancedOption[] = []) => {
     const value = filters[key];
     if (typeof value !== "string" || !value) return;
     selected.push({ key, label: `${label}：${options.find(option => option.value === value)?.label ?? value}`, remove: () => change({ [key]: "" }) });
@@ -119,9 +147,12 @@ export default function MediaCatalogueFilters(props: Props) {
   selectedField("recommendationGroup", "媒体推荐", facets?.recommendationGroups);
   selectedField("recommendationTag", "原推荐条件", facets?.recommendationTags);
   for (const field of advancedFields) selectedField(field.key, field.label, field.options);
-  for (const [key, label] of [["recommended", "推荐媒体"], ["authenticated", "已认证"], ["festival", "节假日可发"]] as const) {
+  for (const [key, label] of [["recommended", "推荐媒体"], ["festival", "原条件 · 节假日可发"], ["authenticated", "原条件 · 已认证（目录未提供认证数据，可移除原条件）"]] as const) {
     if (filters[key]) selected.push({ key, label, remove: () => change({ [key]: "" }) });
   }
+  selectedField("publishSpeed", "原条件 · 发布速度");
+  selectedField("entryType", "原条件 · 入口类型");
+  selectedField("linkType", "原条件 · 链接类型");
   selectedField("capability", "稿件适配", [{ value: "text", label: "仅文字", count: 0 }, { value: "image", label: "支持图文", count: 0 }, { value: "image_pending", label: "图文待确认", count: 0 }]);
   selectedField("channel", "兼容频道"); selectedField("region", "兼容地区"); selectedField("price", "兼容价格区间");
   const priceLabel = cataloguePriceLabel(filters);
@@ -194,14 +225,29 @@ export default function MediaCatalogueFilters(props: Props) {
       {queryError && <p id="mc-query-error" className="mc-error mc-full" role="alert">{queryError}</p>}
     </div>
     <div className="mc-advanced">
-      <button type="button" className="mc-disclosure" aria-expanded={advanced} aria-controls="mc-advanced-options" onClick={() => setAdvanced(!advanced)}>{advanced ? "收起" : "展开"}高级选项：媒体类型、收录类型、发布速度、入口、链接、百度权重、收录率、通过率</button>
+      <button type="button" className="mc-disclosure" aria-expanded={advanced} aria-controls="mc-advanced-options" onClick={() => setAdvanced(!advanced)}>{advanced ? "收起" : "展开"}高级选项：媒体类型、收录类型、预计发布时效、文章展示入口、链接与联系方式、百度权重、收录率、发布成功率、节假日发布</button>
       <div id="mc-advanced-options" hidden={!advanced}>
-        <div className="mc-advanced-grid">{advancedFields.map(field => <label key={field.key}>{field.label}<select value={String(filters[field.key] ?? "")} disabled={facetsLoading || (!field.options.length && !filters[field.key])} onChange={event => change({ [field.key]: event.target.value })}><option value="">不限{!field.options.length ? "（暂无可用数据）" : ""}</option>{field.options.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}{filters[field.key] && !field.options.some(option => option.value === filters[field.key]) && <option value={String(filters[field.key])}>{String(filters[field.key])}（当前条件）</option>}</select></label>)}</div>
-        <div className="mc-extra-options">
-          <label><input type="checkbox" checked={filters.authenticated === "true"} disabled={!facets?.authenticatedOptions.some(option => option.value === "true") && !filters.authenticated} onChange={event => change({ authenticated: event.target.checked ? "true" : "" })} />已认证</label>
-          <label><input type="checkbox" checked={filters.festival === "true"} disabled={!facets?.festivalPublishableOptions.some(option => option.value === "true") && !filters.festival} onChange={event => change({ festival: event.target.checked ? "true" : "" })} />节假日可发（不等于周末可发）</label>
-        </div>
-        <p className="mc-note">发布速度按目录提供的档位匹配；选择城市仅匹配明确覆盖该城市的资源。链接类型保留供应商原值；通过率指供应商发布成功率。字段未提供时不按 0 计算。</p>
+        {facetsLoading && <p className="mc-advanced-status" role="status">正在读取高级筛选选项…</p>}
+        {!facetsLoading && !facetsError && !facetsVersionMismatch && !advancedSupported && <p className="mc-advanced-status" role="status">{facets ? "当前媒体服务尚未支持新版高级筛选，原条件保持精确匹配。请更新服务后重新读取。" : "高级筛选选项尚未读取，已选条件保持不变。"}<button type="button" className="link" onClick={onRetry}>重新读取</button></p>}
+        <div className="mc-advanced-grid">{advancedFields.map(field => {
+          const current = String(filters[field.key] ?? "");
+          const legacy = field.legacyKey ? filters[field.legacyKey] : "";
+          const options = field.normalized && !advancedSupported ? [] : field.options;
+          const value = current || (legacy ? "__legacy_exact" : "");
+          const id = `${fieldId}-${field.key}`;
+          const unavailable = facetsLoading || facetsVersionMismatch || (!facets && Boolean(facetsError));
+          const emptyLabel = facetsLoading ? "正在读取选项…" : facetsVersionMismatch ? "目录版本已变化，请重新读取" : (!facets && facetsError) ? "选项读取失败，请重试" : field.normalized && !advancedSupported ? "新版筛选尚未就绪" : !options.length ? "暂无可用数据" : "不限";
+          return <div key={field.key} className="mc-advanced-field">
+            <div className="mc-advanced-label"><label htmlFor={id}>{field.label}</label>{field.help && <PublishingFieldHelp label={`${field.label}说明`} explanation={field.help} />}</div>
+            <select id={id} value={value} disabled={unavailable || (field.normalized && !advancedSupported) || (!options.length && !value)}
+              onChange={event => { if (event.target.value !== "__legacy_exact") change({ [field.key]: event.target.value, ...(field.legacyKey ? { [field.legacyKey]: "" } : {}) }); }}>
+              <option value="">{emptyLabel}</option>
+              {options.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}
+              {legacy && !current && <option value="__legacy_exact">原条件：{field.legacyKey === "festival" ? "节假日可发" : legacy}</option>}
+              {current && !options.some(option => option.value === current) && <option value={current}>{field.options.find(option => option.value === current)?.label ?? current}（当前条件）</option>}
+            </select>
+          </div>;
+        })}</div>
       </div>
     </div>
     <FilterRow label="已选条件">

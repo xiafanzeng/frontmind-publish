@@ -207,6 +207,11 @@ export type MediaFilters = {
   priceMax?: string;
   priceMinExclusive?: boolean;
   includeType?: string;
+  /** Normalized dimensions are separate from legacy exact supplier strings. */
+  publishTimeBand?: string;
+  entryCategory?: string;
+  linkCategory?: string;
+  festivalStatus?: "" | "publishable" | "not_publishable" | "unspecified";
   publishSpeed?: string;
   entryType?: string;
   linkType?: string;
@@ -233,6 +238,11 @@ export type MediaFacetOption = {
 };
 
 export type MediaFacets = {
+  advancedFilterVersion?: number;
+  publishTimeBands?: MediaFacetOption[];
+  entryCategories?: MediaFacetOption[];
+  linkCategories?: MediaFacetOption[];
+  festivalStatuses?: MediaFacetOption[];
   /** Version 2 is required before exposing normalized coverage and label filters. */
   filterSchemaVersion?: number;
   coverageProvinces?: MediaFacetOption[];
@@ -261,6 +271,7 @@ export type MediaFacets = {
 };
 
 export type MediaList = {
+  advancedFilterVersion?: number;
   filterSchemaVersion?: number;
   items: MediaResource[];
   total: number;

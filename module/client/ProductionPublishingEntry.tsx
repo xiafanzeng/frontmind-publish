@@ -10,6 +10,7 @@ import {
 } from "./editorContent";
 import PublishingRoutes from "./PublishingRoutes";
 import { formatPublishingMoney } from "./types";
+import { PUBLISH_TIME_OPTIONS, ENTRY_OPTIONS, LINK_OPTIONS, FESTIVAL_OPTIONS, publishTimeLabel, entryCategoryLabel, linkCategoryLabel, festivalStatusLabel, type PublishTimeBand, type FestivalStatus } from "../shared/media-advanced-filters";
 import type {
   ArticleDetail,
   ArticleImage,
@@ -40,6 +41,7 @@ type ApiArticleVersion =
 type ApiMedia = ApiOutputs["publisher"]["media"]["list"]["items"][number];
 type ApiMediaPage = ApiOutputs["publisher"]["media"]["list"];
 type CatalogInventoryResponse = {
+  advancedFilterVersion?: number;
   filterSchemaVersion?: number;
   catalogCounts?: { all: number; news: number; selfMedia: number } | null;
   catalogCountStatus?: "available" | "unavailable";
@@ -551,6 +553,10 @@ export function createServerBackedPublisherGateway(
               aiPlatforms?: Array<{ value: string; count: number }>;
               recommendationGroups?: Array<{ value: string; count: number }>;
               includeTypes: Array<{ value: string; count: number }>;
+              publishTimeBands?: Array<{ value: string; count: number }>;
+              entryCategories?: Array<{ value: string; count: number }>;
+              linkCategories?: Array<{ value: string; count: number }>;
+              festivalStatuses?: Array<{ value: string; count: number }>;
               publishSpeeds: Array<{ value: string; count: number }>;
               entryTypes: Array<{ value: string; count: number }>;
               linkTypes: Array<{ value: string; count: number }>;
@@ -598,7 +604,21 @@ export function createServerBackedPublisherGateway(
             ...item,
             label: labels[item.value] ?? item.value,
           }));
+        const advancedOptions = (items: Array<{ value: string; count: number }>, label: (value: string) => string) =>
+          items.map(item => ({ ...item, label: label(item.value) }));
+        if (result.advancedFilterVersion === 1 &&
+            (!Array.isArray(result.publishTimeBands) || !Array.isArray(result.entryCategories) ||
+             !Array.isArray(result.linkCategories) || !Array.isArray(result.festivalStatuses))) {
+          throw new PublisherGatewayError("高级筛选选项不完整，请重试读取", "unavailable");
+        }
         const mapped: MediaFacets = {
+          ...(result.advancedFilterVersion === 1 ? {
+            advancedFilterVersion: 1,
+            publishTimeBands: advancedOptions(result.publishTimeBands!, publishTimeLabel),
+            entryCategories: advancedOptions(result.entryCategories!, entryCategoryLabel),
+            linkCategories: advancedOptions(result.linkCategories!, linkCategoryLabel),
+            festivalStatuses: advancedOptions(result.festivalStatuses!, festivalStatusLabel),
+          } : {}),
           ...(result.filterSchemaVersion === 2 ? {
             filterSchemaVersion: 2,
             coverageProvinces: options(result.coverageProvinces ?? []),
@@ -675,6 +695,7 @@ export function createServerBackedPublisherGateway(
         const result = await rawMediaPage(filters, signal);
         return {
           items: result.items.map((item) => mapMedia(item)),
+          ...(result.advancedFilterVersion === 1 ? { advancedFilterVersion: 1 } : {}),
           ...(result.filterSchemaVersion === 2 ? { filterSchemaVersion: 2 } : {}),
           total: result.total,
           page: result.page,
@@ -1420,6 +1441,17 @@ function catalogFreshness(
 }
 
 function mediaInput(filters: MediaFilters) {
+  const conflicting = (filters.publishTimeBand && filters.publishSpeed) ||
+    (filters.entryCategory && filters.entryType) || (filters.linkCategory && filters.linkType) ||
+    (filters.festivalStatus && filters.festival);
+  if (conflicting) throw new PublisherGatewayError("同一筛选同时含有原条件和新条件，请移除其中一项", "validation");
+  const isCategory = (value: string | undefined, choices: ReadonlyArray<{ value: string }>) =>
+    !value || choices.some(option => option.value === value) || (value.startsWith("raw:") && value.slice(4).trim().length > 0 && value.length <= 512);
+  if ((filters.publishTimeBand && !PUBLISH_TIME_OPTIONS.some(option => option.value === filters.publishTimeBand)) ||
+      !isCategory(filters.entryCategory, ENTRY_OPTIONS) || !isCategory(filters.linkCategory, LINK_OPTIONS) ||
+      (filters.festivalStatus && !FESTIVAL_OPTIONS.some(option => option.value === filters.festivalStatus))) {
+    throw new PublisherGatewayError("保存的高级筛选条件暂不支持，请重新选择或移除该条件", "validation");
+  }
   const query = filters.query.trim();
   const nameOnly = filters.searchScope === "name";
   const batchQuery = filters.batchQuery
@@ -1477,6 +1509,10 @@ function mediaInput(filters: MediaFilters) {
     ...(filters.recommended === "true" ? { recommended: true } : {}),
     ...(filters.recommendationTag ? { recommendationTag: filters.recommendationTag } : {}),
     ...(filters.includeType ? { includeType: filters.includeType } : {}),
+    ...(filters.publishTimeBand ? { publishTimeBand: filters.publishTimeBand as PublishTimeBand } : {}),
+    ...(filters.entryCategory ? { entryCategory: filters.entryCategory } : {}),
+    ...(filters.linkCategory ? { linkCategory: filters.linkCategory } : {}),
+    ...(filters.festivalStatus ? { festivalStatus: filters.festivalStatus as FestivalStatus } : {}),
     ...(filters.publishSpeed ? { publishSpeed: filters.publishSpeed } : {}),
     ...(filters.entryType ? { entryType: filters.entryType } : {}),
     ...(filters.linkType ? { linkType: filters.linkType } : {}),
@@ -1546,6 +1582,11 @@ function assertMediaFilterSupport(
 ) {
   // mediaInput returns a per-branch object literal union; probe it as a record.
   const provided = input as Record<string, unknown>;
+  const requiresAdvancedContract = provided.publishTimeBand !== undefined || provided.entryCategory !== undefined ||
+    provided.linkCategory !== undefined || provided.festivalStatus !== undefined;
+  if (requiresAdvancedContract && result.advancedFilterVersion !== 1) {
+    throw new PublisherGatewayError("当前媒体服务尚未接入新版高级筛选，请更新服务后重试", "unavailable");
+  }
   const requiresNormalizedContract = provided.coverageProvince !== undefined ||
     provided.coverageCity !== undefined || provided.aiPlatform !== undefined ||
     provided.recommendationGroup !== undefined;
