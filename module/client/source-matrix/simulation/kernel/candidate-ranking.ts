@@ -110,7 +110,7 @@ export function createCatalogReservoir(task: Row, perLayer = CATALOG_CANDIDATES_
       for (const reason of result.hardFailures) excludedByReason[reason]=(excludedByReason[reason]??0)+1;
       for (const role of Object.keys(roles)) {
         if (!result.eligible[role]) continue;
-        eligibleByRole[role]++;
+        eligibleByRole[role]=(eligibleByRole[role]??0)+1;
         const entries=ranked[role]!; const item={id,rank:result.rank[role]!,rows:resourceRows};
         if (entries.length>=perLayer && compareCandidateRanks(item,entries[entries.length-1]!)>=0) continue;
         const existing=entries.findIndex(entry=>entry.id===id); if(existing>=0) entries.splice(existing,1);

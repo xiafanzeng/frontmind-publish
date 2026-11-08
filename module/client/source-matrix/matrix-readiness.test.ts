@@ -36,7 +36,7 @@ it('uses the real per-layer order and removes duplicate candidate identities',()
 });
 it('distinguishes failed, incomplete, loading and completed empty layers',()=>{
  for(const [status,state] of [['failed','failed'],['incomplete','incomplete'],['loading','loading'],['empty','complete']]){
-  const value={...matrix('complete'),candidates:[],layers:[{role:'industry',candidate_ids:[],status}]} as MatrixResult['matrix'];
+  const value={...matrix('complete'),candidates:[],layers:[{role:'industry',candidate_ids:[],status}]} as unknown as MatrixResult['matrix'];
   expect(matrixCandidateGroups(value).find(group=>group.role==='industry')).toMatchObject({state,items:[]});
  }
 });

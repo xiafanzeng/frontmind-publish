@@ -50,7 +50,7 @@ it('shows known base price even with unknown fees, without inventing zero fees',
 });
 it('prevents stale plans from editing and never multiplies a package price by quantity',()=>{
  mount({stale:true,values:[{...plan,items:[{...plan.items[0]!,pricing_kind:'package',unit_price:null,base_cost:null,cost:'500.00',known_cost:'500.00',mandatory_fees:[],unknown_reasons:[]}],known_total_cost:'500.00',total_cost:'500.00'}]});
- expect((screen.getByLabelText('专业媒体建议篇数') as HTMLInputElement).disabled).toBe(true);expect(screen.getByText('套餐计价（不拆算单价）')).toBeTruthy();expect(screen.queryByText(/500.00 ×/)).toBeNull();
+ expect((screen.getByLabelText('专业媒体建议篇数') as HTMLInputElement).disabled).toBe(true);expect(screen.getByText(/套餐计价（不拆算单价）/)).toBeTruthy();expect(screen.queryByText(/500.00 ×/)).toBeNull();
 });
 
 it('persists a debounced edit even when the user immediately switches away',async()=>{

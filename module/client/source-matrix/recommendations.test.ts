@@ -3,7 +3,7 @@ import {expect,it} from 'vitest';
 import {normalizeRecommendations,recommendationKey} from './recommendations';
 import {contentResourceIdentity} from './PlanningDetails';
 import type {BudgetPlan,Candidate,ContentPlan,ContentPlanItem,MatrixResult} from './types';
-const item={candidate_id:'c',resource_id:'resource-a',offer_id:'offer-a',publication_spec:{format:'图文'},quantity:1,purpose:'standard',content_tasks:[]} as ContentPlanItem;
+const item={candidate_id:'c',resource_id:'resource-a',offer_id:'offer-a',publication_spec:{format:'图文'},quantity:1,purpose:'standard',content_tasks:[]} as unknown as ContentPlanItem;
 const content={schema_version:'content-planning/1.0',kind:'quoted_content_plan',strategy:'旧内容组合',items:[item]} as ContentPlan;
 const formal={strategy:'旧正式组合',items:[{...item,resource_id:'resource-b',offer_id:'offer-b',article_id:'article-1',version:'1'}],details:[{unit_price:'30.00',known_cost:'30.00',cost:'30.00',unknown_reasons:[]}],explanation:null,known_total_cost:'30.00',unknown_items:[],errors:[]} as unknown as BudgetPlan;
 const result={matrix:{candidates:[]},content_plans:[content],budget_plans:[formal]} as unknown as MatrixResult;

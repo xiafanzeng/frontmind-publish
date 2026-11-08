@@ -2,7 +2,7 @@ import type {BudgetPlan,ContentPlan,ContentPlanItem,Json,MatrixResult} from './t
 
 export interface Recommendation extends ContentPlan {source_index:number;legacy_kind?:'content'|'formal';formal_plan?:BudgetPlan}
 const object=(value:Json):Record<string,Json>=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
-const stable=(value:Json):unknown=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value;
+const stable=(value:Json|undefined):unknown=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value;
 /** Quantity edits and refreshed quotes keep the same local owner; names never bind prices. */
 export function recommendationKey(plan:ContentPlan,index:number):string {
  return JSON.stringify([index,plan.items.map(item=>[item.candidate_id,item.resource_id,item.offer_id,stable(item.publication_spec),item.purpose])]);

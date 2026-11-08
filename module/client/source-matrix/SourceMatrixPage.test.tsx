@@ -332,11 +332,11 @@ it('retains the complete matrix across budget-only responses and invalidates pla
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
- await screen.findByRole('heading',{name:'保守覆盖'});
+ await screen.findByRole('heading',{name:/保守覆盖/});
  expect(screen.queryByText('不得覆盖原矩阵的预算理由')).toBeNull();
  expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'150'}});
- expect(screen.getByText('条件已变化，此组合仅供对照，请重新生成。')).toBeTruthy();
+ expect(screen.getByText('投放要求、预算或资源选择已变化，请更新组合。')).toBeTruthy();
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 
@@ -582,7 +582,7 @@ it('one click generates an independent target platform task and automatically co
  // 任务轮询要等稿件授权状态就绪（2 秒周期），断言需覆盖至少一个轮询周期。
  await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1),{timeout:30000});
  expect(budgetBodies[0]).toMatchObject({plan_id:'plan-1',plan_version:'plan-version-1',budget:{total_cap:'3000',currency:'CNY'}});
- await screen.findByRole('heading',{name:'保守覆盖'},{timeout:30000});
+ await screen.findByRole('heading',{name:/保守覆盖/},{timeout:30000});
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 },60000);
 
