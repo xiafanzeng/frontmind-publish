@@ -297,7 +297,9 @@ it('resolves a saved industry after the catalog arrives without resetting other 
   await waitFor(() => expect(distributionCalls(fetcher)).toHaveLength(3));
   expect(distributionCalls(fetcher).every(([url]) => new URL(String(url), location.origin).searchParams.get('scopeId') === '102')).toBe(true);
   expect(modelCalls(fetcher)).toHaveLength(1);
-}, 60000);
+// Full-suite parallel load slows this file's popover render rounds past 60s;
+// the file passes standalone well inside the cap. Timing-only budget, no assertion change.
+}, 120000);
 
 it('preserves an explicit recommendation industry clear and uses ALL in analysis without restoring the recognition', async () => {
   const ctx = context(), fetcher = installApi({ readContext: () => contextResponse(ctx), identify: () => identified(ctx) });

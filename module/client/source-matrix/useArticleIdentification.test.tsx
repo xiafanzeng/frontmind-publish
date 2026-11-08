@@ -34,8 +34,9 @@ it('renders a new route blank and preserves an intentional manual clear after re
   fireEvent.change(screen.getByLabelText('品牌'), { target: { value: '' } });
   await act(async () => resolveModel({ status: 'partial', context: context('version-a'), fields: { ...emptyFields, product: { value: 'Suggestion A', source: 'inferred' } } }));
   expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');
-  expect(screen.queryByRole('button', { name: '采用建议' })).toBeNull();
-  expect(screen.queryByText('AI 建议')).toBeNull();
+  // An edited (including cleared) field keeps the manual value and offers the
+  // differing AI output as an adoptable suggestion; it never overwrites.
+  expect(screen.getByRole('button', { name: '采用建议' })).toBeTruthy();
   expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');
   view.rerender(<StrictMode><Harness {...props} articleVersionId="version-b" autoIdentify={false}/></StrictMode>);
   expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');

@@ -62,9 +62,16 @@ export function ArticleIdentificationFieldInfo({ fieldKey, identification, indus
     </span>;
   }
   const reason = !field.value && field.reason && Object.prototype.hasOwnProperty.call(errors, field.reason) ? errors[field.reason as keyof typeof errors] : undefined;
-  if (!ai && !reason) return null;
+  // A differing AI value for a field the user manually edited stays adoptable;
+  // saved-task values keep their own origin and never reappear as AI output.
+  const suggestion = field.edited && field.suggestion?.value != null ? field.suggestion : undefined;
+  if (!ai && !reason && !suggestion) return null;
   return <span className="sm-identification-field-info">
     {ai && <span className="sm-identification-origin" data-origin={field.origin}>AI 建议</span>}
+    {suggestion && <span className="sm-identification-suggestion">
+      <span>AI 建议：{suggestion.value}</span>
+      <button type="button" className="link" onClick={event => { event.preventDefault(); identification.adopt(fieldKey); }}>采用建议</button>
+    </span>}
     {reason && <span className="sm-identification-reason">{reason}</span>}
   </span>;
 }
