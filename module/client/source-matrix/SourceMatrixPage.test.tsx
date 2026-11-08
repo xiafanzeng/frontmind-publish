@@ -857,7 +857,7 @@ it('adopts the latest verified research draft when identity arrives before a pen
 // Source-only regressions for confirmed import hydration and legacy-free generation.
 it('confirms selected IDs against the saved list before counting and puts the summary above questions',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&researchDataset=synthetic-file');
- let finish!:(value:unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});
+ let finish!:(value:{})=>void;const pending=new Promise<{}>(resolve=>{finish=resolve;});
  const fetcher=platformFixture();const base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/imports')?{ok:true,json:async()=>pending}:base(input,init));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
@@ -871,7 +871,10 @@ it('confirms selected IDs against the saved list before counting and puts the su
 it('keeps import list failures independent and retries without turning preview metadata into success',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&researchDataset=synthetic-file');
  let reads=0;const fetcher=platformFixture();const base=fetcher.getMockImplementation()!;
+ // Hold the form scope pending so the list failure is observed before any owner change refetches.
+ let scopeReady!:(value:{})=>void;const scopePromise=new Promise<{}>(resolve=>{scopeReady=resolve;});
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/matrix/form-scope'))return {ok:true,json:async()=>scopePromise};
   if(String(input).endsWith('/matrix/imports')){if(++reads===1)throw new Error('Synthetic import failure');return {ok:true,json:async()=>({datasets:[{id:'synthetic-file',name:'Unconfirmed preview',version:'v1',recordCount:2,createdAt:'',status:'preview'}]})};}
   return base(input,init);
  });
@@ -892,8 +895,8 @@ it('generates a valid canonical industry without legacy mappings and corrects st
 
 it.each(['imports-first','task-first'])('keeps current confirmed metadata and detects selected version changes with %s hydration',async order=>{
  const saved=platformTask({research_dataset_ids:['synthetic-selected'],research_dataset_refs:[{id:'synthetic-selected',name:'Historical snapshot.csv',recordCount:2,version:'old-version'}],model_source:'environment',industry_context:{status:'ok'}});
- let finishTask!:(value:unknown)=>void,finishImports!:(value:unknown)=>void;
- const pendingTask=new Promise(resolve=>{finishTask=resolve;}),pendingImports=new Promise(resolve=>{finishImports=resolve;});
+ let finishTask!:(value:{})=>void,finishImports!:(value:{})=>void;
+ const pendingTask=new Promise<{}>(resolve=>{finishTask=resolve;}),pendingImports=new Promise<{}>(resolve=>{finishImports=resolve;});
  const fetcher=platformFixture(saved);const base=fetcher.getMockImplementation()!;
  fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
   if(String(input).endsWith('/matrix/imports'))return {ok:true,json:async()=>pendingImports};
