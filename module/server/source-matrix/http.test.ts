@@ -225,7 +225,7 @@ it('passes verified industry context to the platform request and persists the sa
  const url=await host(core({database:async()=>({} as any)}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'industry-1',questions:['如何选型'],industry_query:query,as_of:'2026-11-07T00:00:00Z'})});
  expect(response.status).toBe(202);await response.json();
- expect(load.mock.calls[0]?.[0]).toMatchObject({industryId:'industry-1',industryName:'软件测试',selection:query,configuredScopeId:'42'});
+ expect(load.mock.calls[0]?.[0]).toMatchObject({industryId:'101',industryName:'软件测试',selection:query,configuredScopeId:'42'});
  expect(created.mock.calls[0]?.[3]).toMatchObject({industry_query:query,industry_context:{...snapshot,industry_id:'101'},model_source:'environment'});
  expect(received.task.industry_context).toEqual({...snapshot,industry_id:'101'});
  expect(received.task.industry_assignment.kind).toBe('user_confirmed');
