@@ -7,7 +7,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 ROOT = PACKAGE
 FILES = ['README.md', 'verification.md'] + ['source-matrix-planner/' + name for name in [
     'SKILL.md', 'README.md', 'verification.md', 'ORIGIN.md', 'VERSION', 'requirements.txt', 'requirements-excel.txt', 'agents/openai.yaml',
-    'scripts/content_planning.py', 'references/content-planning.md', 'references/website-integration.md', 'tests/test_content_planning.py',
+    'scripts/content_planning.py', 'references/content-planning.md', 'references/website-integration.md', 'references/platform-industry-context.md', 'tests/test_content_planning.py',
     'scripts/export_adapter.py', 'scripts/render_preview.py', 'assets/preview.html',
     'assets/preview.css', 'assets/preview.js', 'tests/test_draft_explanation.py',
     'references/export-research.md', 'examples/export-brief.json',

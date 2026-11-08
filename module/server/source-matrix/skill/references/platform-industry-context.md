@@ -1,4 +1,4 @@
-# 网站平台 AI 与真实行业快照（2026.11.07-web.2）
+# 网站平台 AI 与真实行业快照（2026.11.08-web.2）
 
 本文件是网站原生 TypeScript 路径的增补契约；与 instructions.ts 的 SOURCE_MATRIX_INSTRUCTIONS 及 decisions.ts 的 decisionRules/budgetRules 同步。离线 Python 接口保留原有输入能力，不自行获取行业数据，也不自动获得网站新增的全行业引用校验能力。
 
@@ -16,7 +16,13 @@ task.manuscripts 的 article_id/version、正文片段 content_excerpt、content
 
 服务端从与行业分布板块同源的 molizhishu 免费 filters/distributions 构造 task.industry_context 并持久化。推荐链不新增 media-ranking/contents 计费调用。行业树 scopeId 可靠映射到当前任务行业；显式查询范围也须核对行业一致，不能映射时保留失败与限制，不降为全行业或用旧 dataset/品牌样本代替。
 
-行业 dataset 中可由运营明确配置字符串 industry_source_scope_id。该可信映射必须指向供应商真实行业树中的唯一 ID，允许两边行业名称不同，但 provenance 同时保存本地名称与供应商名称；浏览器不能创建或覆盖映射。未配置时只接受唯一的精确同名节点，不做模糊猜测。未传显式查询时，使用 filters 返回的最新可用日及第一个真实模型，并标明默认选择；日期范围或模型信息不全时给出限制，不猜测。
+网站新任务以服务端核验的 canonical industry_id（即供应商 scopeId）直接定位真实行业树的唯一节点，同名行业或本地旧配置不能覆盖该 ID。仅为非 canonical 的兼容调用保留可信 industry_source_scope_id／唯一精确同名解析，禁止模糊猜测。provenance 保留任务行业、供应商行业及实际映射方法。
+
+分布页与推荐使用同一授权 provider、查询身份及缓存边界。当前表单有效行业优先；显式查询的 scopeId 对齐该行业，周期、日期和模型保持用户选择并继续校验。未传显式查询时，与行业分布页面一致，使用 filters 最新可用日所在月份的月首（MONTH）；供应商提供 all 模型时选 all，否则选首个真实模型，并标明默认选择。日期范围或模型信息不全时给出限制，不猜测。
+
+真实目录中没有本地 dataset 的行业也可生成：本地表不是行业数据是否可用的门槛。缺少本地富化时使用实时目录、当前已选研究资料、授权稿件及同源行业快照；不创建伪造的媒体、引用或运营行业记录。若确有多个本地配置映射同一行业，保持明确的歧义错误，不随意挑选品牌数据。
+
+新任务保存服务端生成的推荐输入模式和稳定的 brand 身份（仅内部隔离标识，不代表识别出的现实品牌），无本地富化的任务回放不得后来自动采用新增本地 dataset。预算、数量编辑和应用组合沿用任务保存的输入模式与行业快照，重读真实目录、报价和授权绑定；不因缺少本地行业表记录而拒绝。历史本地任务继续沿用其本地富化和原版本校验。
 
 快照包含 status、message、source、industry_id、industry_name、query、fetched_at、data_version、aggregates、limitations、source_type_distribution 和 publish_time_distribution。query 保存真实 scopeId/scopeType、periodType/date、modelCode；取数时间与供应商数据版本不能互相冒充。模型同时读取状态、口径、时间、完整记录与限制；失败、缺配置、映射失败、真实空分布分别如实说明，不把未知当0或空成功。
 

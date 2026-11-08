@@ -48,7 +48,7 @@ class PackageTests(unittest.TestCase):
                                  'source-matrix-planner/references/export-research.md',
                                  'source-matrix-planner/requirements-excel.txt'):
                     self.assertIn(required, names)
-                for required in ('scripts/content_planning.py','references/content-planning.md','references/website-integration.md','tests/test_content_planning.py','ORIGIN.md','VERSION'):
+                for required in ('scripts/content_planning.py','references/content-planning.md','references/website-integration.md','references/platform-industry-context.md','tests/test_content_planning.py','ORIGIN.md','VERSION'):
                     self.assertIn('source-matrix-planner/'+required,names)
                 for name in names:
                     self.assertFalse(any(p in {'.git', '__pycache__', '.superpowers', 'evaluation', '.env'} for p in Path(name).parts), name)

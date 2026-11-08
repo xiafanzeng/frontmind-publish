@@ -5,11 +5,13 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
-## 网站集成扩展 2026.11.07-web.2
+## 网站集成扩展 2026.11.08-web.2
 
 网站运行规则增加 [平台 AI 与真实行业快照](references/platform-industry-context.md)：统一服务端 XTY 平台模型，使用当前授权冻结稿件、当前真实媒体库和与行业分布板块同源的 molizhishu 免费分布快照。模型同时读取 task.industry_context 的真实状态、查询口径、来源/版本、完整统计记录及限制；类型/时间统计只用于宏观组合与理由，不是单媒体身份或品牌命中证据。正文 content_excerpt_truncated=true 时只能声称读了片段。个人连接及宿主适配器不再被选用于生成或四字段识别。
 
-本版保留原 matrix/budget 和 export_research 契约，新增独立 [content-planning/1.0](references/content-planning.md)，承载建议篇数、逐篇内容任务和待绑定报价规划。旧 research_drafts 仍不得填数量、价格或可执行状态。网站实际运行的是随包提供的同源 TypeScript 实现，入口和资源/报价边界见 [website-integration.md](references/website-integration.md)；Python 是可重用离线接口，网站不新增 Python 运行依赖。历史输出和原测试记录不代表本版已运行通过。
+当前网站按真实行业目录的 canonical scopeId 连接分布与推荐；本地行业 dataset 仅作可选富化和历史身份迁移，缺少本地登记不等于行业数据未接入。可用行业分布须实际参与五层分工、类型互补、内容时效与有依据的排序理由；媒体候选及报价仍来自真实目录或明确选用的研究输入，不能由统计桶生成。网站已支持服务端解析并确认的导入数据；仅选择文件或元数据尚未读取时，不宣称导入成功。网站会将已确认选用信息显示在目标问题上方，平台连接可用时不展示冗余模型说明，真实异常仍保留。
+
+本版保留原 matrix/budget 和 export_research 契约，新增独立 [content-planning/1.0](references/content-planning.md)，承载建议篇数、逐篇内容任务和待绑定报价规划。旧 research_drafts 仍不得填数量、价格或可执行状态。网站实际运行的是业务仓库中的同源 TypeScript 实现（本轮代码修改随 pro-update.zip 提供），入口和资源/报价边界见 [website-integration.md](references/website-integration.md)；Python 是可重用离线接口，网站不新增 Python 运行依赖。历史输出和原测试记录不代表本版已运行通过。
 
 先无预算判断语义，再读可信目录的全部可选报价。名称/域名只提供关联建议，多账号或多报价必须明确选择；用户的采购选择不证明原观察引用了该账号。数量有 new_articles（不同新稿）与 repeat_article（明确重复当前稿件）两种含义。新稿未逐篇绑定时只输出非执行草案；不得制造稿件ID。正式重复发布需要网站明确用户意图、真实冻结稿件和供应商允许重复的条件。
 

@@ -298,14 +298,15 @@ it('resolves a saved industry after the catalog arrives without resetting other 
   expect(modelCalls(fetcher)).toHaveLength(1);
 }, 60000);
 
-it('preserves an explicit recommendation industry clear while the analysis tab reuses the genuine recognition', async () => {
+it('preserves an explicit recommendation industry clear and uses ALL in analysis without restoring the recognition', async () => {
   const ctx = context(), fetcher = installApi({ readContext: () => contextResponse(ctx), identify: () => identified(ctx) });
   open('tab=matrix&articleVersion=version-a');
   await waitFor(() => expect(field('目标行业 *').value).toBe('102'));
   fireEvent.change(field('目标行业 *'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('link', { name: '行业信源分布' }));
-  await waitFor(() => expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('102'));
+  await waitFor(() => expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe(''));
   expect(distributionCalls(fetcher)).toHaveLength(3);
+  expect(distributionCalls(fetcher).every(([url])=>new URL(String(url),location.origin).searchParams.get('scopeType')==='ALL')).toBe(true);
   fireEvent.click(screen.getByRole('link', { name: '信源矩阵推荐' }));
   await waitFor(() => expect(field('目标行业 *').value).toBe(''));
   expect(modelCalls(fetcher)).toHaveLength(1);
@@ -343,4 +344,30 @@ it('waits for verified article context after adopting a new task before comparin
  expect(fetcher.mock.calls.filter(([url])=>String(url).includes('/classify/task-a')).length).toBeGreaterThan(1);
  expect(screen.queryByText(/先前生成结果未应用/)).toBeNull();
  expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/budget'))).toHaveLength(0);
+});
+
+
+it('uses the manually edited form industry in distribution and sends its same scope without a legacy dataset',async()=>{
+ const ctx=context();const fetcher=installApi({readContext:()=>contextResponse(ctx),identify:()=>identified(ctx),readCatalog:()=>({...canonicalCatalog(),legacyMappings:[]}),generate:()=>({state:'complete',result:{status:'needs_ai_decisions',errors:[]}})});
+ open('tab=matrix&articleVersion=version-a&siScope=102&siPeriod=DAY&siDate=2026-10-28&siModel=all');
+ await waitFor(()=>expect(field('目标行业 *').value).toBe('102'));
+ fireEvent.change(field('目标行业 *'),{target:{value:'103'}});
+ fireEvent.click(screen.getByRole('link',{name:'行业信源分布'}));
+ await waitFor(()=>expect(distributionCalls(fetcher)).toHaveLength(3));
+ expect((screen.getByRole('combobox',{name:'行业'}) as HTMLSelectElement).value).toBe('103');
+ expect(distributionCalls(fetcher).every(([url])=>new URL(String(url),location.origin).searchParams.get('scopeId')==='103')).toBe(true);
+ fireEvent.change(screen.getByRole('combobox',{name:'行业'}),{target:{value:'101'}});
+ await waitFor(()=>expect(distributionCalls(fetcher)).toHaveLength(6));
+ fireEvent.click(screen.getByRole('link',{name:'信源矩阵推荐'}));
+ await waitFor(()=>expect(field('目标行业 *').value).toBe('101'));
+ expect(screen.queryByText(/推荐数据尚未接入/)).toBeNull();
+});
+it('keeps a manual distribution industry when the initial recognition finishes late',async()=>{
+ const ctx=context(),pending=deferred<IdentifyArticleResponse>();const fetcher=installApi({readContext:()=>contextResponse(ctx),identify:()=>pending.promise});
+ open('tab=analysis&articleVersion=version-a');await screen.findByRole('option',{name:'工业软件'});
+ fireEvent.change(screen.getByRole('combobox',{name:'行业'}),{target:{value:'103'}});
+ await waitFor(()=>expect(distributionCalls(fetcher)).toHaveLength(3));await act(async()=>pending.resolve(identified(ctx)));
+ expect((screen.getByRole('combobox',{name:'行业'}) as HTMLSelectElement).value).toBe('103');
+ fireEvent.click(screen.getByRole('link',{name:'信源矩阵推荐'}));await waitFor(()=>expect(field('目标行业 *').value).toBe('103'));
+ expect(distributionCalls(fetcher)).toHaveLength(3);
 });

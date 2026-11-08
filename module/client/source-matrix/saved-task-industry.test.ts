@@ -17,6 +17,9 @@ describe('saved industry compatibility', () => {
     expect(resolveSavedTaskIndustry({ industry_id: '202', industry: '旧名称' }, catalog).id).toBe('202');
     expect(resolveSavedTaskIndustry({ industry_dataset_id: 'legacy-software' }, catalog).id).toBe('101');
   });
+  it('restores a canonical industry without any legacy dataset row', () => {
+    expect(resolveSavedTaskIndustry({ industry_id: '202', industry_dataset_id: '202', industry: '设备' }, { ...catalog, legacyMappings: [] })).toEqual({ id: '202', reason: null });
+  });
   it('recovers name-only old tasks without guessing among duplicate labels', () => {
     expect(resolveSavedTaskIndustry({ industry: '软件服务' }, catalog).id).toBe('101');
     expect(resolveSavedTaskIndustry({ industry: '设备' }, catalog)).toEqual({ id: null, reason: 'ambiguous' });

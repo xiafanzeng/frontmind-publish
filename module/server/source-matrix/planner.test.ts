@@ -1,5 +1,6 @@
 import { expect,it } from 'vitest';
 import { runPlanner } from './planner.js';
+import { SOURCE_MATRIX_SKILL } from './instructions.js';
 import { priceItems } from './budget.js';
 const now='2026-10-20T00:00:00Z';
 const item={article_id:'a',version:'v',resource_id:'r',offer_id:'o',publication_spec:'text',quantity:2,purpose:'standard'};
@@ -129,4 +130,10 @@ it('matches both sides of pure province aliases without broadening city restrict
   expect(out.matrix.candidates[0].hard_failures).toContain('region_not_allowed');
   expect(out.errors.map((error:any)=>error.code)).toContain('regional_coverage_unconfirmed');
  }
+});
+
+it('records the active semantic skill version in new results and reports',()=>{
+ const out=runPlanner(request(),{matrix_decisions:md},'matrix',undefined,now);
+ expect(out.skill_version).toBe(SOURCE_MATRIX_SKILL);
+ expect(out.report.skill_version).toBe(SOURCE_MATRIX_SKILL);
 });

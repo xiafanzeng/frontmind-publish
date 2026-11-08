@@ -18,7 +18,7 @@ export interface ArticleIndustryBridge {
   contextReady?: boolean;
   suggestedIndustryId?: string | null;
 }
-export interface RemoteIndustryDistributionProps { article?: ArticleIndustryBridge }
+export interface RemoteIndustryDistributionProps { article?: ArticleIndustryBridge; selectedIndustry?: { id: string; onChange: (id: string) => void } }
 
 type ScopeOption = { value: string; label: string };
 function scopes(nodes: IndustryScopeNode[], depth = 0): ScopeOption[] {
@@ -33,7 +33,7 @@ export function readIndustryView(filters: IndustryFilters, articleScope?: string
   const sameOwner = !params.has('siArticle') || params.get('siArticle') === articleScope;
   const validScope = sameOwner && scopes(filters.industryTree).some(option => option.value === scopeId);
   const savedModel = params.get('siModel') ?? 'all';
-  const modelCode = filters.models.some(model => model.value === savedModel) ? savedModel : 'all';
+  const modelCode = filters.models.some(model => model.value === savedModel) ? savedModel : filters.models.find(model => model.value === 'all')?.value ?? filters.models[0]?.value ?? '';
   const common: IndustryCommonQuery = { periodType, ...(date ? { date } : {}), scopeType: validScope ? 'CATEGORY' : 'ALL', ...(validScope ? { scopeId } : {}), modelCode };
   const sourceType = params.get('siType') ?? '';
   const selection: ContentSelection = { media: sameOwner ? params.get('siMedia') ?? '' : '', sourceType: sameOwner && filters.sourceTypes.includes(sourceType) ? sourceType : '', sortBy: 'citationCount', sortOrder: params.get('siOrder') === 'asc' ? 'asc' : 'desc' };
@@ -71,21 +71,25 @@ function FailureNotice({ error, retry, restart }: { error: IndustryFailure | nul
   return <div className="sm-industry-notice sm-remote-error" role={error.status === 'configuration_required' ? 'status' : 'alert'}><p>{error.message}</p>{error.retryable && retry && <button type="button" className="button secondary" onClick={retry}>重试本次查询</button>}{error.status === 'session_expired' && restart && <button type="button" className="button secondary" onClick={restart}>从首屏重新查询</button>}</div>;
 }
 
-export function RemoteIndustryDistribution({ article }: RemoteIndustryDistributionProps = {}) {
+export function RemoteIndustryDistribution({ article, selectedIndustry }: RemoteIndustryDistributionProps = {}) {
   const gateway = usePublisherGateway(), workspace = usePublishingWorkspaceKey();
   const catalog = useIndustryCatalog(gateway, workspace);
   const store = useMemo(() => industryStoreFor(gateway, workspace, article?.scopeKey), [gateway, workspace, article?.scopeKey]);
   useEffect(() => { store.receiveCatalog(catalog); }, [store, catalog.catalog, catalog.error, catalog.loading]);
   // A changed scope gets a fresh component and form state before it can paint any old result.
-  return <IndustrySourcePanel key={store.identity} store={store} article={article} catalogOptions={catalog.industries}/>;
+  return <IndustrySourcePanel key={store.identity} store={store} article={article} selectedIndustry={selectedIndustry} catalogOptions={catalog.industries}/>;
 }
 
-export function IndustrySourcePanel({ store, article, catalogOptions }: { store: IndustrySourceStore; article?: ArticleIndustryBridge; catalogOptions?: Array<{ id: string; label: string }> }) {
+export function IndustrySourcePanel({ store, article, selectedIndustry, catalogOptions }: RemoteIndustryDistributionProps & { store: IndustrySourceStore; catalogOptions?: Array<{ id: string; label: string }> }) {
   const contextReady = article?.contextReady !== false;
   const id = useId(), state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const filters = state.filters.data, options = useMemo(() => catalogOptions?.map(option => ({ value: option.id, label: option.label })) ?? scopes(filters?.industryTree ?? []), [filters, catalogOptions]);
   const initialView = (available: IndustryFilters) => {
     const view = readIndustryView(available, article?.scopeKey);
+    if (selectedIndustry && (!article?.recognitionPending || store.hasManualScope)) {
+      const scopeId = selectedIndustry.id;
+      return { common: { ...view.common, scopeType: scopeId ? 'CATEGORY' as const : 'ALL' as const, scopeId: scopeId || undefined }, selection: view.common.scopeId === scopeId ? view.selection : { ...defaultSelection } };
+    }
     if (!article) return view;
     // URL scope/media belongs to its article only. Unrelated model/date remain untouched.
     const params = new URLSearchParams(window.location.search);
@@ -96,7 +100,7 @@ export function IndustrySourcePanel({ store, article, catalogOptions }: { store:
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (article && params.get('siArticle') === article.scopeKey && params.get('siManual') === '1') store.markManualScope();
-    store.start(article ? undefined : readIndustryView, { deferInitialization: Boolean(article) });
+    store.start(article || selectedIndustry ? undefined : readIndustryView, { deferInitialization: Boolean(article || selectedIndustry) });
   }, [store, Boolean(article)]);
   useEffect(() => {
     const current = store.getSnapshot(), available = current.filters.data;
@@ -107,20 +111,28 @@ export function IndustrySourcePanel({ store, article, catalogOptions }: { store:
     if (catalogOptions && !catalogOptions.length && available.industryTree.length) return;
     const initial = initialView(available);
     if (article && new URLSearchParams(window.location.search).get('siArticle') === article.scopeKey && new URLSearchParams(window.location.search).get('siManual') === '1') store.markManualScope();
-    const recognized = !store.hasManualScope && article?.suggestedIndustryId && options.some(option => option.value === article.suggestedIndustryId) ? article.suggestedIndustryId : undefined;
+    const recognized = !selectedIndustry && !store.hasManualScope && article?.suggestedIndustryId && options.some(option => option.value === article.suggestedIndustryId) ? article.suggestedIndustryId : undefined;
     store.apply(recognized ? { ...initial.common, scopeType: 'CATEGORY', scopeId: recognized } : initial.common, initial.selection);
-  }, [store, filters, state.common, state.blocked, state.filters.loading, contextReady, article?.recognitionPending, article?.suggestedIndustryId, options]);
+  }, [store, filters, state.common, state.blocked, state.filters.loading, contextReady, article?.recognitionPending, article?.suggestedIndustryId, selectedIndustry?.id, options]);
   useEffect(() => {
     // An explicit later identification retry may resolve a previously unknown industry.
     // Only scope changes; unrelated dates/models and every manual scope choice survive.
     const current = store.getSnapshot(), industry = article?.suggestedIndustryId;
-    if (!contextReady || !article || article.recognitionPending || !industry || store.hasManualScope || current.blocked || current.filters.loading
+    if (selectedIndustry || !contextReady || !article || article.recognitionPending || !industry || store.hasManualScope || current.blocked || current.filters.loading
       || !current.common || current.common.scopeId === industry || !options.some(option => option.value === industry)) return;
     store.apply({ ...current.common, scopeType: 'CATEGORY', scopeId: industry }, defaultSelection);
-  }, [store, article?.recognitionPending, article?.suggestedIndustryId, options, state.common, state.blocked, state.filters.loading, contextReady]);
+  }, [store, article?.recognitionPending, article?.suggestedIndustryId, options, state.common, state.blocked, state.filters.loading, contextReady, selectedIndustry]);
   useEffect(() => {
-    if (state.common && store.getSnapshot().common === state.common && store.getSnapshot().selection === state.selection) saveIndustryView(state.common, state.selection, 'replace', article, store.hasManualScope);
-  }, [store, state.common, state.selection, article?.scopeKey]);
+    const current = store.getSnapshot(), scopeId = selectedIndustry?.id;
+    // The shared form owns the effective industry, including an explicit clear.
+    // apply() aborts and clears the previous industry's requests before starting this one.
+    if (!selectedIndustry || !contextReady || article?.recognitionPending && !store.hasManualScope || !current.common || current.blocked || current.filters.loading
+      || (current.common.scopeId ?? '') === scopeId || scopeId && !options.some(option => option.value === scopeId)) return;
+    store.apply({ ...current.common, scopeType: scopeId ? 'CATEGORY' : 'ALL', scopeId: scopeId || undefined }, defaultSelection);
+  }, [store, selectedIndustry?.id, contextReady, article?.recognitionPending, state.common, state.blocked, state.filters.loading, options]);
+  useEffect(() => {
+    if ((!selectedIndustry || (state.common?.scopeId ?? '') === selectedIndustry.id) && state.common && store.getSnapshot().common === state.common && store.getSnapshot().selection === state.selection) saveIndustryView(state.common, state.selection, 'replace', article, store.hasManualScope);
+  }, [store, state.common, state.selection, article?.scopeKey, selectedIndustry?.id]);
   useEffect(() => {
     const restore = () => {
       const current = store.getSnapshot(), currentFilters = current.filters.data;
@@ -130,16 +142,18 @@ export function IndustrySourcePanel({ store, article, catalogOptions }: { store:
       const restored = readIndustryView(currentFilters, article?.scopeKey);
       // Normalize legacy URLs even when they resolve to the already-applied query.
       if (article) store.markManualScope();
+      selectedIndustry?.onChange(restored.common.scopeId ?? '');
       saveIndustryView(restored.common, restored.selection, 'replace', article, store.hasManualScope);
       store.apply(restored.common, restored.selection);
     };
     window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore);
-  }, [store, article?.scopeKey, contextReady]);
+  }, [store, article?.scopeKey, contextReady, selectedIndustry?.onChange]);
   const displayedCommon = state.common ?? (filters ? initialView(filters).common : null);
   const selectedDate = normalizeIndustryDateValue(displayedCommon?.periodType ?? 'MONTH', displayedCommon?.date, filters?.minDate ?? null, filters?.maxDate ?? null);
   const invalidScope = Boolean(state.common?.scopeId && filters && !options.some(option => option.value === state.common!.scopeId));
   const controlsReady = contextReady && Boolean(selectedDate && filters && !state.filters.loading), waiting = Boolean(article?.recognitionPending && !state.common);
-  const ready = controlsReady && Boolean(state.common) && !invalidScope, blocked = state.blocked !== null;
+  const scopeMatchesForm = !selectedIndustry || (state.common?.scopeId ?? '') === selectedIndustry.id;
+  const ready = controlsReady && Boolean(state.common) && !invalidScope && scopeMatchesForm, blocked = state.blocked !== null;
   const busy = state.media.loading || state.contents.loading;
   const initializeAfterCheck = !state.common && state.blocked?.status !== 'quota_exhausted';
   const commonLabel = state.common ? `${state.common.scopeType === 'ALL' ? '全部行业' : options.find(option => option.value === state.common!.scopeId)?.label.trim() ?? '原行业已失效，请重新选择'} · ${filters?.models.find(model => model.value === state.common!.modelCode)?.label ?? state.common.modelCode} · ${selectedDate ? formatIndustryDate(selectedDate) : '暂无可选周期'}` : '查询条件尚未就绪';
@@ -151,7 +165,7 @@ export function IndustrySourcePanel({ store, article, catalogOptions }: { store:
     const date = normalizeIndustryDateValue(merged.periodType, merged.date, filters!.minDate, filters!.maxDate);
     if (!date) return;
     const common: IndustryCommonQuery = { ...date, scopeType: merged.scopeId ? 'CATEGORY' : 'ALL', ...(merged.scopeId ? { scopeId: merged.scopeId } : {}), modelCode: merged.modelCode };
-    if (article && Object.prototype.hasOwnProperty.call(patch, 'scopeId')) store.markManualScope();
+    if (Object.prototype.hasOwnProperty.call(patch, 'scopeId')) { if (article) store.markManualScope(); selectedIndustry?.onChange(common.scopeId ?? ''); }
     if (current.common && common.periodType === current.common.periodType && common.date === current.common.date && common.scopeId === current.common.scopeId && common.modelCode === current.common.modelCode) { saveIndustryView(common, current.selection, 'replace', article, store.hasManualScope); return; }
     saveIndustryView(common, defaultSelection, 'push', article, store.hasManualScope);
     store.apply(common, defaultSelection);
@@ -168,7 +182,7 @@ export function IndustrySourcePanel({ store, article, catalogOptions }: { store:
   return <div className="sm-industry sm-industry-remote" aria-busy={state.filters.loading}>
     <form className="sm-industry-filters sm-remote-filter-row" noValidate onSubmit={event => event.preventDefault()}>
       <label htmlFor={`${id}-industry`}>行业<select id={`${id}-industry`} disabled={!controlsReady || blocked} value={waiting && !store.hasManualScope ? '__pending__' : displayedCommon?.scopeId ?? ''} onChange={event => apply({ scopeType: event.target.value ? 'CATEGORY' : 'ALL', scopeId: event.target.value || undefined })}><option value="__pending__" disabled hidden>等待稿件行业识别…</option><option value="">全部行业</option>{invalidScope && <option value={state.common!.scopeId} disabled>原行业已失效，请重新选择</option>}{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label htmlFor={`${id}-model`}>模型<select id={`${id}-model`} disabled={!controlsReady || blocked || waiting || invalidScope} value={displayedCommon?.modelCode ?? 'all'} onChange={event => apply({ modelCode: event.target.value })}>{!filters?.models.some(model => model.value === 'all') && <option value="all">全部模型</option>}{filters?.models.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}</select></label>
+      <label htmlFor={`${id}-model`}>模型<select id={`${id}-model`} disabled={!controlsReady || blocked || waiting || invalidScope} value={displayedCommon?.modelCode ?? 'all'} onChange={event => apply({ modelCode: event.target.value })}>{filters?.models.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}</select></label>
       <div className="sm-remote-filter-date"><label htmlFor={`${id}-date`}>日期</label><IndustryDateSelect id={`${id}-date`} value={selectedDate ?? { periodType: 'MONTH', date: '' }} minDate={filters?.minDate ?? null} maxDate={filters?.maxDate ?? null} disabled={!controlsReady || blocked || waiting || invalidScope} onChange={next => apply(next)}/></div>
     </form>
     {(state.filters.loading || !ready || blocked) && <div className="sm-industry-notice" role={state.filters.error && state.filters.error.status !== 'configuration_required' || blocked && state.blocked?.status !== 'configuration_required' ? 'alert' : 'status'}><div><strong>{state.filters.loading ? '正在读取行业筛选项…' : state.blocked?.message ?? state.filters.error?.message ?? (!contextReady ? '稿件授权上下文尚未就绪，暂不查询行业数据。' : invalidScope ? '原行业已失效，请重新选择。' : waiting && controlsReady ? '正在识别稿件行业，完成后加载；也可手动选择行业。' : '当前尚无可选执行日期，暂不查询行业数据。')}</strong>{blocked && <p>{initializeAfterCheck ? '连接恢复后将加载默认条件，并使用共享查询额度。' : '请先处理连接、权限或额度问题，再重新检查连接；检查本身不会查询媒体和内容列表。'}</p>}{state.filters.error && state.filters.error.status !== state.blocked?.status && <p>连接检查：{state.filters.error.message}</p>}</div>{(!waiting || blocked) && !state.filters.loading && <button type="button" className="button secondary" onClick={() => void store.checkAccess()}>{initializeAfterCheck ? '重新检查并加载' : '重新检查连接'}</button>}{state.blocked?.status === 'quota_exhausted' && filters?.maxDate && <button type="button" className="button secondary" disabled={busy || !contextReady || invalidScope} onClick={() => store.resumeAfterResolution()}>额度恢复后重新查询</button>}</div>}
