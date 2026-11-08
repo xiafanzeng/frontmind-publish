@@ -1,11 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { BRAND_DATA_BATCHES, brandCitationRecords } from './brand-data.js';
-import { compactCandidates, createDecisionAdapter, createEnvDecisionAdapter, environmentChatEndpoint } from './decisions.js';
+import { compactCandidates, createDecisionAdapter, createEnvDecisionAdapter, environmentChatEndpoint, PROMPT_CANDIDATE_BATCH_SIZE } from './decisions.js';
 import { SOURCE_MATRIX_INSTRUCTIONS, SOURCE_MATRIX_SKILL } from './instructions.js';
 import { runPlanner } from './planner.js';
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 const platform = { FRONTMIND_SOURCE_MATRIX_LLM_API_KEY: 'fixture-server-key', FRONTMIND_SOURCE_MATRIX_LLM_MODEL: 'configured-model', FRONTMIND_SOURCE_MATRIX_LLM_BASE_URL: 'https://api.xty.app/v1', FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS: 'https://api.xty.app/v1' };
-const matrixInput = { request: { task: {}, catalog: [] }, prepared: {}, as_of: '2026-11-07T00:00:00Z', skill: SOURCE_MATRIX_SKILL, instructions: SOURCE_MATRIX_INSTRUCTIONS };
+const transportRequest={task:{industry:'fixture',questions:[{question_id:'q',text:'fixture question'}]},catalog:[{resource_id:'transport',source_name:'fixture source',publication_status:'available'}]};
+const matrixInput = { request:transportRequest, prepared:runPlanner(transportRequest,undefined,'matrix',undefined,'2026-11-07T00:00:00Z'), as_of:'2026-11-07T00:00:00Z', skill:SOURCE_MATRIX_SKILL, instructions:SOURCE_MATRIX_INSTRUCTIONS };
 const envelope = (content: unknown, extra: Record<string, unknown> = {}) => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content }, ...extra }] }), { headers: { 'Content-Type': 'application/json' } });
 
 // Production-shaped fixtures exercise the real industry-context and decision
@@ -18,7 +19,7 @@ function validatedMatrixInput(count=1) {
   return {...matrixInput,request,prepared};
 }
 function semanticDecision(id='resource:r1',aggregateId='industry-aggregate-fixture-verified') {
-  return {candidate_id:id,primary_role:'authority',auxiliary_roles:[],matched_questions:['q1'],selection:'recommended',reason_summary:'结合真实行业背景提供问题研究入口',reason_details:['仅作为行业背景，不证明媒体引用或可采购身份'],unconfirmed_items:['媒体账号及稿件要求待核验'],references:[{type:'aggregate',aggregate_id:aggregateId,usage:'industry_context'}],media_intro:'测试行业研究媒体',content_direction:'比较零售管理方案的适用条件',layer_rank:1,ranking_reason:'与目标问题相关'};
+  return {candidate_id:id,primary_role:'industry',auxiliary_roles:[],matched_questions:['q1'],selection:'recommended',reason_summary:'结合真实行业背景提供问题研究入口',reason_details:['仅作为行业背景，不证明媒体引用或可采购身份'],unconfirmed_items:['媒体账号及稿件要求待核验'],references:[{type:'aggregate',aggregate_id:aggregateId,usage:'industry_context'}],media_intro:'测试行业研究媒体',content_direction:'比较零售管理方案的适用条件',layer_rank:1,ranking_reason:'与目标问题相关'};
 }
 
 it('repairs an invalid aggregate reference once using exact kernel feedback and verified IDs', async()=>{
@@ -27,7 +28,7 @@ it('repairs an invalid aggregate reference once using exact kernel feedback and 
   const adapter=createDecisionAdapter(async messages=>{prompts.push(messages);return prompts.length===1?bad:good;});
   const decisions=await adapter.matrix(input),result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
   expect(result.matrix.status).toBe('complete');
-  expect(result.matrix.layers.find((layer:any)=>layer.role==='authority').candidate_ids).toEqual(['resource:r1']);
+  expect(result.matrix.layers.find((layer:any)=>layer.role==='industry').candidate_ids).toEqual(['resource:r1']);
   expect(result.matrix.candidates[0].references).toEqual([{type:'aggregate',aggregate_id:'industry-aggregate-fixture-verified',usage:'industry_context'}]);
   const payload=JSON.parse(prompts[0]![1]!.content);
   expect(payload.reference_contract.global_aggregate_ids).toEqual(['industry-aggregate-fixture-verified']);
@@ -62,13 +63,13 @@ it('does not turn a failed candidate set into success by dropping its invalid me
   expect(decisions?.matrix_decisions.items.map((item:any)=>item.candidate_id)).toEqual(['resource:r1','resource:r2']);
 });
 
-it('keeps a large candidate pool distinct from the bounded prompt and a real validated decision subset', async()=>{
-  const input=validatedMatrixInput(822);let payload:any;
-  const decisions=await createDecisionAdapter(async messages=>{payload=JSON.parse(messages[1]!.content);return {matrix_decisions:{items:[semanticDecision()],fit_order:['resource:r1']}};}).matrix(input);
+it('reviews every retained candidate in bounded prompts rather than accepting a prefix subset', async()=>{
+  const input=validatedMatrixInput(822),sizes:number[]=[];
+  const decisions=await createDecisionAdapter(async messages=>{const payload=JSON.parse(messages[1]!.content);sizes.push(payload.candidates.length);const items=payload.candidates.map((candidate:any,index:number)=>({...semanticDecision(candidate.candidate_id),layer_rank:index+1}));return {matrix_decisions:{items,fit_order:items.map((item:any)=>item.candidate_id)}};}).matrix(input);
   const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
-  expect(payload.candidates).toHaveLength(120);expect(result.matrix.candidates).toHaveLength(822);
-  expect(result.matrix.status).toBe('complete');expect(result.matrix.fit_order).toEqual(['resource:r1']);
-  expect(result.matrix.candidates.filter((candidate:any)=>candidate.semantic_decision_validated)).toHaveLength(1);
+  expect(sizes.every(size=>size<=PROMPT_CANDIDATE_BATCH_SIZE)).toBe(true);expect(sizes.reduce((sum,size)=>sum+size,0)).toBe(822);
+  expect(result.matrix.candidates).toHaveLength(822);expect(result.matrix.status).toBe('complete');
+  expect(result.matrix.coverage.model).toMatchObject({reviewed_candidates:822,unprocessed_candidates:0});
 });
 
 it('never advertises invalid global industry IDs as kernel-approved references', async()=>{
@@ -146,7 +147,7 @@ it('sends configured platform Bearer and parses a complete fenced JSON response'
   const fence = String.fromCharCode(96).repeat(3);
   const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => envelope(fence + 'json\n{"matrix_decisions":{"items":[],"fit_order":[]}}\n' + fence));
   vi.stubGlobal('fetch', fetchMock);
-  expect(await createEnvDecisionAdapter(platform)!.matrix(matrixInput)).toBeUndefined();
+  expect((await createEnvDecisionAdapter(platform)!.matrix(matrixInput))?.matrix_decisions.review_error).toBe('matrix_batch_invalid');
   const [url, init] = fetchMock.mock.calls[0]!;
   expect(url).toBe('https://api.xty.app/v1/chat/completions');
   expect(init.redirect).toBe('error'); expect(init.headers).toMatchObject({ Authorization: 'Bearer fixture-server-key' });
@@ -158,7 +159,7 @@ it('rejects HTTP errors, refusal, incomplete, empty, oversized and malformed out
   const fetchMock = vi.fn(async () => new Response('', { status: 503 }));
   vi.stubGlobal('fetch', fetchMock);
   const adapter = createEnvDecisionAdapter(platform)!;
-  await expect(adapter.matrix(matrixInput)).rejects.toThrow('llm_http_503');
+  expect((await adapter.matrix(matrixInput))?.matrix_decisions.review_error).toBe('llm_http_503');
   const cases: Array<[Response, string]> = [
     [envelope('{}', { message: { content: '{}', refusal: 'refused' } }), 'provider_refused'],
     [envelope('{}', { finish_reason: 'content_filter' }), 'provider_refused'],
@@ -169,9 +170,9 @@ it('rejects HTTP errors, refusal, incomplete, empty, oversized and malformed out
     [new Response('{not-json'), 'provider_invalid_response'],
     [new Response('', { headers: { 'content-length': '2000001' } }), 'provider_response_too_large'],
   ];
-  for (const [response, error] of cases) { fetchMock.mockResolvedValueOnce(response); await expect(adapter.matrix(matrixInput)).rejects.toThrow(error); }
+  for (const [response, error] of cases) { fetchMock.mockResolvedValueOnce(response); expect((await adapter.matrix(matrixInput))?.matrix_decisions.review_error).toBe(error); }
   fetchMock.mockRejectedValueOnce(new Error('private upstream details'));
-  await expect(adapter.matrix(matrixInput)).rejects.toThrow('provider_invalid_response');
+  expect((await adapter.matrix(matrixInput))?.matrix_decisions.review_error).toBe('provider_invalid_response');
 });
 
 it('aborts platform requests at the bounded deadline', async () => {
@@ -179,7 +180,7 @@ it('aborts platform requests at the bounded deadline', async () => {
   vi.stubGlobal('fetch', vi.fn((_url: unknown, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
     init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
   })));
-  const check = expect(createEnvDecisionAdapter(platform)!.matrix(matrixInput)).rejects.toThrow('provider_timeout');
+  const check = expect(createEnvDecisionAdapter(platform)!.matrix(matrixInput)).resolves.toMatchObject({matrix_decisions:{review_error:'provider_timeout'}});
   await vi.advanceTimersByTimeAsync(240_000); await check;
 });
 
@@ -201,14 +202,14 @@ it('includes complete frozen content and aggregate provenance without turning bu
   expect(payload.candidates).toHaveLength(1); expect(messages[0].content).toContain('不是媒体名称、账号、渠道或可购买候选');
 });
 
-it('keeps one shared industry snapshot with 120 candidates instead of repeating global records or IDs', async () => {
+it('keeps one shared industry snapshot per bounded candidate batch without repeating global records or IDs', async () => {
   const aggregate = { aggregate_id: 'global-only-once', source_id: 'molizhishu', data_version: 'version-only-once', unit: 'citation_count', count: '100', scope: { industry: 'retail' }, applicability: { kind: 'industry_context', industry: 'retail' }, aggregate_scope: 'industry_distribution', dimension: 'source_type', bucket: 'news' };
   const request = { task: { industry_context: { status: 'ready', aggregates: [aggregate] }, manuscripts: [{ content_excerpt: 'frozen-body-only-once', content_excerpt_truncated: false }] } };
   const prepared = { matrix: { candidates: Array.from({ length: 120 }, (_, index) => ({ candidate_id: 'resource:' + index, attributes: { source_name: 'Media ' + index }, aggregate_matches: [], industry_aggregate_ids: [aggregate.aggregate_id] })) } };
   const send = vi.fn(async (_messages: any) => ({ matrix_decisions: { items: [], fit_order: [] } }));
   await createDecisionAdapter(send).matrix({ ...matrixInput, request, prepared });
   const messages = send.mock.calls[0]![0], encoded = messages[1].content, payload = JSON.parse(encoded);
-  expect(payload.candidates).toHaveLength(120);
+  expect(payload.candidates).toHaveLength(PROMPT_CANDIDATE_BATCH_SIZE);
   expect(payload.task.industry_context.aggregates).toEqual([aggregate]);
   expect(encoded.split('global-only-once')).toHaveLength(2);
   expect(encoded.split('version-only-once')).toHaveLength(2);
@@ -217,17 +218,17 @@ it('keeps one shared industry snapshot with 120 candidates instead of repeating 
   expect(messages[0].content).toContain('全部候选共享');
 });
 
-it('passes the saved industry snapshot to budget with at most three combined plans', async () => {
-  const send = vi.fn(async (_messages: any) => ({ budget_plans: [], content_plans: [] }));
+it('passes the saved industry snapshot to the single recommendation list', async () => {
+  const send = vi.fn(async (_messages: any) => ({ recommendations: [] }));
   const industry_context = { status: 'unavailable', message: '行业映射失败', aggregates: [], limitations: ['industry_unmapped'] };
-  expect(await createDecisionAdapter(send).budget({ request: { task: { industry_context, manuscripts: [] } }, matrix: { matrix: { candidates: [] }, matrix_version: 'saved' }, as_of: 'x', skill: SOURCE_MATRIX_SKILL, instructions: SOURCE_MATRIX_INSTRUCTIONS })).toEqual({ budget_plans: [], content_plans: [] });
+  expect(await createDecisionAdapter(send).budget({ request: { task: { industry_context, manuscripts: [] } }, matrix: { matrix: { candidates: [] }, matrix_version: 'saved' }, as_of: 'x', skill: SOURCE_MATRIX_SKILL, instructions: SOURCE_MATRIX_INSTRUCTIONS })).toEqual({ recommendations: [] });
   const messages = send.mock.calls[0]![0], payload = JSON.parse(messages[1].content);
   expect(payload.industry_context).toEqual(industry_context); expect(payload.selectable_candidates).toEqual([]);
-  expect(messages[0].content).toContain('两数组合计最多3套');
+  expect(messages[0].content).toContain('最多3个');
 });
 
 it('delivers independent target to both planning stages without using the sample filter or selecting a model', async () => {
- const send=vi.fn(async(_messages:Array<{role:string;content:string}>)=>({matrix_decisions:{items:[],fit_order:[]},budget_plans:[],content_plans:[]}));
+ const send=vi.fn(async(messages:Array<{role:string;content:string}>)=>{const payload=JSON.parse(messages[1]!.content);return {matrix_decisions:{items:[],fit_order:[],excluded_candidates:(payload.candidates??[]).map((candidate:any)=>({candidate_id:candidate.candidate_id,reason:'当前资料不足以支持分层'}))},recommendations:[]};});
  const adapter=createDecisionAdapter(send),request={task:{target_platforms:['Kimi'],brand:{batch_id:'legacy',platforms:['百度文心-手机版']}},catalog:[]};
  await adapter.matrix({...matrixInput,request});
  const matrixPayload=JSON.parse(send.mock.calls[0]![0][1]!.content);

@@ -7,7 +7,7 @@ import SourceMatrixPage from './SourceMatrixPage';
 import {downloadUrl} from './api';
 import { PublishingFlowProvider,type PublishingFlow } from '../PublishingFlowContext';
 import type { MediaResource,PublicationDraft } from '../types';
-import type { MatrixResult,Json } from './types';
+import type { ContentPlan,MatrixResult,Json } from './types';
 import {matrixDemo} from './demo';
 import type { IndustryCatalogResponse } from '../../shared/industry-catalog';
 // jsdom does not implement <dialog>; the confirmation dialog needs these stubs.
@@ -975,4 +975,28 @@ it('counts only candidates rendered in recommendation layers as available to add
  expect(await screen.findByText(/候选池 2 · 已分层 1 · 已匹配 2\/2 · 可加入 1/)).toBeTruthy();
  expect(screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'})).toBeTruthy();
  expect(screen.queryByRole('checkbox',{name:'选择 尚未分层媒体 新闻'})).toBeNull();
+});
+
+// Source-only regression: a new generation owns fresh quantity drafts; ordinary
+// quantity updates use the existing owner and are covered by component tests.
+it.each(['','4'])('discards previous local quantity %s when regenerating the same recommendation resources',async(value)=>{
+ liveDirectory();let generated=0,finish!:(response:unknown)=>void;const quantityRequests:unknown[]=[];
+ const recommendation:ContentPlan={schema_version:'recommendation/1.0',recommendation_id:'recommendation-stable',kind:'recommendation',strategy:'行业组合',reason_summary:'结合当前目标安排篇数',explanation:null,items:[{candidate_id:'candidate-1',resource_id:'external-1',offer_id:'quote-1',publication_spec:'text',quantity:2,quantity_mode:'new_articles',content_tasks:['补充当前稿件的事实依据'],purpose:'standard',unit_price:'100.00',base_cost:'200.00',cost:'200.00',known_cost:'200.00',pricing_status:'priced'}],total_articles:2,currency:'CNY',known_total_cost:'200.00',total_cost:'200.00',total_remaining:'800.00',total_cap:'1000.00',budget_feasible:true,ready_to_publish:false,execution_recommended:false,unknown_items:[],errors:[]};
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  if(url.endsWith('/budget')){generated++;return generated===1?Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'generated-first',recommendations:[recommendation],content_plans:[]}})}):new Promise(resolve=>{finish=resolve;});}
+  if(url.endsWith('/recommendation')){quantityRequests.push(JSON.parse(String(init?.body)));return Promise.resolve({ok:false,json:async()=>({status:'unexpected_obsolete_quantity'})});}
+  return base(input,init);
+ });
+ openMatrix('draftId=draft-1&articleVersion=version-1');await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'1000'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
+ const quantity=await screen.findByLabelText('可投媒体建议篇数');await waitFor(()=>expect((quantity as HTMLInputElement).disabled).toBe(false));
+ fireEvent.change(quantity,{target:{value}});fireEvent.click(screen.getByRole('button',{name:'更新组合'}));
+ await waitFor(()=>expect(generated).toBe(2));
+ const next={...recommendation,items:[{...recommendation.items[0]!,quantity:5,base_cost:'500.00',cost:'500.00',known_cost:'500.00'}],total_articles:5,known_total_cost:'500.00',total_cost:'500.00',total_remaining:'500.00'};
+ await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'generated-second',recommendations:[next],content_plans:[]}})}));
+ await waitFor(()=>expect((screen.getByLabelText('可投媒体建议篇数') as HTMLInputElement).value).toBe('5'));
+ expect(screen.getByText('预计总价').parentElement?.textContent).toContain('500.00');expect(await screen.findByRole('link',{name:'导出当前版本'})).toBeTruthy();expect(quantityRequests).toEqual([]);
 });

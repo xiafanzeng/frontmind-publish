@@ -16,7 +16,7 @@ const servers:Server[]=[];
 afterEach(async()=>{vi.restoreAllMocks();await Promise.all(servers.splice(0).map(s=>new Promise<void>((resolve,reject)=>s.close(e=>e?reject(e):resolve()))));});
 async function host(core:ModuleHttpCore){const app=express();app.use('/api/modules/publish',createModuleHttpApi(core));const server=createServer(app);servers.push(server);server.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();if(!address||typeof address==='string')throw new Error('No test address');return `http://127.0.0.1:${address.port}`;}
 const context={accountUserId:1,actorUserId:1,enterpriseProjectId:'p',businessOwnerId:'owner',businessActorId:'actor'};
-function core(overrides:Partial<ModuleHttpCore>={}):ModuleHttpCore{vi.spyOn(catalogBridge,'loadPlannerCatalog').mockResolvedValue([]);return {context:()=>context,environment:{},database:async()=>{throw Object.assign(new Error('missing schema'),{code:'ER_NO_SUCH_TABLE'});},...overrides};}
+function core(overrides:Partial<ModuleHttpCore>={}):ModuleHttpCore{vi.spyOn(catalogBridge,'loadPlannerCatalog').mockResolvedValue({catalog:[],coverage:{status:'complete'}} as any);vi.spyOn(catalogBridge,'reloadPlannerCatalog').mockResolvedValue([]);return {context:()=>context,environment:{},database:async()=>{throw Object.assign(new Error('missing schema'),{code:'ER_NO_SUCH_TABLE'});},...overrides};}
 it('rejects cross-origin mutations before accessing data',async()=>{
  let accessed=false;const url=await host(core({database:async()=>{accessed=true;throw new Error('must not query');}}));
  const response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:'https://other.invalid','Content-Type':'application/json'},body:'{}'});
@@ -283,7 +283,7 @@ it('requires legacy user or host tasks to regenerate before editing or applying 
   taskRead.mockResolvedValue({taskId:'task-1',state:'complete',latest:{status:'complete',plan_version:applyBody.plan_version},task:{model_source:mode},industryId:'industry-1'} as any);
   expect((await postApply(url,applyBody)).status).toBe(409);
   const body={plan_id:applyBody.plan_id,plan_version:applyBody.plan_version,plan_index:0,quantities:[{item_index:0,candidate_id:'resource:media-1',quantity:1}],as_of:'2026-11-07T00:00:00Z'};
-  for(const action of ['content-plan','formal-plan']){
+  for(const action of ['recommendation','content-plan','formal-plan']){
    const response=await fetch(url+'/api/modules/publish/classify/task-1/'+action,{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify(body)});
    expect(response.status).toBe(409);expect((await response.json()).status).toBe('platform_regenerate_required');
   }
@@ -443,7 +443,7 @@ it('retains local enrichment while live directory identity and offer facts remai
  let received:any;
  vi.spyOn(platformConnection,'resolvePlatformDecisionAdapter').mockResolvedValue({mode:'environment',adapter:{matrix:async input=>{received=input.request;return undefined;},budget:async()=>undefined}});
  const scopedCore=core({database:async()=>({} as any)});
- vi.mocked(catalogBridge.loadPlannerCatalog).mockResolvedValue([{resource_id:'media-1',source_name:'目录当前名称',offer_id:'current-offer',publication_status:'available'}] as any);
+ vi.mocked(catalogBridge.loadPlannerCatalog).mockResolvedValue({catalog:[{resource_id:'media-1',source_name:'目录当前名称',offer_id:'current-offer',publication_status:'available'}],coverage:{status:'complete'}} as any);
  const url=await host(scopedCore),response=await fetch(url+'/api/modules/publish/matrix/generate',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({industry_id:'101',questions:['如何选型'],as_of:'2026-11-08T00:00:00Z'})});
  expect(response.status).toBe(202);await response.json();
  expect(created.mock.calls[0]!.slice(1,3)).toEqual(['industry-1','existing-brand']);expect(created.mock.calls[0]![3]).not.toHaveProperty('recommendation_input');
@@ -468,4 +468,44 @@ it.each([{model_source:'user',industry_context:{status:'ok'}},{model_source:'env
  canonicalReads();vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-old',industryId:'industry-1',state:'complete',task:{industry:'软件测试',...task},latest:null} as any);
  const url=await host(core({database:async()=>({} as any)})),response=await fetch(url+'/api/modules/publish/classify/task-old');
  expect((await response.json()).task.platform_regeneration_required).toBe(true);
+});
+
+
+it('recalculates only the selected recommendation using fresh exact snapshot resources and a version lock',async()=>{
+ const planId=applyBody.plan_id,version=applyBody.plan_version;
+ const decision=(id:string)=>({strategy:id,reason_summary:'匹配当前问题',items:[{candidate_id:'resource:'+id,resource_id:id,offer_id:null,publication_spec:null,quantity:1,quantity_mode:'new_articles',content_tasks:['调整标题角度'],purpose:'standard',quantity_reason:'一次发布'}]});
+ const previous={plan_id:planId,plan_version:version,status:'complete',matrix:{status:'complete',candidates:[{candidate_id:'resource:media-1',resource_id:'media-1'}]},recommendations:[{recommendation_id:'rec-one',decisions:decision('media-1')},{recommendation_id:'rec-two',decisions:decision('media-2')}],scope:{input_snapshot:{catalog:[{resource_id:'media-1'},{resource_id:'media-2'}],catalog_coverage:{status:'complete',scanned_resources:9000},budget:{currency:'CNY',total_cap:'200.00'},publication_intent:'new_articles'}},snapshot:{}};
+ const frozen=JSON.stringify(previous);
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-1',industryId:'industry-1',state:'complete',latest:previous,task:{industry:'软件测试',model_source:'environment',industry_context:{status:'empty'}}} as any);
+ vi.spyOn(MatrixRepository.prototype,'snapshot').mockResolvedValue(previous);
+ vi.spyOn(MatrixRepository.prototype,'industry').mockResolvedValue({industryId:'industry-1',brandId:'brand-1',dataset:{}} as any);
+ const begin=vi.spyOn(MatrixRepository.prototype,'begin').mockResolvedValue(true),save=vi.spyOn(MatrixRepository.prototype,'save').mockResolvedValue(true);
+ const output={...previous,plan_version:'plan-version-'+'c'.repeat(24)};
+ const planner=vi.spyOn(plannerKernel,'runPlanner').mockReturnValue(output);
+ const scopedCore=core({database:async()=>({} as any)}),url=await host(scopedCore);
+ const currentCatalog=[{resource_id:'media-1',offer_id:null,pricing:{kind:'unit',amount:'12.50',currency:'CNY'}},{resource_id:'media-2',offer_id:null,pricing:{kind:'unit',amount:'20.00',currency:'CNY'}}];
+ vi.mocked(catalogBridge.reloadPlannerCatalog).mockResolvedValue(currentCatalog);
+ const response=await fetch(url+'/api/modules/publish/classify/task-1/recommendation',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify({plan_id:planId,plan_version:version,recommendation_id:'rec-one',plan_index:0,quantities:[{item_index:0,candidate_id:'resource:media-1',quantity:3}],as_of:'2026-11-09T00:00:00Z'})});
+ expect(response.status).toBe(200);
+ expect(catalogBridge.loadPlannerCatalog).not.toHaveBeenCalled();
+ expect(vi.mocked(catalogBridge.reloadPlannerCatalog).mock.calls[0]!.slice(1)).toEqual(['owner','p',['media-1','media-2']]);
+ const [request,decisions]=planner.mock.calls[0]!;
+ expect(request.catalog).toEqual(currentCatalog);expect(request.catalog_coverage).toEqual(previous.scope.input_snapshot.catalog_coverage);
+ expect(decisions).toHaveProperty('recommendations');expect(decisions).not.toHaveProperty('budget_plans');
+ expect(decisions!.recommendations[0].items[0].quantity).toBe(3);expect(decisions!.recommendations[1].items[0].quantity).toBe(1);
+ expect(begin).toHaveBeenCalledWith('task-1',version);expect(save).toHaveBeenCalledWith('task-1',output);
+ expect(JSON.stringify(previous)).toBe(frozen);
+});
+
+it('rejects a mismatched recommendation identity and invalid quantities before refreshing quotes',async()=>{
+ const previous={plan_id:applyBody.plan_id,plan_version:applyBody.plan_version,recommendations:[{recommendation_id:'actual',decisions:{items:[{candidate_id:'resource:media-1',quantity:1}]}}]};
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-1',state:'complete',latest:previous,task:{model_source:'environment',industry_context:{status:'empty'}}} as any);
+ vi.spyOn(MatrixRepository.prototype,'snapshot').mockResolvedValue(previous);
+ const begin=vi.spyOn(MatrixRepository.prototype,'begin');
+ const url=await host(core({database:async()=>({} as any)}));
+ const body={plan_id:applyBody.plan_id,plan_version:applyBody.plan_version,plan_index:0,quantities:[{item_index:0,candidate_id:'resource:media-1',quantity:2}],as_of:'2026-11-09T00:00:00Z'};
+ const post=(value:unknown)=>fetch(url+'/api/modules/publish/classify/task-1/recommendation',{method:'POST',headers:{Origin:url,'Content-Type':'application/json'},body:JSON.stringify(value)});
+ expect((await post({...body,recommendation_id:'another'})).status).toBe(409);
+ for(const quantity of [0,-1,1.5,101])expect((await post({...body,quantities:[{...body.quantities[0],quantity}]})).status).toBe(400);
+ expect(catalogBridge.reloadPlannerCatalog).not.toHaveBeenCalled();expect(begin).not.toHaveBeenCalled();
 });

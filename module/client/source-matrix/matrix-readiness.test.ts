@@ -29,3 +29,14 @@ describe('matrix readiness and counts',()=>{
   expect(matrixCandidateGroups(value).flatMap(group=>group.items)).toHaveLength(1);
  });
 });
+
+it('uses the real per-layer order and removes duplicate candidate identities',()=>{
+ const value={...matrix('complete'),candidates:[{...candidate('a','industry'),layer_rank:2},{...candidate('b','industry'),layer_rank:1},{...candidate('b','industry'),layer_rank:1}],fit_order:['a','b'],layers:[{role:'industry',candidate_ids:['b','a'],status:'populated'}]} as MatrixResult['matrix'];
+ expect(matrixCandidateGroups(value).find(group=>group.role==='industry')?.items.map(item=>item.candidate_id)).toEqual(['b','a']);
+});
+it('distinguishes failed, incomplete, loading and completed empty layers',()=>{
+ for(const [status,state] of [['failed','failed'],['incomplete','incomplete'],['loading','loading'],['empty','complete']]){
+  const value={...matrix('complete'),candidates:[],layers:[{role:'industry',candidate_ids:[],status}]} as MatrixResult['matrix'];
+  expect(matrixCandidateGroups(value).find(group=>group.role==='industry')).toMatchObject({state,items:[]});
+ }
+});

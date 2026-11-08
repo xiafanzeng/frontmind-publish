@@ -4,9 +4,9 @@ import { validateNested,validateRequest } from './contracts.js';
 import { analyzeEvidence } from './evidence.js';
 import { assembleMatrix } from './matrix.js';
 import { verifyPlan } from './budget.js';
-import { explanationErrors,verifyContentPlans } from './content-plans.js';
+import { explanationErrors,verifyContentPlans,verifyRecommendations } from './content-plans.js';
 const binding=(r:Row)=>Object.fromEntries(['tenant_id','task_id','brand_id'].map(k=>[k,r[k]??null]));
-const fail=(status:string,errors:Row[]):Row=>({schema_version:'1.0',status,errors,budget_plans:[]});
+const fail=(status:string,errors:Row[]):Row=>({schema_version:'1.0',status,errors,recommendations:[],budget_plans:[]});
 function rebind(md:Row,old:Row,current:Row):Row {
   const d=clone(md);for(const item of d.items??[])for(const ref of item.references??[]){
     if(ref.type!=='attribute'||typeof ref.path!=='string')continue;const m=/^catalog\[(\d+)\](.*)$/.exec(ref.path);if(!m)continue;
@@ -29,7 +29,7 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
   const errors=validateRequest(request,stage,asOf);if(errors.length)return fail('invalid_input',errors);
   const nested=validateNested(request);if(nested.length)return fail('invalid_input',nested);
   const r=clone(request),d=clone(decisions??{});
-  if(!object(d)||Object.keys(d).some(k=>!['matrix_decisions','budget_plans','content_plans'].includes(k)))return fail('invalid_input',[issue('unknown_field','decisions')]);
+  if(!object(d)||Object.keys(d).some(k=>!['matrix_decisions','recommendations','budget_plans','content_plans'].includes(k)))return fail('invalid_input',[issue('unknown_field','decisions')]);
   try{
     const analysis=analyzeEvidence(r.citations??[],r.scope??{},r.identity_config??{});let md:Row=d.matrix_decisions??{};
     if(stage==='budget'){
@@ -45,7 +45,15 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     out.stage=stage;out.as_of=asOf;out.snapshot={binding:binding(r),matrix_decisions:clone(md),generated_at:asOf};
     if(stage==='budget'&&previous?.snapshot.expires_at)out.snapshot.expires_at=previous.snapshot.expires_at;
     out.scope.input_snapshot=clone(r);out.scope.generated_at=asOf;out.selected_items=clone(r.selected_items??r.task.selected_items??[]);
-    if(stage==='budget'&&out.matrix.status==='complete'){
+    out.recommendations=[];
+    if(stage==='budget'&&out.matrix.status==='complete'&&d.recommendations!==undefined){
+      if(d.budget_plans!==undefined||d.content_plans!==undefined)return fail('invalid_decisions',[issue('mixed_recommendation_contract','decisions')]);
+      const verified=verifyRecommendations(d.recommendations,out,r,asOf);
+      out.recommendations=verified.plans;out.errors.push(...verified.errors);out.recommendation_warnings=verified.warnings;
+      out.status=verified.errors.length?'invalid_decisions':verified.plans.length?'complete':'needs_budget_plans';
+      if(verified.warnings.some((warning:Row)=>warning.code==='matching_recommendations_after_edit'))out.recommendation_limit_reason='篇数调整后部分组合配置相同，已保留原有组合位置。';
+      else if(verified.plans.length<3)out.recommendation_limit_reason=(verified.warnings.some((warning:Row)=>warning.code==='duplicate_recommendation_omitted')?'重复资源配置已合并。':'')+`本次生成 ${verified.plans.length} 个不同组合，可调整要求后重新生成。`;
+    }else if(stage==='budget'&&out.matrix.status==='complete'){
       const submitted=d.budget_plans??[],uniquePlans=new Map<string,Row>(),planErrors:Row[]=[];
       if(!rows(submitted))return fail('invalid_input',[issue('invalid_type','decisions.budget_plans')]);
       for(const [i,p] of submitted.entries()){
@@ -62,20 +70,22 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
         out.budget_plans=[...uniquePlans.values()].map(p=>({...verifyPlan(p,out,r,asOf),...Object.fromEntries(['strategy','reason_summary','coverage','gaps','tradeoffs','unconfirmed_items','explanation'].filter(k=>k in p).map(k=>[k,clone(p[k])]))}));
         if(out.budget_plans.some((p:Row)=>p.errors.some((e:Row)=>e.code==='invalid_type')))return fail('invalid_input',out.budget_plans.flatMap((p:Row)=>p.errors));
         const content=verifyContentPlans(d.content_plans??[],out,r,asOf);
-        out.content_plans=content.plans;out.errors.push(...content.errors);
+        out.content_plans=content.plans;out.recommendation_warnings=content.warnings;out.errors.push(...content.errors);
         out.status=content.errors.length?'invalid_decisions':!r.budget?'needs_budget':!uniquePlans.size&&!content.plans.length?'needs_budget_plans':'complete';
       }
     }
     out.warnings=r.budget?.exploration_enabled===true&&!('exploration_cap' in r.budget)?[issue('exploration_cap_required','budget.exploration_cap','探索投放需要显式正子额度；普通方案仍可校验')]:[];
     out.minimum_known_cost=minimum(r,out);
     out.plan_id='plan-'+digest(r.task_id?binding(r):{...binding(r),task:semantic(r.task)});
-    out.skill_version='source-matrix-planner/2026.11.08-web.2';
+    out.skill_version='source-matrix-planner/2026.11.09-web.1';
     out.resource_selections=clone(r.resource_selections??[]);
     out.quantity_mode=r.publication_intent==='repeat_existing_article'?'repeat_article':'new_articles';
     out.research_observation=clone(r.research_observation??null);
     out.industry_context=clone(r.task.industry_context??null);
-    out.plan_version='plan-version-'+digest({request:r,decisions:md,plans:out.budget_plans,content_plans:out.content_plans??[],status:out.status,matrix_version:out.matrix_version});
-    out.report=Object.fromEntries(['status','plan_id','plan_version','matrix_version','skill_version','scope','source_analysis','research_observation','industry_context','matrix','budget_plans','content_plans','limitations','warnings','minimum_known_cost','errors'].map(k=>[k,clone(out[k])]));
+    if(d.recommendations===undefined&&(d.content_plans!==undefined||d.budget_plans!==undefined))delete out.recommendations;
+    out.plan_version='plan-version-'+digest({request:r,decisions:md,recommendations:out.recommendations,legacy_plans:out.budget_plans,content_plans:out.content_plans??[],status:out.status,matrix_version:out.matrix_version});
+    if(d.recommendations!==undefined){out.budget_plans=[];out.content_plans=[];}
+    out.report=Object.fromEntries(['status','plan_id','plan_version','matrix_version','skill_version','scope','source_analysis','research_observation','industry_context','matrix','recommendations','recommendation_warnings','recommendation_limit_reason','budget_plans','content_plans','limitations','warnings','minimum_known_cost','errors'].filter(k=>k in out).map(k=>[k,clone(out[k])]));
     return out;
   }catch{return fail('invalid_input',[issue('invalid_structure','request','嵌套字段不符合契约，未接纳部分结果')]);}
 }
