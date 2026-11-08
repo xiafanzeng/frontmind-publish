@@ -50,9 +50,9 @@ export class MatrixRepository {
    const prior=current.latest;
    if(rejected&&prior?.matrix?.status==='complete'&&prior.snapshot&&prior.scope?.input_snapshot){
     const validCurrent=result.stage==='budget'&&result.matrix?.status==='complete'&&result.snapshot&&result.scope?.input_snapshot;
-    saved={...clone(validCurrent?result:prior),stage:'budget',status:result.status,errors:clone(result.errors??[]),budget_plans:[],content_plans:[],minimum_known_cost:null,retryable_budget:true,last_budget_attempt:{status:result.status,errors:clone(result.errors??[]),attempted_plan_version:result.plan_version??null}};
+    saved={...clone(validCurrent?result:prior),stage:'budget',status:result.status,errors:clone(result.errors??[]),recommendations:[],budget_plans:[],content_plans:[],minimum_known_cost:null,retryable_budget:true,last_budget_attempt:{status:result.status,errors:clone(result.errors??[]),attempted_plan_version:result.plan_version??null}};
     saved.plan_version='plan-version-'+digest({retryOf:prior.plan_version,result:saved});
-    saved.report={...clone(saved.report??{}),status:saved.status,plan_version:saved.plan_version,budget_plans:[],content_plans:[],minimum_known_cost:null,errors:clone(saved.errors),last_budget_attempt:clone(saved.last_budget_attempt)};
+    saved.report={...clone(saved.report??{}),status:saved.status,plan_version:saved.plan_version,recommendations:[],budget_plans:[],content_plans:[],minimum_known_cost:null,errors:clone(saved.errors),last_budget_attempt:clone(saved.last_budget_attempt)};
    }
    const reusable=saved.matrix?.status==='complete'&&(!rejected||saved.retryable_budget===true);
    if(reusable)await tx.insert(snapshots).values({tenantId:this.tenantId,taskId,planId:saved.plan_id,planVersion:saved.plan_version,result:clone(saved)}).onDuplicateKeyUpdate({set:{planId:saved.plan_id}});

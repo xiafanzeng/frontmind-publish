@@ -228,7 +228,7 @@ export class BindingStore {
     return { article: { articleVersionId: String(row.id), articleId: String(row.article_id), versionNumber: Number(row.version), title: row.working_name, body: row.plain_text, contentHash: String(row.content_hash) } };
   }
 
-  async loadPlannerCatalog() { return loadPlannerCatalog(this.db,this.ctx.ownerId,this.ctx.enterpriseProjectId); }
+  async loadPlannerCatalog() { return (await loadPlannerCatalog(this.db,this.ctx.ownerId,this.ctx.enterpriseProjectId)).catalog; }
 
   private async rows(statement: SQL): Promise<Row[]> {
     const result = await this.db.execute(statement) as unknown;

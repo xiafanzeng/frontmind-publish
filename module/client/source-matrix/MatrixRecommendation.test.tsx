@@ -19,7 +19,7 @@ it('does not present an invalid candidate pool as five empty recommendation laye
 it('shows all five layers and hides undecided candidates instead of a research list',()=>{
  render(<MatrixRecommendation result={result} highlightedPlan={null} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
  expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
- expect(screen.getAllByText('暂无合适候选；当前依据不足，保留本层缺口。')).toHaveLength(4);
+ expect(screen.getAllByText('没有符合本层条件的候选。')).toHaveLength(4);
  // 无主层决定的候选不再进入页面（需求：删除未分层列表）
  expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','A']);
  expect(screen.queryByText('待判断与研究候选')).toBeNull();
@@ -73,4 +73,12 @@ it('requires an explicit formal quantity review before a changed plan can be app
  fireEvent.click(screen.getByRole('button',{name:'复核正式方案篇数'}));
  await waitFor(()=>expect(update).toHaveBeenCalledWith(value,[{item_index:0,candidate_id:'media',quantity:3}]));
  expect(apply).not.toHaveBeenCalled();
+});
+
+it('keeps incomplete layers distinct from a completed empty result and preserves available cards',()=>{
+ const partial={...result,matrix:{...result.matrix,coverage:{catalog:{status:'incomplete'},model:{status:'incomplete',unprocessed_candidates:3}},layers:[{role:'authority',display_name:'权威参考',status:'incomplete',candidate_ids:['A','B'],auxiliary_candidate_ids:[],reason_summary:'还有一批候选尚未完成读取'}]}};
+ render(<MatrixRecommendation result={partial} highlightedPlan={null} highlightedCandidateIds={['B']} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
+ expect(screen.getByText('2 个已知候选 · 尚未完整')).toBeTruthy();expect(screen.getByText('还有一批候选尚未完成读取')).toBeTruthy();
+ expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','A']);expect(screen.getByText('当前组合')).toBeTruthy();
+ expect(screen.queryByText('没有符合本层条件的候选。')).toBeNull();
 });

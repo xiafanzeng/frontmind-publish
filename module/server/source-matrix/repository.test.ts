@@ -17,14 +17,14 @@ it('allows a matching current revision and keeps cancellation closed',async()=>{
 });
 it('persists a reusable matrix revision after both detailed and short budget rejections',async()=>{
  for(const failure of [{status:'invalid_decisions',stage:'budget',matrix:{status:'complete'},errors:[{code:'untrusted_plan_field'}]},{status:'invalid_input',errors:[{code:'invalid_type'}]}]){
-  const valid={plan_id:'plan-original',plan_version:'plan-version-original',matrix_version:'matrix-original',matrix:{status:'complete',candidates:[]},snapshot:{matrix_decisions:{items:[]}},scope:{input_snapshot:{task:{}}},budget_plans:[{strategy:'prior'}],report:{}};
+  const valid={plan_id:'plan-original',plan_version:'plan-version-original',matrix_version:'matrix-original',matrix:{status:'complete',candidates:[]},snapshot:{matrix_decisions:{items:[]}},scope:{input_snapshot:{task:{}}},recommendations:[{strategy:'prior recommendation'}],budget_plans:[{strategy:'prior'}],report:{recommendations:[{strategy:'prior recommendation'}]}};
   const row:any={state:'running',latest:valid};let inserted:any;
   const select={from:()=>select,where:()=>select,limit:()=>select,for:async()=>[row]};
   const tx={select:()=>select,insert:()=>({values:(value:any)=>{inserted=value;return {onDuplicateKeyUpdate:async()=>undefined};}}),update:()=>({set:(value:any)=>({where:async()=>Object.assign(row,value)})})};
   const repo=new MatrixRepository({transaction:async(fn:(value:unknown)=>Promise<unknown>)=>fn(tx)} as any,'tenant');
   expect(await repo.save('task',failure)).toBe(true);
   expect(row.latest.status).toBe(failure.status);expect(row.latest.retryable_budget).toBe(true);
-  expect(row.latest.budget_plans).toEqual([]);expect(row.latest.content_plans).toEqual([]);
+  expect(row.latest.budget_plans).toEqual([]);expect(row.latest.content_plans).toEqual([]);expect(row.latest.recommendations).toEqual([]);expect(row.latest.report.recommendations).toEqual([]);
   expect(inserted.planVersion).toBe(row.latest.plan_version);expect(inserted.result.matrix_version).toBe(valid.matrix_version);
   expect(inserted.result.snapshot).toEqual(valid.snapshot);expect(await repo.begin('task',row.latest.plan_version)).toBe(true);
  }

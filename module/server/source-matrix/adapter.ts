@@ -15,5 +15,5 @@ export interface SourceMatrixDecisionAdapter {
   * Replace the host adapter when configuration changes; honor signal where possible. */
  identify?(input:ArticleIdentificationInput):Promise<unknown>;
  matrix(input:{request:Readonly<Row>;prepared:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{matrix_decisions:Row}|undefined>;
- budget(input:{request:Readonly<Row>;matrix:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{budget_plans?:Row[];content_plans?:Row[]}|undefined>;
+ budget(input:{request:Readonly<Row>;matrix:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{recommendations?:Row[];budget_plans?:Row[];content_plans?:Row[]}|undefined>;
 }

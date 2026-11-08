@@ -3,24 +3,8 @@ import { clone,digest,equal,identityFields,issue,list,object,priceFields,roles,r
 import { domain,matchIdentity } from './evidence.js';
 import { candidateCatalogMatches } from './export-research.js';
 import { industryContextAggregates } from './industry-context-evidence.js';
+import { authorityBasis, catalogChannelChecks as channel, createCandidateRanker, regionalApplicable } from './candidate-ranking.js';
 const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items media_intro content_direction layer_rank ranking_reason'.split(' '));
-function channel(r:Row,t:Row):Row {
-  const fail:string[]=[],pending:string[]=[];
-  if(['unavailable','inactive','closed','not_for_sale','suspended'].includes(r.publication_status))fail.push('publication_unavailable');else if(r.publication_status!=='available')pending.push('publication_status_unknown');
-  const checks:Record<string,string>={formats:'supported_formats',links:'supports_links',images:'supports_images',video:'supports_video',tables:'supports_tables'};
-  for(const [k,expected] of Object.entries(t.requirements??{})){
-    if(expected===null||expected===false||equal(expected,[])||equal(expected,{}))continue;
-    const attr=checks[k],actual=attr?r[attr]:null;
-    if(!attr||actual===undefined||actual===null)pending.push('unknown_requirement:'+k);
-    else if(k==='formats'?!list(expected).every(x=>list(actual).includes(x)):!equal(actual,expected))fail.push('unsupported:'+k);
-  }
-  if(r.allowed_industries!=null&&!list(r.allowed_industries).includes(t.industry))fail.push('industry_not_allowed');
-  if(list(r.prohibited_industries).includes(t.industry))fail.push('industry_prohibited');
-  const regions=list(t.regions).map(normalizeMatrixRegion);
-  if(regions.length&&!equal(regions,['nationwide'])&&r.restricted_regions!=null&&!regions.every(x=>list(r.restricted_regions).map(normalizeMatrixRegion).includes(x)))fail.push('region_not_allowed');
-  for(const check of r.hard_conditions??[]){if(!object(check))pending.push('invalid_hard_condition');else if(check.status==='fail')fail.push(check.rule_id??'hard_condition_failed');else if(check.status!=='pass')pending.push(check.rule_id??'hard_condition_unknown');}
-  return {fail,pending};
-}
 function manuscriptChecks(manuscripts:Row[],catalog:Row[]):Row {
   const checks=manuscripts.map(m=>{
     const matches=catalog.flatMap(r=>r.manuscript_checks??[]).filter(c=>m.article_id&&m.version&&c.article_id===m.article_id&&c.version===m.version);
@@ -46,7 +30,7 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
         const observed={...record,status:source.status};
         const related=variants.map(v=>({v,result:matchIdentity(observed,v,request.identity_config??{})})).filter(x=>(domain(observed)&&domain(observed)===domain(x.v))||['exact','platform_related'].includes(x.result.relation));
         if(related.length){const relation=identityConflict?'unverified':['exact','platform_related','unverified','none'].find(r=>related.some(x=>x.result.relation===r));if(relation==='exact')matched.add(j);
-          matches.push({relation,evidence_ids:record.evidence_id?[record.evidence_id]:record.evidence_ids??[],scope:clone(source.scope),source_index:j});}
+          matches.push({relation,source_status:source.status,evidence_ids:record.evidence_id?[record.evidence_id]:record.evidence_ids??[],scope:clone(source.scope),source_index:j});}
       }
     });
     candidates.push({candidate_id:cid,resource_id:common.resource_id??null,attributes:common,attribute_variants:variants,conflicting_attributes:conflicts,attribute_paths:group.map(g=>`catalog[${g.index}]`),offers:group.filter(g=>g.row.offer_id).map(g=>clone(g.row)),channel_status:!common.resource_id?'research_only':fail.length?'ineligible':pending.length?'pending':'eligible',hard_failures:fail,pending_conditions:pending,...manuscriptChecks(manuscripts,group.map(g=>g.row)),manuscripts:clone(manuscriptIdentities),evidence_relation:['exact','platform_related','unverified'].find(r=>matches.some(m=>m.relation===r))??'none',identity_matches:matches,evidence_ids:unique(matches.flatMap(m=>m.evidence_ids)),recommendation_basis:[]});
@@ -56,7 +40,7 @@ export function prepareCandidates(request:Row,analysis:Row):Row {
     if(c){c.recommendation_basis.push(clone(rec));c.attribute_paths.push(`industry_recommendations[${i}]`);}
     else candidates.push({candidate_id:'recommendation:'+(rec.recommendation_id??i),resource_id:null,attributes:clone(rec),attribute_paths:[`industry_recommendations[${i}]`],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['unverified_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscriptIdentities),evidence_relation:'none',identity_matches:[],evidence_ids:[],recommendation_basis:[clone(rec)]});
   });
-  actual.forEach((s,i)=>{if(matched.has(i))return;const relation=s.status==='identity_conflict'?'unverified':'exact';candidates.push({candidate_id:'observed:'+digest([s.scope,s.identity,s.evidence_ids]),resource_id:null,attributes:clone(s.identity),attribute_paths:[],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['no_confirmed_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscriptIdentities),evidence_relation:relation,identity_matches:[{relation,evidence_ids:clone(s.evidence_ids),scope:clone(s.scope)}],evidence_ids:clone(s.evidence_ids),recommendation_basis:[]});});
+  actual.forEach((s,i)=>{if(matched.has(i))return;const relation=s.status==='identity_conflict'?'unverified':'exact';candidates.push({candidate_id:'observed:'+digest([s.scope,s.identity,s.evidence_ids]),resource_id:null,attributes:clone(s.identity),attribute_paths:[],offers:[],channel_status:'research_only',hard_failures:[],pending_conditions:['no_confirmed_publication_channel'],manuscript_status:'needs_manuscript_check',manuscript_checks:[],manuscripts:clone(manuscriptIdentities),evidence_relation:relation,identity_matches:[{relation,source_status:s.status,evidence_ids:clone(s.evidence_ids),scope:clone(s.scope)}],evidence_ids:clone(s.evidence_ids),recommendation_basis:[]});});
   const aggregates:Row[]=analysis.external_aggregates;
   const industryAggregates=industryContextAggregates(task);
   for(const c of candidates){
@@ -86,9 +70,9 @@ function paths(v:any,prefix='',out:Row={}):Row {
 export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
   const errors:Issue[]=[],err=(c:string,path:string,message?:string)=>errors.push(issue(c,path,message));
   if(!object(d))return [issue('invalid_type','decisions.matrix_decisions')];
-  for(const k of Object.keys(d))if(!['items','fit_order'].includes(k))err('untrusted_field','decisions.'+k);
+  for(const k of Object.keys(d))if(!['items','fit_order','excluded_candidates','reviewed_candidate_ids','review_error','ranking_method'].includes(k))err('untrusted_field','decisions.'+k);
   if(!rows(d.items??[]))return [...errors,issue('invalid_type','decisions.items')];
-  const items:Row[]=d.items??[],byId=new Map<string,Row>(p.candidates.map((c:Row)=>[c.candidate_id,c])),questions=r.task.questions.map((q:Row)=>q.question_id),validPaths=paths(semantic({task:r.task,catalog:r.catalog??[],industry_recommendations:r.industry_recommendations??[]})),seen:string[]=[];
+  const items:Row[]=d.items??[],byId=new Map<string,Row>(p.candidates.map((c:Row)=>[c.candidate_id,c])),questions=(r.task.questions??[]).map((q:Row)=>q.question_id),validPaths=paths(semantic({task:r.task,catalog:r.catalog??[],industry_recommendations:r.industry_recommendations??[]})),seen:string[]=[];
   items.forEach((item,i)=>{
     const path=`decisions.items[${i}]`,c=byId.get(item.candidate_id);
     for(const f of ['primary_role','candidate_id','reason_summary','selection','supplemental_value','exploration_hypothesis','media_intro','content_direction','ranking_reason'])if(f in item&&(typeof item[f]!=='string'||!item[f].trim()))err('invalid_type',path+'.'+f);
@@ -122,20 +106,42 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
         if(ref.usage!=='industry_context'||![...c.aggregate_ids,...(p.industry_aggregate_ids??[])].includes(ref.aggregate_id))err('invalid_aggregate_reference',rp);
       }else err('invalid_reference_type',rp);
     });
+    if(all.includes('authority')&&(p.require_role_evidence===true||d.reviewed_candidate_ids!==undefined)){
+      const basis=authorityBasis(c.attributes);
+      const attributeAuthority=refs.some(ref=>ref.type==='attribute'&&c.attribute_paths.some((base:string)=>basis.some(field=>ref.path===base+'.'+field)));
+      // Actual observed sources have no catalogue attribute path. A verified
+      // reference to this exact source/question can support its real official
+      // domain; a name, incomplete record or platform-only relation cannot.
+      const evidenceAuthority=basis.includes('domain')&&c.evidence_relation==='exact'&&refs.some(ref=>ref.type==='evidence'&&c.evidence_ids.includes(ref.evidence_id)&&c.identity_matches.some((match:Row)=>match.relation==='exact'&&match.source_status==='complete'&&match.evidence_ids.includes(ref.evidence_id)&&matched.includes(match.scope?.question_id)));
+      if(!basis.length||!attributeAuthority&&!evidenceAuthority)err('authority_evidence_unconfirmed',path);
+    }
+    if((p.require_role_evidence===true||d.reviewed_candidate_ids!==undefined)&&(c.hard_failures?.length||c.channel_status==='ineligible'))err('candidate_hard_ineligible',path);
     if(all.includes('regional')){
       const regions=list(r.task.regions).map(normalizeMatrixRegion),coverage=list(c.attributes.regions??c.attributes.region_coverage).map(normalizeMatrixRegion);
-      if(!regions.length||equal(regions,['nationwide']))err('regional_not_applicable',path);
+      if(!regionalApplicable(r.task))err('regional_not_applicable',path);
       if(['regions','region_coverage'].some(k=>c.conflicting_attributes?.includes(k))||!regions.some(x=>coverage.includes(x)))err('regional_coverage_unconfirmed',path);
     }
     if(all.includes('supplement')){
       if(!text(item.supplemental_value))err('missing_increment',path);
-      if(!strings(item.supplemental_to)||!item.supplemental_to.length||item.supplemental_to.some((id:string)=>id===item.candidate_id||!items.some(x=>x.candidate_id===id&&['authority','industry','regional'].includes(x.primary_role))))err('invalid_supplement_base',path);
+      if(!strings(item.supplemental_to)||!item.supplemental_to.length||item.supplemental_to.some((id:string)=>id===item.candidate_id||![...items,...(p.core_decisions??[])].some(x=>x.candidate_id===id&&['authority','industry','regional'].includes(x.primary_role))))err('invalid_supplement_base',path);
     }
     if(all.includes('exploration')){
       if(!text(item.exploration_hypothesis))err('missing_hypothesis',path);
       if(!strings(item.verification_items)||!item.verification_items.length||!item.verification_items.every(text))err('missing_verification',path);
     }
   });
+  const excluded:Row[]=rows(d.excluded_candidates)?d.excluded_candidates:[];
+  if(d.excluded_candidates!==undefined&&!rows(d.excluded_candidates))err('invalid_type','decisions.excluded_candidates');
+  const excludedIds=new Set<string>();
+  excluded.forEach((entry,index)=>{
+    const path=`decisions.excluded_candidates[${index}]`;
+    if(!equal(Object.keys(entry).sort(),['candidate_id','reason'])||!text(entry.reason)||!byId.has(entry.candidate_id))err('invalid_excluded_candidate',path);
+    if(seen.includes(entry.candidate_id)||excludedIds.has(entry.candidate_id))err('duplicate_candidate',path);excludedIds.add(entry.candidate_id);
+  });
+  if(d.reviewed_candidate_ids!==undefined&&(!strings(d.reviewed_candidate_ids)||unique(d.reviewed_candidate_ids).length!==d.reviewed_candidate_ids.length||d.reviewed_candidate_ids.some((id:string)=>!byId.has(id)||!seen.includes(id)&&!excludedIds.has(id))))err('invalid_review_coverage','decisions.reviewed_candidate_ids');
+  if(d.review_error!==undefined&&!text(d.review_error))err('invalid_type','decisions.review_error');
+  if(d.review_error==='matrix_batch_invalid')err('invalid_model_batch','decisions.review_error','至少一个候选批次未通过完整校验');
+  if(d.ranking_method!==undefined&&d.ranking_method!=='task_attributes_then_batch_semantic_order')err('invalid_type','decisions.ranking_method');
   if(!strings(d.fit_order??[])||unique(d.fit_order??[]).length!==(d.fit_order??[]).length||!equal([...(d.fit_order??[])].sort(),[...seen].sort()))err('invalid_fit_order','decisions.fit_order');
   if(items.some(item=>'layer_rank' in item||'ranking_reason' in item)){
     for(const role of Object.keys(roles)){
@@ -148,10 +154,24 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
   return errors;
 }
 export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {
-  const p=prepareCandidates(r,a),errors=validateDecisions(d,p,r),missing=!d.items?.length,status=errors.length?'invalid_decisions':missing?'needs_ai_decisions':'complete';
-  let candidates:Row[]=p.candidates;const order:string[]=status==='complete'?d.fit_order:[];
-  candidates=candidates.map(c=>{const decision=status==='complete'?d.items.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),industry_aggregate_ids:decision?unique<string>((decision.references??[]).filter((ref:Row)=>ref.type==='aggregate'&&p.industry_aggregate_ids.includes(ref.aggregate_id)).map((ref:Row)=>ref.aggregate_id)):[],semantic_decision_validated:!!decision};});
-  if(order.length)candidates.sort((a,b)=>(order.includes(a.candidate_id)?order.indexOf(a.candidate_id):order.length)-(order.includes(b.candidate_id)?order.indexOf(b.candidate_id):order.length));
-  const layers=Object.entries(roles).map(([role,display_name])=>({role,display_name,status:candidates.some(c=>c.primary_role===role)?'populated':'empty',candidate_ids:candidates.filter(c=>c.primary_role===role).map(c=>c.candidate_id),auxiliary_candidate_ids:candidates.filter(c=>c.auxiliary_roles.includes(role)).map(c=>c.candidate_id)}));
-  return {schema_version:'1.0',matrix_version:p.matrix_version,status,source_analysis:clone(a),data_quality:clone(a.data_quality),scope:{task:clone(r.task),evidence_scope:clone(a.scope)},matrix:{status,candidates,layers,fit_order:order,coverage_kind:'semantic_relevance'},research_only:candidates.filter(c=>c.channel_status==='research_only'),pending_items:candidates.filter(c=>c.pending_conditions.length||c.manuscript_status==='needs_manuscript_check').map(c=>({candidate_id:c.candidate_id,conditions:c.pending_conditions,manuscript_status:c.manuscript_status})),limitations:p.limitations,errors,budget_plans:[]};
+  const p=prepareCandidates(r,a),errors=validateDecisions(d,p,r),catalog=clone(r.catalog_coverage??{status:'unknown',total_resources:null,scanned_resources:null,reason:'legacy_coverage_unavailable'});
+  const reviewed=unique<string>(d.reviewed_candidate_ids??[...(d.items??[]).map((item:Row)=>item.candidate_id),...(d.excluded_candidates??[]).map((item:Row)=>item.candidate_id)]);
+  const knownIds=new Set(p.candidates.map((candidate:Row)=>candidate.candidate_id)),reviewedCount=reviewed.filter(id=>knownIds.has(id)).length;
+  const unprocessed=Math.max(0,p.candidates.length-reviewedCount),catalogIncomplete=['failed','incomplete'].includes(catalog.status);
+  const modelStatus=errors.length?'failed':d.review_error?(reviewedCount?'incomplete':'failed'):unprocessed?(reviewedCount?'incomplete':'pending'):(d.reviewed_candidate_ids!==undefined||d.items?.length||d.excluded_candidates?.length)?'complete':'pending';
+  const missing=!d.items?.length&&modelStatus!=='complete';
+  const status=errors.length?'invalid_decisions':catalogIncomplete||missing||d.review_error||d.reviewed_candidate_ids!==undefined&&unprocessed>0?'needs_ai_decisions':'complete';
+  let candidates:Row[]=p.candidates;const order:string[]=status==='complete'?d.fit_order??[]:[];
+  candidates=candidates.map(c=>{const decision=status==='complete'?d.items?.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),industry_aggregate_ids:decision?unique<string>((decision.references??[]).filter((ref:Row)=>ref.type==='aggregate'&&p.industry_aggregate_ids.includes(ref.aggregate_id)).map((ref:Row)=>ref.aggregate_id)):[],semantic_decision_validated:!!decision};});
+  const fitRank=new Map<string,number>(order.map((id,index)=>[id,index]));
+  if(order.length)candidates.sort((a,b)=>(fitRank.get(a.candidate_id)??order.length)-(fitRank.get(b.candidate_id)??order.length));
+  const ranker=createCandidateRanker(r.task),coverage={catalog,model:{status:modelStatus,shortlisted_candidates:p.candidates.length,reviewed_candidates:reviewedCount,classified_candidates:errors.length?0:(d.items??[]).filter((item:Row)=>reviewed.includes(item.candidate_id)).length,excluded_candidates:errors.length?0:(d.excluded_candidates??[]).filter((item:Row)=>reviewed.includes(item.candidate_id)).length,unprocessed_candidates:unprocessed,batches_are_bounded:true,reason:d.review_error??null},ranking_method:d.ranking_method??'legacy_semantic_order'};
+  const layers=Object.entries(roles).map(([role,display_name])=>{
+    const members=candidates.filter(c=>c.primary_role===role).sort((a,b)=>(a.layer_rank??Infinity)-(b.layer_rank??Infinity)||(fitRank.get(a.candidate_id)??Infinity)-(fitRank.get(b.candidate_id)??Infinity));
+    const available=catalog.eligible_by_role?.[role]??p.candidates.filter((candidate:Row)=>ranker(candidate).eligible[role]).length;
+    const state=role==='regional'&&!regionalApplicable(r.task)?'not_applicable':catalog.status==='failed'||modelStatus==='failed'?'failed':catalogIncomplete||modelStatus!=='complete'?'incomplete':members.length?'populated':'empty';
+    const reason=state==='not_applicable'?'本轮未指定局部地域，地域覆盖层不适用。':state==='failed'?'候选读取或分层请求失败，请重试。':state==='incomplete'?'候选尚未完整读取或审阅，暂不能判断本层是否有合适资源。':members.length>=3?'':members.length?`本轮排序候选审阅后，本层仅保留${members.length}个符合条件的资源。`:available===0?'完整目录属性筛选未找到满足本层必要条件的资源。':'本轮排序候选均已审阅，尚无满足本层要求的资源；其他目录条目未经过模型分类。';
+    return {role,display_name,status:state,reason_summary:reason,available_count:available,classified_count:members.length,candidate_ids:members.map(c=>c.candidate_id),auxiliary_candidate_ids:candidates.filter(c=>c.auxiliary_roles.includes(role)).map(c=>c.candidate_id)};
+  });
+  return {schema_version:'1.0',matrix_version:p.matrix_version,status,source_analysis:clone(a),data_quality:clone(a.data_quality),scope:{task:clone(r.task),evidence_scope:clone(a.scope)},matrix:{status,candidates,layers,fit_order:order,coverage_kind:'semantic_relevance',coverage},research_only:candidates.filter(c=>c.channel_status==='research_only'),pending_items:candidates.filter(c=>c.pending_conditions.length||c.manuscript_status==='needs_manuscript_check').map(c=>({candidate_id:c.candidate_id,conditions:c.pending_conditions,manuscript_status:c.manuscript_status})),limitations:unique([...p.limitations,...(catalogIncomplete?['catalog_scan_incomplete']:[]),...(modelStatus==='incomplete'?['model_classification_incomplete']:[])]),errors,budget_plans:[]};
 }

@@ -1,10 +1,10 @@
 # 发布项费用与双预算复核
 
-网站2026.11.07-web.2补充：预算继续使用同一矩阵保存的task.industry_context和授权冻结稿件，不重新获取行业分布、不重排矩阵。真实分布只帮助解释宏观组合/内容时效；类型或时间桶不能成为媒体、账号、报价、篇数、品牌命中或预算可行性。费用未知不当0。budget_plans与content_plans合计最多3套有实质差异的组合，锁定项与全部预算/发布核验照旧。平台AI与数据契约见platform-industry-context.md；该网站增补不改变离线Python原契约。
+网站2026.11.07-web.2补充：预算继续使用同一矩阵保存的task.industry_context和授权冻结稿件，不重新获取行业分布、不重排矩阵。真实分布只帮助解释宏观组合/内容时效；类型或时间桶不能成为媒体、账号、报价、篇数、品牌命中或预算可行性。费用未知不当0。网站2026.11.09-web.1改为 recommendations 最多3套有实质差异的组合，具体估算契约见 content-planning.md；以下严格 budget_plans 规则保留给正式发布内部与离线 Python，锁定项及正式预算/发布核验照旧。平台AI与数据契约见platform-industry-context.md；该网站增补不改变离线Python原契约。
 
 接口：`price_items(items: list[dict], catalog: list[dict], as_of: str) -> dict`；`verify_plan(plan: dict, matrix: dict, request: dict, as_of: str) -> dict`。只校验确定性事实，不选择媒体、不优化、不联网、不调用模型。输入不被修改；畸形对象/列表/嵌套报价返回结构化 invalid_type 与未知金额。
 
-## 单一输入契约
+## 正式发布与离线 Python 输入契约
 
 发布项要求非空字符串 `article_id`、`version`、`resource_id`、`offer_id`、`publication_spec`、正整数 `quantity`、`purpose: standard|exploration`；可带 `locked: true` 和展示字段。身份为 article_id/version × resource_id × publication_spec × quantity，同项跨层去重；同身份不同 offer/purpose 报 conflicting_publication，不静默择一。不同稿件分别计价；主层不会决定费用归属。publication_spec 可为确定性 JSON 对象或非空字符串，但必须与报价完全一致。
 
