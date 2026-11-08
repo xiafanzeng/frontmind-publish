@@ -80,8 +80,10 @@ describe("normalized advanced SQL membership", () => {
     const rawScopes = scopes.filter(({ keys }) => keys.includes("value"));
     expect(rawScopes).toHaveLength(3);
     expect(rawScopes.every((scope) => scope.limited === undefined && !scope.params?.includes("%媒体%"))).toBe(true);
-    const countScope = scopes.find(({ keys }) => keys.includes("total"))!;
-    const pageScope = scopes.find(({ keys }) => keys.includes("id"))!;
+    // Grouped raw-value selects also carry a `total` key; match the count/page
+    // scopes exactly so the identical-predicate assertion compares the real queries.
+    const countScope = scopes.find(({ keys }) => keys.length === 1 && keys[0] === "total")!;
+    const pageScope = scopes.find(({ keys }) => keys.length === 1 && keys[0] === "id")!;
     expect(countScope.sql).toBe(pageScope.sql);
     expect(countScope.params).toEqual(pageScope.params);
     await repo.listPublisherMedia({ publishTimeBand: "within_1h" });
