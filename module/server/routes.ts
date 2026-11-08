@@ -239,6 +239,20 @@ const publisherRouter = t.router({
           ),
         ),
       ),
+    // V8：稿件字数（摘要契约不含字数；本地 schema，白名单放行 publisher.articles.* 前缀）。
+    wordCounts: publisherCustomerProcedure
+      .output(
+        z.object({
+          items: z.array(
+            z.object({ articleId: idSchema, wordCount: z.number().int().nonnegative() }),
+          ),
+        }),
+      )
+      .query(({ ctx }) =>
+        translateRepositoryErrors(async () => ({
+          items: await ctx.publishingRepository.listArticleWordCounts(ctx.user.id),
+        })),
+      ),
     // V7：删除稿件（软删除=归档，草稿从列表消失，历史数据保留）。
     archive: publisherCustomerProcedure
       .input(z.object({ articleId: idSchema }))
