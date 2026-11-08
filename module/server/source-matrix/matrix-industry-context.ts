@@ -9,7 +9,7 @@ export interface MatrixIndustryContextInput {
   industryId: string;
   industryName: string;
   selection?: IndustryCommonQuery;
-  /** Explicit operator mapping from the trusted industry dataset; never browser supplied. */
+  /** Legacy alias only; canonical supplier scope IDs always take precedence. */
   configuredScopeId?: string;
   identity: string;
   environment: Record<string, string | undefined>;
@@ -62,15 +62,18 @@ function flatten(nodes: IndustryScopeNode[]): IndustryScopeNode[] {
 }
 function mappedScope(filters: IndustryFilters, input: MatrixIndustryContextInput): IndustryScopeNode | null {
   const nodes = flatten(filters.industryTree), name = input.industryName.trim();
-  const matches = input.configuredScopeId !== undefined
-    ? nodes.filter(node => node.scopeId === input.configuredScopeId)
-    : nodes.filter(node => node.label.trim() === name);
+  const canonical = /^[1-9]\d{0,18}$/.test(input.industryId);
+  const matches = canonical
+    ? nodes.filter(node => node.scopeId === input.industryId)
+    : input.configuredScopeId !== undefined
+      ? nodes.filter(node => node.scopeId === input.configuredScopeId)
+      : nodes.filter(node => node.label.trim() === name);
   if (matches.length !== 1) return null;
   const match = matches[0]!;
   return nodes.filter(node => node.scopeId === match.scopeId).length === 1 ? match : null;
 }
 function selectedQuery(input: MatrixIndustryContextInput, filters: IndustryFilters, scopeId: string): IndustryCommonQuery | null {
-  if (input.selection === undefined) return { periodType: 'DAY', date: filters.maxDate!, scopeType: 'CATEGORY', scopeId, modelCode: filters.models[0]!.value };
+  if (input.selection === undefined) return { periodType: 'MONTH', date: filters.maxDate!.slice(0, 7) + '-01', scopeType: 'CATEGORY', scopeId, modelCode: filters.models.find(model => model.value === 'all')?.value ?? filters.models[0]!.value };
   const selection = input.selection;
   if (!selection || typeof selection !== 'object' || Array.isArray(selection)
     || Object.keys(selection).some(key => !['periodType', 'date', 'scopeType', 'scopeId', 'modelCode'].includes(key))
@@ -123,7 +126,7 @@ export async function loadMatrixIndustryContext(input: MatrixIndustryContextInpu
   try { params = validateIndustryQuery('distributions', new URLSearchParams(Object.entries(query))); }
   catch { return stop('invalid_selection', '行业查询参数未通过校验，未读取行业统计。', 'selection'); }
   snapshot.query = query;
-  snapshot.provenance.scope = { industry_id: input.industryId, industry_name: input.industryName, scope_id: scope.scopeId, scope_name: scope.label, mapping: input.configuredScopeId === undefined ? 'unique_exact_name' : 'configured_scope' };
+  snapshot.provenance.scope = { industry_id: input.industryId, industry_name: input.industryName, scope_id: scope.scopeId, scope_name: scope.label, mapping: /^[1-9]\d{0,18}$/.test(input.industryId) ? 'canonical_scope' : input.configuredScopeId === undefined ? 'unique_exact_name' : 'configured_scope' };
   snapshot.provenance.available_dates = { min: filters.minDate, max: filters.maxDate };
   snapshot.provenance.period_range = periodRange(query, filters);
   snapshot.provenance.default_selection = input.selection === undefined;

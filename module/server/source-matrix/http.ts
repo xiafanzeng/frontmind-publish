@@ -12,7 +12,8 @@ import { loadConfirmedResearch,augmentResearchRequest } from './research-import-
 import { repairStoredResearchFilename } from './research-import-filename.js';
 import { resolvePlatformDecisionAdapter } from './ai-connection-http.js';
 import { loadMatrixIndustryContext } from './matrix-industry-context.js';
-import { loadIndustryCatalog } from './industry-catalog.js';
+import { loadIndustryCatalog,industryProviderFor } from './industry-catalog.js';
+import { liveIndustryInput,liveInputIdentity,savedIndustryInput } from './industry-input.js';
 import { mapLegacyIndustries } from '../../shared/industry-catalog.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
@@ -39,7 +40,7 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
   // Only server-persisted, verified content travels across budget/apply replays.
   return {...manuscript,...(saved?.content_source==='authorized_frozen_plain_text'&&typeof saved.content_excerpt==='string'?{content_excerpt:saved.content_excerpt,content_excerpt_truncated:saved.content_excerpt_truncated===true,content_source:saved.content_source}:{})};
  }):undefined;
- const {private_actor: _actor,research_datasets: researchDatasets,progress: _progress,...publicTask}=task;
+ const {private_actor: _actor,research_datasets: researchDatasets,progress: _progress,recommendation_input: _input,...publicTask}=task;
  const selectedBatch=task.brand?.batch_id?(brandExportBatch(task.brand.batch_id)??(dataset.brand_exports??[]).find((row:Row)=>row.id===task.brand.batch_id)):undefined;
  const observation=selectedBatch?prepareExportResearch(selectedBatch,publicTask,task.brand?.platforms??[]):undefined;
  const citations=observation?[]:brandCitations??clone(dataset.citations??[]);
@@ -104,8 +105,12 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const matches=mappings.filter(item=>item.canonicalId===canonical.id);
   // Multiple local datasets for one category need an explicit operational choice;
   // picking the first would silently select an unrelated brand/catalog.
-  const industry=matches.length===1?await repo.industry(matches[0]!.localId):undefined;
-  if(!industry){res.status(409).json({status:'data_unavailable',industry_id:canonical.id,message:'该行业推荐数据未接入或映射不唯一，请保留所选行业并联系运营接入真实媒体与报价。'});return;}
+  if(matches.length>1){res.status(409).json({status:'data_unavailable',industry_id:canonical.id,message:'该行业存在多个本地推荐数据配置，请联系运营明确选用的数据集。'});return;}
+  const industry=matches.length===1?await repo.industry(matches[0]!.localId):liveIndustryInput(canonical.id);
+  if(!industry){res.status(409).json({status:'data_unavailable',industry_id:canonical.id,message:'已登记的本地推荐数据暂不可用，请稍后重试。'});return;}
+  // The form's canonical industry owns the query; stale analysis-view scope must
+  // not select another industry. Date/model validation remains supplier-owned.
+  const selection=body.industry_query?{...body.industry_query,scopeId:canonical.scopeId}:undefined;
   // A browser can only name the draft/version; the server re-reads and verifies
   // both inside the authenticated owner and project scope before trusting them.
   let binding:TrustedArticleBinding|null=null,manuscripts:Row[]|undefined;
@@ -123,7 +128,8 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const researchDatasets=await loadConfirmedResearch(core,req,body.dataset_ids??[]);
   const decision=await resolvePlatformDecisionAdapter(core,req);
   if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
-  const taskId=randomUUID(),task:Row={industry:canonical.name,industry_id:canonical.id,industry_catalog_version:catalog.data.catalogVersion,industry_dataset_id:industry.industryId,...(manuscripts?{manuscripts}:{}),...(body.industry_query?{industry_query:clone(body.industry_query)}:{}),questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.target_platforms?.length?{target_platforms:body.target_platforms}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
+  const taskId=randomUUID(),task:Row={industry:canonical.name,industry_id:canonical.id,industry_catalog_version:catalog.data.catalogVersion,industry_dataset_id:industry.industryId,...(manuscripts?{manuscripts}:{}),...(selection?{industry_query:clone(selection)}:{}),questions:body.questions.map((text,i)=>({question_id:'question-'+digest({text,index:i}),text})),...(body.product?{product:body.product}:{}),...(body.audience?{audience:body.audience}:{}),...(body.regions?.length?{regions:body.regions}:{}),...(body.hours?{hours:body.hours}:{}),...(body.target_platforms?.length?{target_platforms:body.target_platforms}:{}),...(body.requirements?.length?{requirements:Object.fromEntries(body.requirements.map(kind=>[kind==='图片'?'images':kind==='表格'?'tables':'links',true]))}:{}),...(body.brand_data?{brand:{batch_id:body.brand_data,label:BRAND_DATA_BATCHES.find(b=>b.id===body.brand_data)?.label??body.brand_data,...(body.sample_platforms?.length?{platforms:body.sample_platforms}:{})}}:{})};
+  if(!matches.length)task.recommendation_input=liveInputIdentity(industry);
   task.private_actor=actor(req);task.research_datasets=researchDatasets;task.research_dataset_ids=(body.dataset_ids??[]);task.research_dataset_refs=researchDatasets.map(d=>({id:d.id,name:d.name,version:d.version,recordCount:d.records?.length??0,createdAt:d.createdAt,status:'confirmed'}));task.model_connection=null;task.model_source=decision.mode;task.progress='analyzing';
   if(binding)task.binding={draft_id:binding.draftId,article_version_id:binding.articleVersionId,article_id:binding.articleId,version_number:binding.versionNumber,content_hash:binding.contentHash,article_title:binding.articleTitle,fingerprint:binding.fingerprint,bound_at:body.as_of};
   // Brand sample rows are real recommendation input (never an industry-page fallback).
@@ -132,11 +138,11 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const context=core.context(req);
   const identity=createHash('sha256').update(JSON.stringify({account:context.accountUserId,actor:context.actorUserId,owner:context.businessOwnerId,project:context.enterpriseProjectId,businessActor:context.businessActorId})).digest('hex');
   // Only the free supplier filters/distributions are used; no billed ranking queries.
-  const loadedContext=await loadMatrixIndustryContext({industryId:canonical.id,industryName:canonical.name,selection:body.industry_query,configuredScopeId:typeof industry.dataset.industry_source_scope_id==='string'?industry.dataset.industry_source_scope_id:undefined,identity,environment:core.environment});
+  const loadedContext=await loadMatrixIndustryContext({industryId:canonical.id,industryName:canonical.name,selection,configuredScopeId:typeof industry.dataset.industry_source_scope_id==='string'?industry.dataset.industry_source_scope_id:undefined,identity,environment:core.environment},industryProviderFor(core));
   // The task stores the canonical industry identity; align the local-dataset
   // context to it so snapshot consistency validation holds.
   task.industry_context=loadedContext&&typeof loadedContext==='object'?{...loadedContext,industry_id:canonical.id,industry_name:canonical.name}:loadedContext;
-  task.industry_assignment={kind:'user_confirmed',industry_id:industry.industryId,article_version_id:binding?.articleVersionId??null,content_hash:binding?.contentHash??null};
+  task.industry_assignment={kind:'user_confirmed',industry_id:canonical.id,article_version_id:binding?.articleVersionId??null,content_hash:binding?.contentHash??null};
   const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await directory(req)),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
   if(prepared.status==='invalid_input'){res.status(400).json(prepared);return;}
   await repo.create(taskId,industry.industryId,industry.brandId,task);
@@ -155,7 +161,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}
   const previous=await repo.snapshot(task.taskId,body.plan_id,body.plan_version);if(!previous){res.status(409).json({status:'needs_matrix',message:'请先生成并校验信源矩阵'});return;}
   if(task.latest?.plan_version!==body.plan_version){res.status(409).json({status:'stale_plan',message:'方案已更新，请刷新后使用当前版本'});return;}
-  const industry=await repo.industry(task.industryId);if(!industry){res.status(409).json({status:'configuration_required',message:'原行业配置不可用'});return;}
+  const industry=await savedIndustryInput(task,repo);if(!industry){res.status(409).json({status:'configuration_required',message:'原行业配置不可用'});return;}
   // Re-read actual article identity. Cart revision/locks are refreshed budget
   // inputs, not semantic media fitness: adopting a plan must not force AI rerun.
   let binding:TrustedArticleBinding|null=null;
@@ -246,7 +252,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(!target){res.status(404).json({status:'plan_not_found'});return;}
   if(new Set(body.quantities.map(x=>x.item_index)).size!==body.quantities.length||body.quantities.some(x=>{const item=target.items[x.item_index];return !item||(formalEdit?previous.matrix.candidates.find((c:Row)=>c.resource_id===item.resource_id)?.candidate_id:item.candidate_id)!==x.candidate_id;})){res.status(400).json({status:'invalid_quantity_selection'});return;}
   for(const edit of body.quantities)target.items[edit.item_index].quantity=edit.quantity;
-  const industry=await repo.industry(task.industryId);if(!industry){res.status(409).json({status:'configuration_required'});return;}
+  const industry=await savedIndustryInput(task,repo);if(!industry){res.status(409).json({status:'configuration_required'});return;}
   let binding:TrustedArticleBinding|null=null;
   if(task.task?.binding){const context=core.context(req),store=new BindingStore(await core.database(),{ownerId:String(context.businessOwnerId),enterpriseProjectId:String(context.enterpriseProjectId)}),loaded=await store.loadBinding({draftId:task.task.binding.draft_id??undefined,articleVersionId:task.task.binding.article_version_id});
    if(!loaded.binding||loaded.binding.articleId!==task.task.binding.article_id||loaded.binding.articleVersionId!==task.task.binding.article_version_id||loaded.binding.contentHash!==task.task.binding.content_hash){res.status(409).json({status:'stale_binding',message:'稿件或冻结版本已变化，请重新确认矩阵'});return;}binding=loaded.binding;}
@@ -276,7 +282,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(stored&&(binding.articleId!==stored.article_id||binding.articleVersionId!==stored.article_version_id||binding.contentHash!==stored.content_hash)){res.status(409).json({status:'stale_binding',message:'绑定稿件或冻结版本已变化，请重新生成矩阵和组合'});return;}
   // Re-read quotes and all authoritative constraints immediately before cart
   // preview/apply. A saved plan's successful calculation is not a current price.
-  const industry=await repo.industry(task.industryId);if(!industry){res.status(409).json({status:'configuration_required'});return;}
+  const industry=await savedIndustryInput(task,repo);if(!industry){res.status(409).json({status:'configuration_required'});return;}
   const input=snapshot.scope?.input_snapshot;
   if(!input?.budget){res.status(409).json({status:'plan_not_applicable'});return;}
   const currentRequest={...datasetRequest(industry.dataset,task.task,repo.tenantId,task.taskId,industry.brandId,binding,undefined,await directory(req)),budget:clone(input.budget),publication_intent:input.publication_intent??'new_articles',resource_selections:clone(input.resource_selections??[])};

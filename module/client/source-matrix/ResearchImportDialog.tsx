@@ -4,7 +4,7 @@ import { MediaDialog } from './MediaMarket';
 import { RESEARCH_IMPORT_ACCEPT, RESEARCH_IMPORT_LIMITS as L, type ResearchDatasetSummary, type ResearchImportCounts } from './research-import-types';
 import './research-import.css';
 
-type Props = { open: boolean; scopeKey?: string; onClose: () => void; selectedIds: string[]; onChange: (ids: string[], datasets: ResearchDatasetSummary[]) => void; onRefresh?: (datasets: ResearchDatasetSummary[]) => void };
+type Props = { open: boolean; scopeKey?: string; onClose: () => void; selectedIds: string[]; onChange: (ids: string[], datasets: ResearchDatasetSummary[]) => void; onRefresh?: (datasets: ResearchDatasetSummary[]) => void; onNotice?: (message: string) => void };
 type Pending = { key: number; file: File; replaceId?: string; status: 'queued' | 'uploading' | 'failed'; error?: string };
 type AutoImportResult = { dataset: ResearchDatasetSummary; reused: boolean; replacedId?: string; validation: { counts: ResearchImportCounts; warnings: string[] } };
 const API = '/api/modules/publish/matrix/imports';
@@ -33,7 +33,7 @@ export function ResearchImportDialog({ open, scopeKey, ...props }: Props) {
   return open ? <ResearchImportSession key={scopeKey ?? 'imports'} {...props} /> : null;
 }
 
-function ResearchImportSession({ onClose, selectedIds, onChange, onRefresh }: Omit<Props, 'open' | 'scopeKey'>) {
+function ResearchImportSession({ onClose, selectedIds, onChange, onRefresh, onNotice }: Omit<Props, 'open' | 'scopeKey'>) {
   const [datasets, setDatasets] = useState<ResearchDatasetSummary[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed'>('loading');
@@ -90,7 +90,7 @@ function ResearchImportSession({ onClose, selectedIds, onChange, onRefresh }: Om
       writeSaved(items); setLoadState('ready');
       const valid = selected.current.filter(value => items.some(item => item.id === value));
       if (valid.length !== selected.current.length) {
-        choose(valid, items); setMessage('已取消失效文件的选用，请核对当前选择。');
+        choose(valid, items); setMessage('已取消失效文件的选用，请核对当前选择。'); onNotice?.('已取消失效文件的选用，请核对当前选择。');
       } else {
         // Refresh names/counts without marking an unchanged selection as a user edit.
         refresh.current?.(items.filter(item => valid.includes(item.id)));

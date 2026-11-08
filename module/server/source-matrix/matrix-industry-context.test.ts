@@ -18,25 +18,44 @@ function fixture(options: { filters?: unknown; data?: unknown; failure?: { endpo
 }
 
 describe('matrix free industry context', () => {
-  it('uses only free endpoints with real latest-day/model defaults and authenticated provider scope', async () => {
+  it('uses only free endpoints with the distribution view latest-month/model defaults and authenticated provider scope', async () => {
     const provider = fixture(), request = input();
     const result = await loadMatrixIndustryContext(request, provider);
     expect(result.status).toBe('ok');
     expect(provider.query.mock.calls.map(call => call[0])).toEqual(['filters', 'distributions']);
     expect(provider.query.mock.calls[0]![1].toString()).toBe('');
-    expect(Object.fromEntries(provider.query.mock.calls[1]![1])).toEqual(selection());
+    expect(Object.fromEntries(provider.query.mock.calls[1]![1])).toEqual(selection({periodType:'MONTH',date:'2026-11-01'}));
     expect(provider.query.mock.calls[1]!.slice(2)).toEqual([request.identity, request.environment.FRONTMIND_SOURCE_MATRIX_MOLIZHISHU_API_TOKEN]);
-    expect(result.query).toEqual(selection());
+    expect(result.query).toEqual(selection({periodType:'MONTH',date:'2026-11-01'}));
     expect(result.provenance.default_selection).toBe(true);
     expect(result.provenance.filters.fetched_at).toBe('2026-11-07T01:00:00.000Z');
     expect(JSON.stringify(result)).not.toContain('test-server-only-token');
+  });
+  it('defaults to the supplier all-model option only when it is explicitly available', async () => {
+    const available={...filters(),models:[...filters().models,{value:'all',label:'全部模型'}]};
+    const result=await loadMatrixIndustryContext(input(),fixture({filters:available}));
+    expect(result.query).toEqual(selection({periodType:'MONTH',date:'2026-11-01',modelCode:'all'}));
+  });
+  it('uses canonical scope identity despite duplicate labels or stale configured aliases', async () => {
+    const provider=fixture({filters:{...filters(),industryTree:[node('201'),node('202')]}});
+    const result=await loadMatrixIndustryContext({...input(),industryId:'201',configuredScopeId:'202'},provider);
+    expect(result.status).toBe('ok');expect(result.query.scopeId).toBe('201');
+    expect(result.provenance.scope.mapping).toBe('canonical_scope');
+    expect(provider.query.mock.calls.map(call=>call[0])).toEqual(['filters','distributions']);
+    expect(provider.query.mock.calls[1]![1].get('scopeId')).toBe('201');
+  });
+  it('never moves a missing canonical scope to a similarly named category', async () => {
+    const provider=fixture({filters:{...filters(),industryTree:[node('202')]}});
+    const result=await loadMatrixIndustryContext({...input(),industryId:'201',configuredScopeId:'202'},provider);
+    expect(result.status).toBe('mapping_unavailable');expect(provider.query).toHaveBeenCalledTimes(1);
+    expect(result.aggregates).toEqual([]);
   });
   it('preserves int64 strings, separate count units and industry-only applicability without media identity', async () => {
     const result = await loadMatrixIndustryContext(input(), fixture());
     expect(result.source_type_distribution[0].citationCount).toBe('9007199254740993');
     expect(result.publish_time_distribution[0].contentCount).toBe('7');
     expect(result.aggregates).toHaveLength(2);
-    expect(result.aggregates[0]).toMatchObject({ count: '9007199254740993', unit: 'citation_count', dimension: 'source_type', source_type: 'external_data', source_id: 'molizhishu-public-industry:distributions', aggregate_scope: 'industry_distribution', bucket: { code: 'news', name: '新闻资讯' }, scope: { industry: '汽车', industry_id: 'industry-auto', ...selection() }, applicability: { kind: 'industry_context', industry: '汽车' } });
+    expect(result.aggregates[0]).toMatchObject({ count: '9007199254740993', unit: 'citation_count', dimension: 'source_type', source_type: 'external_data', source_id: 'molizhishu-public-industry:distributions', aggregate_scope: 'industry_distribution', bucket: { code: 'news', name: '新闻资讯' }, scope: { industry: '汽车', industry_id: 'industry-auto', ...selection({periodType:'MONTH',date:'2026-11-01'}) }, applicability: { kind: 'industry_context', industry: '汽车' } });
     expect(result.aggregates[1]).toMatchObject({ count: '7', unit: 'content_count', dimension: 'publish_time' });
     for (const row of result.aggregates) {
       expect(row.data_version).toBe(result.data_version);

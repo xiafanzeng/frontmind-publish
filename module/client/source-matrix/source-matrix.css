@@ -183,3 +183,10 @@
 .fm-media .sm-layer-table td.sm-layer-cell .sm-more-candidates{margin:10px 2px 0}
 
 .fm-media .sm-industry-context{overflow-wrap:anywhere}
+
+.fm-media .sm-import-summary{grid-column:1/-1;min-width:0;border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:12px 14px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.7;overflow-wrap:anywhere}
+.fm-media .sm-import-summary strong{font-weight:600}
+.fm-media .sm-import-summary ul{display:flex;flex-wrap:wrap;gap:4px 18px;list-style:none;padding:0;margin:4px 0 0}
+.fm-media .sm-import-summary li{min-width:0}
+.fm-media .sm-import-summary p{margin:4px 0 0}
+@media(max-width:600px){.fm-media .sm-import-summary ul{display:block}.fm-media .sm-import-summary li+li{margin-top:4px}}

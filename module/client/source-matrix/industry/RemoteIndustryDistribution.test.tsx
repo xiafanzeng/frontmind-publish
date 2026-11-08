@@ -556,3 +556,26 @@ describe('authorized context and catalog invalidation UI (source-only)', () => {
     expect((screen.getByRole('combobox', { name: '行业' }) as HTMLSelectElement).value).toBe('102');
   });
 });
+
+
+describe('effective recommendation industry synchronization (source-only)',()=>{
+ it('ignores an old industry distribution response after the current form industry changes',async()=>{
+  let finish!:(value:unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});
+  const fetcher=installFetch({response:url=>url.pathname.endsWith('/distributions')&&url.searchParams.get('scopeId')==='101'?pending:undefined});
+  const gateway={} as PublisherGateway,onChange=vi.fn();
+  const panel=(id:string)=><StrictMode><PublishingGatewayProvider gateway={gateway}><div className="fm-media"><LiveIndustryDistribution article={{scopeKey:'same-article:v1',recognitionPending:false,suggestedIndustryId:'101'}} selectedIndustry={{id,onChange}}/></div></PublishingGatewayProvider></StrictMode>;
+  const view=render(panel('101'));await screen.findByText('真实来源标题');
+  view.rerender(panel('102'));
+  await waitFor(()=>expect(fetcher.mock.calls.filter(([url])=>url.includes('/distributions?'))).toHaveLength(2));
+  await screen.findByRole('img',{name:/媒体类型分布，新闻资讯 3次引用/});
+  await act(async()=>finish(success({sourceTypeDistribution:[{code:'新闻资讯',name:'新闻资讯',citationCount:'99'}],publishTimeDistribution:[]})));
+  expect((screen.getByRole('combobox',{name:'行业'}) as HTMLSelectElement).value).toBe('102');
+  expect(screen.queryByRole('img',{name:/99次引用/})).toBeNull();expect(window.location.search).toContain('siScope=102');
+ });
+ it('defaults to the first listed model when all is absent instead of adding an unsupported option',async()=>{
+  installFetch({response:url=>url.pathname.endsWith('/industries')?success({...filters,models:[{value:'doubao_api',label:'豆包'}]}):undefined});
+  mount();await screen.findByText('真实来源标题');
+  expect((screen.getByRole('combobox',{name:'模型'}) as HTMLSelectElement).value).toBe('doubao_api');
+  expect(screen.queryByRole('option',{name:'全部模型'})).toBeNull();expect(window.location.search).toContain('siModel=doubao_api');
+ });
+});

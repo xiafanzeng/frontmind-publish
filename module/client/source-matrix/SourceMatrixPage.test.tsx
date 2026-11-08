@@ -44,11 +44,13 @@ it('keeps configuration details out of permanent layout and offers a local indus
  await screen.findByRole('button',{name:'重试读取行业'});expect(screen.queryByText(/请联系管理员完成模块迁移/)).toBeNull();
  expect(screen.getByLabelText('目标行业 *')).toBeTruthy();expect(screen.getByLabelText('期望发布时效')).toBeTruthy();expect(screen.getByLabelText('素材能力要求')).toBeTruthy();expect(screen.getByLabelText('目标平台')).toBeTruthy();expect(screen.getAllByRole('button',{name:'导入数据'})).toHaveLength(1);expect(screen.queryByLabelText('品牌引用数据')).toBeNull();expect(screen.queryByLabelText('引用样本平台')).toBeNull();
 });
-it('shows platform status without personal API settings or the removed top shortcuts',async()=>{
+it('keeps available platform status silent without personal API settings or the removed top shortcuts',async()=>{
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
- vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:null,mode:'environment',available:true}:canonicalCatalog()})));
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>({ok:true,json:async()=>String(input).includes('/matrix/connection')?{connection:null,mode:'environment',available:true,message:'当前使用平台配置的模型'}:canonicalCatalog()})));
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- expect(await screen.findByText('当前使用平台配置的模型')).toBeTruthy();
+ await waitFor(()=>expect(screen.queryByText('正在读取推荐服务状态…')).toBeNull());
+ expect(screen.queryByText('当前使用平台配置的模型')).toBeNull();
+ expect(document.querySelector('.sm-input-status')).toBeNull();
  expect(screen.queryByRole('button',{name:'连接 API'})).toBeNull();
  expect(screen.queryByLabelText('当前投放任务')).toBeNull();
  expect(screen.queryByRole('link',{name:/^购物车 \d/})).toBeNull();
@@ -64,7 +66,8 @@ it('shows pending platform status and recovers an unavailable status through its
  await act(async()=>finish({connection:null,mode:'none',available:false}));
  expect(await screen.findByText('推荐服务暂不可用，请稍后重试或联系运营。')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'重试读取服务状态'}));
- expect(await screen.findByText('当前使用平台配置的模型')).toBeTruthy();
+ await waitFor(()=>expect(screen.queryByText('正在读取推荐服务状态…')).toBeNull());
+ expect(screen.queryByText('当前使用平台配置的模型')).toBeNull();
  expect(screen.queryByText(/打开连接设置|尚未连接 AI|已保存连接/)).toBeNull();
 });
 it('renders structured stale results without replacing or reading nonexistent matrix fields',async()=>{
@@ -699,12 +702,12 @@ it('does not send the automatic budget stage to another task after leaving a run
 });
 
 // Source-only platform/industry regressions; do not execute in this handoff workspace.
-function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<string,unknown>)=>unknown|Promise<unknown>){
+function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<string,unknown>)=>unknown|Promise<unknown>,rows=[{id:'industry-live',name:'真实行业'}]){
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100});
  const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=String(input);
   if(url.endsWith('/matrix/form-scope'))return {ok:true,json:async()=>({scopeKey:'a'.repeat(64)})};
-  if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog([{id:'industry-live',name:'真实行业'}])};
+  if(url.endsWith('/industries'))return {ok:true,json:async()=>canonicalCatalog(rows)};
   if(url.endsWith('/matrix/connection'))return {ok:true,json:async()=>({connection:null,mode:'environment',available:true})};
   if(url.endsWith('/matrix/generate')){const generated=await onGenerate?.(JSON.parse(String(init?.body)));return {ok:true,json:async()=>generated??{state:'complete',task_id:'new-task',result:task}};}
   if(url.includes('/classify/'))return {ok:true,json:async()=>({state:'complete',task_id:'matrix-1',result:task})};
@@ -714,11 +717,11 @@ function platformFixture(task:MatrixResult=matrix,onGenerate?:(body:Record<strin
 function platformTask(extra:Record<string,Json>={}):MatrixResult{return {...matrix,scope:{...matrix.scope,task:{...matrix.scope.task,industry:'真实行业',questions:[{text:'真实问题'}],...extra}}};}
 it('sends the selected CATEGORY range with lossless scope identity and no personal connection fields',async()=>{
  const bodies:Record<string,unknown>[]=[];
- platformFixture(platformTask(),body=>{bodies.push(body);return {state:'complete',result:{status:'needs_ai_decisions',errors:[{message:'Synthetic generation stopped'}]}};});
+ platformFixture(platformTask(),body=>{bodies.push(body);return {state:'complete',result:{status:'needs_ai_decisions',errors:[{message:'Synthetic generation stopped'}]}};},[{id:'9007199254740993',name:'真实行业'}]);
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=9007199254740993&siPeriod=MONTH&siDate=2026-10-01&siModel=public-model');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'9007199254740993'}});
  expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
  await waitFor(()=>expect(bodies).toHaveLength(1));
@@ -734,12 +737,12 @@ it('leaves an unscoped query to the server industry mapping instead of sending A
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
 });
 it('shows limited industry evidence honestly and invalidates the matrix when the selected range changes',async()=>{
- const query={scopeType:'CATEGORY',scopeId:'42',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
+ const query={scopeType:'CATEGORY',scopeId:'industry-live',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
  platformFixture(platformTask({industry_query:query,industry_context:{status:'partial',message:'发布时间分布暂缺',query,fetched_at:'2026-11-07T00:00:00Z',data_version:'version-42',limitations:['仅有类型分布']}}));
  openMatrix('siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=public-model');
  await screen.findByText(/行业数据不完整/);expect(screen.getByText(/仅有类型分布/)).toBeTruthy();
  expect(screen.queryByText(/需求、任务或稿件版本已变化/)).toBeNull();
- await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siScope=42','siScope=43'));window.dispatchEvent(new PopStateEvent('popstate'));});
+ await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siDate=2026-10-28','siDate=2026-10-27'));window.dispatchEvent(new PopStateEvent('popstate'));});
  expect(await screen.findByText(/需求、任务或稿件版本已变化/)).toBeTruthy();
 });
 it('requires historical personal-model tasks to regenerate without offering connection settings',async()=>{
@@ -772,7 +775,7 @@ it('ignores a delayed generation poll after the industry query has changed',asyn
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(polling).toBe(true));
- await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siScope=42','siScope=43'));window.dispatchEvent(new PopStateEvent('popstate'));});
+ await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siDate=2026-10-28','siDate=2026-10-27'));window.dispatchEvent(new PopStateEvent('popstate'));});
  await act(async()=>finish({state:'complete',task_id:'new-task',result:platformTask()}));
  expect(await screen.findByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeTruthy();
  expect(screen.queryByRole('heading',{name:'可投媒体'})).toBeNull();
@@ -848,4 +851,82 @@ it('adopts the latest verified research draft when identity arrives before a pen
  expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('Kimi');
  expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('12');
  expect(screen.queryByText(/投放需求已变化，先前生成结果未应用/)).toBeNull();
+});
+
+
+// Source-only regressions for confirmed import hydration and legacy-free generation.
+it('confirms selected IDs against the saved list before counting and puts the summary above questions',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&researchDataset=synthetic-file');
+ let finish!:(value:unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});
+ const fetcher=platformFixture();const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/imports')?{ok:true,json:async()=>pending}:base(input,init));
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ const loading=await screen.findByText('正在读取已保存文件列表…');
+ expect(screen.queryByText(/已选用 1 份导入数据/)).toBeNull();
+ expect(loading.closest('.sm-import-summary')!.compareDocumentPosition(screen.getByLabelText('目标问题 / 内容需求 *'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ await act(async()=>finish({datasets:[{id:'synthetic-file',name:'Synthetic research.csv',version:'v1',recordCount:7,createdAt:'',status:'confirmed'}]}));
+ expect(await screen.findByText('已选用 1 份导入数据')).toBeTruthy();expect(screen.getByText('Synthetic research.csv')).toBeTruthy();expect(screen.getByText('（7 条）')).toBeTruthy();
+ expect(document.querySelector('.sm-input-status')?.textContent??'').not.toContain('Synthetic research.csv');
+});
+it('keeps import list failures independent and retries without turning preview metadata into success',async()=>{
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&researchDataset=synthetic-file');
+ let reads=0;const fetcher=platformFixture();const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/matrix/imports')){if(++reads===1)throw new Error('Synthetic import failure');return {ok:true,json:async()=>({datasets:[{id:'synthetic-file',name:'Unconfirmed preview',version:'v1',recordCount:2,createdAt:'',status:'preview'}]})};}
+  return base(input,init);
+ });
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);
+ expect(await screen.findByText('选用数据尚未确认')).toBeTruthy();expect(screen.queryByText(/已选用 1 份/)).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'重试读取文件列表'}));
+ expect(await screen.findByText('已取消失效文件的选用，请核对当前选择。')).toBeTruthy();expect(screen.getByText('未选用导入数据')).toBeTruthy();expect(screen.queryByText('Unconfirmed preview')).toBeNull();
+});
+it('generates a valid canonical industry without legacy mappings and corrects stale scope while preserving period and model',async()=>{
+ const bodies:Record<string,unknown>[]=[];const fetcher=platformFixture(platformTask(),body=>{bodies.push(body);return {state:'complete',result:{status:'needs_ai_decisions',errors:[]}};});
+ const base=fetcher.getMockImplementation()!;fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/industries')?{ok:true,json:async()=>({...canonicalCatalog([{id:'industry-live',name:'真实行业'}]),legacyMappings:[]})}:base(input,init));
+ window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=all');
+ render(<div className="monitoring-module"><SourceMatrixPage/></div>);await screen.findByRole('option',{name:'真实行业'});
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).toMatchObject({industry_id:'industry-live'});expect(bodies[0]).toMatchObject({industry_query:{scopeId:'industry-live',scopeType:'CATEGORY',periodType:'DAY',date:'2026-10-28',modelCode:'all'}});expect(screen.queryByText(/推荐数据尚未接入/)).toBeNull();
+});
+
+
+it.each(['imports-first','task-first'])('keeps current confirmed metadata and detects selected version changes with %s hydration',async order=>{
+ const saved=platformTask({research_dataset_ids:['synthetic-selected'],research_dataset_refs:[{id:'synthetic-selected',name:'Historical snapshot.csv',recordCount:2,version:'old-version'}],model_source:'environment',industry_context:{status:'ok'}});
+ let finishTask!:(value:unknown)=>void,finishImports!:(value:unknown)=>void;
+ const pendingTask=new Promise(resolve=>{finishTask=resolve;}),pendingImports=new Promise(resolve=>{finishImports=resolve;});
+ const fetcher=platformFixture(saved);const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).endsWith('/matrix/imports'))return {ok:true,json:async()=>pendingImports};
+  if(String(input).includes('/classify/'))return {ok:true,json:async()=>pendingTask};
+  return base(input,init);
+ });
+ openMatrix('researchDataset=synthetic-selected');
+ await screen.findByRole('option',{name:'真实行业'});
+ const current={datasets:[{id:'synthetic-selected',name:'Current confirmed.csv',recordCount:7,version:'current-version',createdAt:'',status:'confirmed'}]};
+ const task={task_id:'matrix-1',state:'complete',result:saved};
+ if(order==='imports-first'){
+  await act(async()=>finishImports(current));await screen.findByText('Current confirmed.csv');
+  await act(async()=>finishTask(task));
+ }else{
+  await act(async()=>finishTask(task));await waitFor(()=>expect((screen.getByLabelText('目标行业 *') as HTMLSelectElement).value).toBe('industry-live'));
+  expect(screen.queryByText('Historical snapshot.csv')).toBeNull();
+  await act(async()=>finishImports(current));
+ }
+ expect(await screen.findByText('选用文件的版本已变化，请重新生成矩阵。')).toBeTruthy();
+ expect(screen.getByText('Current confirmed.csv')).toBeTruthy();expect(screen.getByText('（7 条）')).toBeTruthy();expect(screen.queryByText('Historical snapshot.csv')).toBeNull();
+ // An unchanged dialog list refresh and close cannot erase the independent version warning.
+ fireEvent.click(screen.getByRole('button',{name:'导入数据'}));await screen.findByRole('checkbox',{name:'选用 Current confirmed.csv'});
+ fireEvent.click(screen.getByRole('button',{name:'完成'}));
+ expect(screen.getByText('选用文件的版本已变化，请重新生成矩阵。')).toBeTruthy();
+});
+it('ignores version changes of unselected server files and historical references during metadata refresh',async()=>{
+ const saved=platformTask({research_dataset_ids:['synthetic-selected'],research_dataset_refs:[{id:'synthetic-selected',name:'Selected.csv',version:'same-version'},{id:'synthetic-unselected',name:'Unselected.csv',version:'old-unselected'}],model_source:'environment',industry_context:{status:'ok'}});
+ let otherVersion='new-unselected';const fetcher=platformFixture(saved);const base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/imports')?{ok:true,json:async()=>({datasets:[{id:'synthetic-selected',name:'Selected.csv',recordCount:3,version:'same-version',createdAt:'',status:'confirmed'},{id:'synthetic-unselected',name:'Unselected.csv',recordCount:5,version:otherVersion,createdAt:'',status:'confirmed'}]})}:base(input,init));
+ openMatrix('researchDataset=synthetic-selected');await screen.findByText('已选用 1 份导入数据');
+ await waitFor(()=>expect((screen.getByLabelText('目标行业 *') as HTMLSelectElement).value).toBe('industry-live'));
+ expect(screen.queryByText('选用文件的版本已变化，请重新生成矩阵。')).toBeNull();
+ otherVersion='later-unselected';fireEvent.click(screen.getByRole('button',{name:'导入数据'}));await screen.findByRole('checkbox',{name:'选用 Unselected.csv'});
+ fireEvent.click(screen.getByRole('button',{name:'完成'}));
+ expect(screen.queryByText('选用文件的版本已变化，请重新生成矩阵。')).toBeNull();expect(screen.getByText('已选用 1 份导入数据')).toBeTruthy();
 });
