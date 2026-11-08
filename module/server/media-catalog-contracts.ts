@@ -32,6 +32,9 @@ export const mediaCatalogListInputSchema = publisherMediaListInputSchema.and(
     festivalStatus: z.enum(["publishable", "not_publishable", "unspecified"]).optional(),
     // Resource UUIDs, never supplier-local numeric IDs. [] means an empty scope.
     mediaIds: z.array(idSchema).max(500).optional(),
+    // This table has one provider namespace and a unique external_resource_id.
+    // [] is deliberately an empty identity scope, never an unfiltered query.
+    exactExternalResourceIds: z.array(z.string().trim().min(1).max(128)).max(100).optional(),
   }),
 ).superRefine((value, context) => {
   for (const [normalized, legacy] of [
@@ -62,6 +65,7 @@ export const mediaCatalogListInputSchema = publisherMediaListInputSchema.and(
 export type MediaCatalogListInput = z.infer<typeof mediaCatalogListInputSchema>;
 
 const catalogSnapshotFields = {
+  exactResourceLookupVersion: z.literal(1).optional(),
   filterSchemaVersion: z.literal(2),
   advancedFilterVersion: z.literal(1),
   catalogCounts: z.object({

@@ -122,3 +122,21 @@ it('leaves large unsupported or tied category sets unknown instead of selecting 
   expect(identificationCandidates({ title: '天气', body: '阳光晴朗' }, directory).industries).toEqual([]);
   expect(validateIdentificationFields({ fields: { industry: { value: '零售', source: 'inferred' } } }, article, directory).industry).toMatchObject({ value: null, reason: 'ambiguous_industry' });
 });
+
+
+it('returns only deduplicated real catalog suggestions in relevance order without selecting the first', () => {
+  const directory = [{ id: 'retail', name: '零售' }, { id: 'retail-tech', name: '零售技术' }, { id: 'inventory', name: '库存管理' }, { id: 'unrelated', name: '海洋捕捞' }];
+  const result = validateIdentificationFields({ fields: { industry: { ...unknown, suggestions: ['inventory', 'retail', 'inventory', 'invented'] } } }, article, directory);
+  expect(result.industry.value).toBeNull(); expect(result.industry.source).toBe('unidentified');
+  expect(result.industry.suggestions?.slice(0, 2)).toEqual([{ id: 'inventory', name: '库存管理' }, { id: 'retail', name: '零售' }]);
+  expect(result.industry.suggestions?.some(item => item.id === 'unrelated' || item.id === 'invented')).toBe(false);
+  expect(new Set(result.industry.suggestions?.map(item => item.id)).size).toBe(result.industry.suggestions?.length);
+});
+it('does not fill unrelated categories when there is no trustworthy catalog suggestion', () => {
+  const result = validateIdentificationFields({ fields: { industry: unknown } }, { title: '星河发布', body: '一则普通消息。' }, [{ id: 'ocean', name: '海洋捕捞' }]);
+  expect(result.industry.value).toBeNull(); expect(result.industry.suggestions).toEqual([]);
+});
+it('keeps a reliable legal industry on the automatic fill path without redundant options', () => {
+  const result = validateIdentificationFields({ fields: { industry: { value: 'retail', source: 'inferred', suggestions: ['retail'] } } }, article, industries);
+  expect(result.industry).toMatchObject({ value: 'retail', canonicalId: 'retail' }); expect(result.industry.suggestions).toBeUndefined();
+});

@@ -13,30 +13,58 @@ export function ArticleIdentificationStatus({ identification }: { identification
     </button>
   </div>;
 }
-const origins = { article: '稿件信息', inferred: 'AI 建议', unidentified: '未识别', manual: '手动填写', saved: '已保存要求' };
-// Display only our public enum; provider text and unexpected cached values never
-// become failure explanations in the UI.
-const reasons = {
-  missing: '本次识别未提供此字段，请手动填写。', invalid_format: '此字段返回格式无效，未自动采用。',
-  empty: '未识别出可填写内容，请手动确认。', too_long: '此字段超出长度限制，未自动采用。',
-  industry_not_in_catalog: '行业候选不在当前目录中，请选择真实行业。', catalog_unavailable: '行业目录暂不可用，加载后可继续确认。',
-  ambiguous_industry: '行业匹配存在歧义，请手动选择。', evidence_not_verbatim: '原文引证未能核实，请核对当前建议。',
-  inferred_from_article: '根据稿件推断，请核对后使用。', unsupported_product: '稿件中未找到可靠的品牌／产品依据，请手动填写。',
-  catalog_changed: '行业目录已更新，请重新确认行业。',
+/** Only actionable problems are public. Evidence and matching diagnostics remain in state. */
+const errors = {
+  missing: '请填写此项。', invalid_format: '识别格式无效，请填写。', empty: '请填写此项。',
+  too_long: '识别内容过长，请填写。', industry_not_in_catalog: '请选择有效行业。',
+  catalog_unavailable: '行业目录暂不可用。', ambiguous_industry: '请选择行业。',
+  unsupported_product: '请填写品牌或产品。', catalog_changed: '行业已失效，请重新选择。',
 } as const;
-export function ArticleIdentificationFieldInfo({ fieldKey, identification, industryName }: { fieldKey: IdentificationFieldKey; identification: ArticleIdentification; industryName?: (id: string) => string }) {
+type IndustryFeedbackCatalog = { loading: boolean; error?: boolean; options: readonly { id: string; name: string }[]; retry: () => void };
+export function ArticleIdentificationFieldInfo({ fieldKey, identification, industryCatalog, onIndustryAdopted }: {
+  fieldKey: IdentificationFieldKey; identification: ArticleIdentification;
+  industryName?: (id: string) => string;
+  industryCatalog?: IndustryFeedbackCatalog; onIndustryAdopted?: () => void;
+}) {
   const field = identification.fields[fieldKey];
-  const suggestion = field.suggestion;
-  const reason = field.reason && Object.prototype.hasOwnProperty.call(reasons, field.reason) ? reasons[field.reason] : undefined;
-  const displayValue = (value: string) => fieldKey === 'industry' ? industryName?.(value) ?? '已匹配行业（可采用后查看）' : value;
+  const ai = !!field.value && (field.origin === 'article' || field.origin === 'inferred');
+  if (fieldKey === 'industry') {
+    if (industryCatalog?.loading) return <span className="sm-identification-field-info" role="status">正在读取行业…</span>;
+    if (industryCatalog?.error || industryCatalog && !industryCatalog.options.length) return <span className="sm-identification-field-info" role="status">
+      行业目录暂不可用。<button type="button" className="link" onClick={industryCatalog.retry}>重试读取行业</button>
+    </span>;
+    const valid = !!field.value && (!industryCatalog || industryCatalog.options.some(item => item.id === field.value));
+    if (valid) return ai ? <span className="sm-identification-field-info"><span className="sm-identification-origin" data-origin={field.origin}>AI 建议</span></span> : null;
+    if (field.value) return <span className="sm-identification-field-info" role="status">行业已失效，请重新选择。</span>;
+    // The identification server may have failed its own catalog read even when
+    // this page already has a valid directory. Reload recognition to clear that
+    // result-owned failure; a UI-only directory retry cannot repair it.
+    if (field.reason === 'catalog_unavailable') return <span className="sm-identification-field-info" role="status">
+      行业目录暂不可用。<button type="button" className="link" disabled={['loading', 'identifying'].includes(identification.status)} onClick={event => {
+        event.preventDefault(); void identification.retry();
+      }}>重试识别行业</button>
+    </span>;
+    if (!['complete', 'partial', 'unidentified'].includes(identification.status)) return null;
+    const seen = new Set<string>();
+    const options = !field.edited && !field.saved ? (field.suggestions ?? []).flatMap(option => {
+      const current = industryCatalog?.options.find(item => item.id === option.id);
+      if (!current || seen.has(current.id)) return [];
+      seen.add(current.id); return [current];
+    }).slice(0, 5) : [];
+    return <span className="sm-identification-field-info">
+      <span role="status">未识别</span>
+      {options.length ? <span className="sm-identification-suggestion">
+        <span>AI 建议</span>{options.map(option => <button key={option.id} type="button" className="link" onClick={event => {
+          event.preventDefault();
+          if (industryCatalog?.options.some(item => item.id === option.id) && identification.adoptIndustry(option.id)) onIndustryAdopted?.();
+        }}>{option.name}</button>)}
+      </span> : <span>请手动选择行业。</span>}
+    </span>;
+  }
+  const reason = !field.value && field.reason && Object.prototype.hasOwnProperty.call(errors, field.reason) ? errors[field.reason as keyof typeof errors] : undefined;
+  if (!ai && !reason) return null;
   return <span className="sm-identification-field-info">
-    <span className="sm-identification-origin" data-origin={field.origin}>{origins[field.origin]}</span>
-    {field.evidence && <span className="sm-identification-evidence" title={field.evidence}>原文：{field.evidence}</span>}
+    {ai && <span className="sm-identification-origin" data-origin={field.origin}>AI 建议</span>}
     {reason && <span className="sm-identification-reason">{reason}</span>}
-    {field.candidate && <span className="sm-identification-candidate">{fieldKey === 'industry' ? '行业候选' : '待确认'}：{field.candidate}，请手动确认。</span>}
-    {suggestion?.value != null && <span className="sm-identification-suggestion">
-      <span>{suggestion.source === 'article' ? '稿件信息' : 'AI 建议'}：{displayValue(suggestion.value)}</span>
-      <button type="button" className="link" onClick={event => { event.preventDefault(); identification.adopt(fieldKey); }}>采用{suggestion.source === 'article' ? '稿件信息' : '建议'}</button>
-    </span>}
   </span>;
 }

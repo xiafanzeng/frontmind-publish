@@ -450,3 +450,22 @@ it('retains local enrichment while live directory identity and offer facts remai
  expect(received.catalog).toEqual([{resource_id:'media-1',source_name:'目录当前名称',supports_tables:true,offer_id:'current-offer',publication_status:'available'}]);
  expect(received.industry_recommendations).toEqual(localDataset.industry_recommendations);expect(received.identity_config).toEqual(localDataset.identity_config);
 });
+
+
+it.each(['running','complete'])('projects compact platform readiness and the saved query for a %s task',async(state)=>{
+ canonicalReads();
+ const query={scopeType:'CATEGORY',scopeId:'101',periodType:'DAY',date:'2026-11-01',modelCode:'all'};
+ const stored={taskId:'task-readiness',industryId:'industry-1',state,task:{industry:'软件测试',industry_id:'101',model_source:'environment',industry_query:query,industry_context:{status:'partial',aggregates:[{private_fixture:'full snapshot stays outside form projection'}]},private_actor:'private'},latest:null};
+ vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue(stored as any);
+ const before=JSON.stringify(stored),url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/classify/task-readiness'),body=await response.json();
+ expect(body.task).toMatchObject({platform_regeneration_required:false,industry_query:query});
+ expect(body.task).not.toHaveProperty('industry_context');expect(body.task).not.toHaveProperty('private_actor');
+ expect(JSON.stringify(stored)).toBe(before);
+});
+
+it.each([{model_source:'user',industry_context:{status:'ok'}},{model_source:'environment'}])('keeps the real historical regeneration gate in the projection',async(task)=>{
+ canonicalReads();vi.spyOn(MatrixRepository.prototype,'get').mockResolvedValue({taskId:'task-old',industryId:'industry-1',state:'complete',task:{industry:'软件测试',...task},latest:null} as any);
+ const url=await host(core({database:async()=>({} as any)})),response=await fetch(url+'/api/modules/publish/classify/task-old');
+ expect((await response.json()).task.platform_regeneration_required).toBe(true);
+});

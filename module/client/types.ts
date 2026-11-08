@@ -189,6 +189,8 @@ export type MediaFilters = {
   batchQuery?: string;
   /** Request-only internal IDs for an account's cart/favourite scope; never persisted in URLs. */
   mediaIds?: string[];
+  /** Exact IDs in the current shared provider catalogue; never a name search. */
+  exactExternalResourceIds?: string[];
   kind?: PublisherMediaKind;
   platform?: string;
   taxonomy?: string;
@@ -271,6 +273,7 @@ export type MediaFacets = {
 };
 
 export type MediaList = {
+  exactResourceLookupVersion?: 1;
   advancedFilterVersion?: number;
   filterSchemaVersion?: number;
   items: MediaResource[];

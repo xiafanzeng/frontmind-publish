@@ -15,7 +15,7 @@ function Harness(props: UseArticleIdentificationOptions) {
 const options = (): UseArticleIdentificationOptions => ({ gateway: {}, workspace: 'project', articleVersionId: 'version-a', enabled: true, autoIdentify: true, connectionEpoch: 0 });
 function context(version: string) { return { scopeKey: 'authenticated-scope', articleId: 'article-' + version, articleVersionId: version, versionNumber: 1, title: 'Synthetic article', contentDigest: 'digest-' + version, connection: { available: true, mode: 'environment', revision: 'revision' } }; }
 const emptyFields = { product: { value: null, source: 'unidentified' }, industry: { value: null, source: 'unidentified' }, audience: { value: null, source: 'unidentified' }, questions: { value: null, source: 'unidentified' } };
-it('renders a new route blank before effects resolve and supports keyboard-accessible explicit adoption', async () => {
+it('renders a new route blank and preserves an intentional manual clear after recognition', async () => {
   let resolveModel!: (value: unknown) => void;
   const model = new Promise(resolve => { resolveModel = resolve; });
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
@@ -34,8 +34,9 @@ it('renders a new route blank before effects resolve and supports keyboard-acces
   fireEvent.change(screen.getByLabelText('品牌'), { target: { value: '' } });
   await act(async () => resolveModel({ status: 'partial', context: context('version-a'), fields: { ...emptyFields, product: { value: 'Suggestion A', source: 'inferred' } } }));
   expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');
-  fireEvent.click(screen.getByRole('button', { name: '采用建议' }));
-  expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('Suggestion A');
+  expect(screen.queryByRole('button', { name: '采用建议' })).toBeNull();
+  expect(screen.queryByText('AI 建议')).toBeNull();
+  expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');
   view.rerender(<StrictMode><Harness {...props} articleVersionId="version-b" autoIdentify={false}/></StrictMode>);
   expect((screen.getByLabelText('品牌') as HTMLInputElement).value).toBe('');
   await waitFor(() => expect(screen.getByRole('button', { name: '根据稿件识别' }).hasAttribute('disabled')).toBe(false));
@@ -55,9 +56,9 @@ it('renders only allowlisted field reasons and keeps arbitrary provider reason t
     ? { status: 'ready', context: context('version-a'), fields: emptyFields }
     : { status: 'unidentified', context: context('version-a'), fields: { ...emptyFields, product: { value: null, source: 'unidentified', reason } } } })));
   render(<Harness {...options()}/>);
-  await screen.findByText('稿件中未找到可靠的品牌／产品依据，请手动填写。');
+  await screen.findByText('请填写品牌或产品。');
   reason = 'provider raw payload must never render';
   fireEvent.click(screen.getByRole('button', { name: '重新识别' }));
-  await waitFor(() => expect(screen.queryByText('稿件中未找到可靠的品牌／产品依据，请手动填写。')).toBeNull());
+  await waitFor(() => expect(screen.queryByText('请填写品牌或产品。')).toBeNull());
   expect(screen.queryByText(reason)).toBeNull();
 });
