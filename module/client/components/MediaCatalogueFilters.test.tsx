@@ -5,11 +5,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import MediaCatalogueFilters from "./MediaCatalogueFilters";
 import { DEFAULT_MEDIA_FILTERS } from "../queryState";
 import type { MediaFilters, MediaFacets } from "../types";
+import { ADVANCED_FILTER_VERSION, PUBLISH_TIME_OPTIONS, ENTRY_OPTIONS, LINK_OPTIONS, FESTIVAL_OPTIONS } from "../../shared/media-advanced-filters";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const facets = {
   filterSchemaVersion: 2,
+  advancedFilterVersion: ADVANCED_FILTER_VERSION,
+  publishTimeBands: PUBLISH_TIME_OPTIONS.filter(option => option.value).map(option => ({ ...option, count: 2 })),
+  entryCategories: ENTRY_OPTIONS.filter(option => option.value).map(option => ({ ...option, count: 2 })),
+  linkCategories: LINK_OPTIONS.filter(option => option.value).map(option => ({ ...option, count: 2 })),
+  festivalStatuses: FESTIVAL_OPTIONS.filter(option => option.value).map(option => ({ ...option, count: option.value === "unspecified" ? 0 : 2 })),
   coverageProvinces: ["全国覆盖", "综合全国（待确认）", "广东", "浙江"].map(value => ({ value, label: value, count: 4 })),
   coverageCities: [{ province: "广东", value: "深圳市", label: "深圳市", count: 1 }, { province: "浙江", value: "杭州市", label: "杭州市", count: 1 }],
   aiPlatforms: [{ value: "DeepSeek", label: "DeepSeek", count: 1 }],
@@ -18,7 +24,7 @@ const facets = {
   platforms: [{ value: "其他门户", label: "其他门户", count: 4 }],
   areas: [{ value: "全国", label: "全国", count: 4 }],
   mediaTypes: [], includeTypes: [], publishSpeeds: [], entryTypes: [], linkTypes: [],
-  pcWeightThresholds: [], includeRateThresholds: [], successRateThresholds: [],
+  pcWeightThresholds: [], mobileWeightThresholds: [], includeRateThresholds: [], successRateThresholds: [],
   recommendedOptions: [{ value: "true", label: "推荐媒体", count: 1 }],
   recommendationTags: [{ value: "带视频", label: "带视频", count: 1 }],
   authenticatedOptions: [], festivalPublishableOptions: [],
@@ -141,5 +147,88 @@ describe("media catalogue filter interaction contract", () => {
     expect(screen.queryByLabelText("媒体排序")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "移除多个名称：2 个" }));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ batchQuery: "", sort: "price_desc" }));
+  });
+
+  it("offers the ten ordered cumulative time choices and four holiday states in the same grid", () => {
+    harness();
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    const speed = screen.getByLabelText("预计发布时效");
+    expect(within(speed).getAllByRole("option").map(option => option.textContent)).toEqual([
+      "不限", "1小时内", "3小时内", "6小时内", "12小时内", "1天内", "2天内", "3天内", "3天以上", "时效待确认",
+    ]);
+    const festival = screen.getByLabelText("节假日发布");
+    expect(within(festival).getAllByRole("option").map(option => option.textContent)).toEqual(["不限", "可发布", "不可发布", "未注明"]);
+    expect((festival as HTMLSelectElement).disabled).toBe(false);
+    expect(speed.closest(".mc-advanced-grid")).toBe(festival.closest(".mc-advanced-grid"));
+    expect(document.querySelector(".mc-extra-options")).toBeNull();
+    expect(document.querySelector(".mc-advanced .mc-note")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it.each([
+    ["预计发布时效", "publishTimeBand", "within_3h", "publishSpeed", "一小时", "3小时内"],
+    ["文章展示入口", "entryCategory", "none", "entryType", "没有入口", "无入口"],
+    ["链接与联系方式", "linkCategory", "phone", "linkType", "电话", "可带电话"],
+    ["节假日发布", "festivalStatus", "not_publishable", "festival", "true", "不可发布"],
+  ] as const)("replaces only the corresponding exact legacy condition when changing %s", (label, key, value, legacyKey, legacy, display) => {
+    const changed = harness({ [legacyKey]: legacy, province: "广东", page: 9 });
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    const control = screen.getByLabelText(label) as HTMLSelectElement;
+    expect(control.selectedOptions[0].textContent).toContain("原条件：");
+    expect(changed).not.toHaveBeenCalled();
+    fireEvent.change(control, { target: { value } });
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ [key]: value, [legacyKey]: "", province: "广东", page: 1 }));
+    expect(screen.getByRole("button", { name: `移除${label}：${display}` })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: `移除${label}：${display}` }));
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ [key]: "", [legacyKey]: "", province: "广东", page: 1 }));
+  });
+
+  it("keeps exact authentication visibly removable without offering an unsupported certification control", () => {
+    const changed = harness({ authenticated: "true", publishSpeed: "当天" });
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    expect(screen.queryByLabelText("认证状态")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "移除原条件 · 发布速度：当天" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "移除原条件 · 已认证（目录未提供认证数据，可移除原条件）" }));
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ authenticated: "", publishSpeed: "当天" }));
+  });
+
+  it("keeps help buttons separate from select labels and uses the established shared explanation owner", () => {
+    harness();
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    for (const label of ["预计发布时效", "文章展示入口", "链接与联系方式", "百度电脑端权重", "百度移动端权重", "收录率", "发布成功率", "节假日发布"]) {
+      const trigger = screen.getByRole("button", { name: `${label}说明` });
+      expect(trigger.closest("label")).toBeNull();
+      expect(trigger.getAttribute("type")).toBe("button");
+      const select = screen.getByLabelText(label);
+      expect(trigger.closest(".mc-advanced-field")).toBe(select.closest(".mc-advanced-field"));
+    }
+  });
+
+  it("does not offer new semantics for an older backend or silently broaden a restored exact value", () => {
+    const changed = vi.fn();
+    render(<MediaCatalogueFilters filters={{ ...DEFAULT_MEDIA_FILTERS, publishSpeed: "当天" }}
+      facets={{ ...facets, advancedFilterVersion: undefined }} facetsLoading={false} onRetry={() => {}} onChange={changed} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    const speed = screen.getByLabelText("预计发布时效") as HTMLSelectElement;
+    expect(speed.disabled).toBe(true);
+    expect(speed.selectedOptions[0].textContent).toBe("原条件：当天");
+    expect(within(speed).queryByRole("option", { name: "3小时内" })).toBeNull();
+    expect(screen.getByText(/当前媒体服务尚未支持新版高级筛选/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "移除原条件 · 发布速度：当天" }));
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ publishSpeed: "" }));
+  });
+
+  it.each([
+    ["loading", { facetsLoading: true }, "正在读取选项…"],
+    ["error", { facetsLoading: false, facetsError: "network timeout" }, "选项读取失败，请重试"],
+    ["version", { facetsLoading: false, facetsVersionMismatch: true }, "目录版本已变化，请重新读取"],
+  ] as const)("distinguishes %s from successful empty facets", (_name, state, label) => {
+    render(<MediaCatalogueFilters filters={{ ...DEFAULT_MEDIA_FILTERS }} {...state} onRetry={() => {}} onChange={() => {}} onReset={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开高级选项/ }));
+    const speed = screen.getByLabelText("预计发布时效") as HTMLSelectElement;
+    expect(speed.disabled).toBe(true);
+    expect(speed.selectedOptions[0].textContent).toBe(label);
+    expect(within(speed).queryByRole("option", { name: /暂无可用数据/ })).toBeNull();
   });
 });

@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { mediaCatalogFacetsOutputSchema, mediaCatalogListInputSchema, mediaCatalogListOutputSchema } from "./media-catalog-contracts.js";
 
 describe("module media catalog contracts", () => {
+  it("validates normalized advanced inputs without silently ANDing legacy raw conditions", () => {
+    expect(mediaCatalogListInputSchema.parse({ publishTimeBand: "within_3h", entryCategory: "none",
+      linkCategory: "phone", festivalStatus: "unspecified" })).toMatchObject({ publishTimeBand: "within_3h" });
+    for (const input of [
+      { publishTimeBand: "within_3h", publishSpeed: "3小时" },
+      { entryCategory: "none", entryType: "无入口" }, { entryCategory: "none", entryLevel: "没有入口" },
+      { linkCategory: "phone", linkType: "电话" }, { festivalStatus: "publishable", festivalPublishable: true },
+      { publishTimeBand: "3小时" }, { entryCategory: "unknown" }, { linkCategory: "raw:" },
+    ]) expect(mediaCatalogListInputSchema.safeParse(input).success).toBe(false);
+    expect(mediaCatalogListInputSchema.safeParse({ entryCategory: "raw:新入口", linkCategory: "raw:新能力" }).success).toBe(true);
+    expect(mediaCatalogListInputSchema.parse({ publishSpeed: "3小时", entryType: "没有入口", linkType: "电话" }))
+      .toMatchObject({ publishSpeed: "3小时", entryType: "没有入口", linkType: "电话" });
+  });
   it("preserves the name-only and exact recommendation inputs at the route boundary", () => {
     const input = mediaCatalogListInputSchema.parse({
       nameQuery: "  财经  ", nameBatchQuery: ["新闻", "科技"],
@@ -52,7 +65,7 @@ describe("module media catalog contracts", () => {
 
   it("keeps filtered total independent and rejects inconsistent inventory", () => {
     const result = {
-      filterSchemaVersion: 2,
+      filterSchemaVersion: 2, advancedFilterVersion: 1,
       items: [], nextCursor: null, total: 0, page: 1, pageSize: 20,
       catalogRevision: "fixture-revision", catalogSyncedAt: new Date("2026-01-01T00:00:00Z"),
       catalogStale: false, kindComplete: true,
@@ -66,7 +79,7 @@ describe("module media catalog contracts", () => {
 
   it("retains versioned normalized facets and rejects incomplete metadata", () => {
     const result = {
-      filterSchemaVersion: 2, kindCounts: { news: 2, selfMedia: 5 },
+      filterSchemaVersion: 2, advancedFilterVersion: 1, kindCounts: { news: 2, selfMedia: 5 },
       catalogRevision: "fixture-revision", catalogSyncedAt: new Date("2026-01-01T00:00:00Z"), kindComplete: true,
       catalogCountStatus: "available", catalogCounts: { all: 7, news: 2, selfMedia: 5 },
       platforms: [], taxonomies: [], mediaTypes: [], areas: [], includeTypes: [], publishSpeeds: [],
@@ -75,6 +88,7 @@ describe("module media catalog contracts", () => {
       recommendationTags: [], minimumPriceTenThousandths: null, maximumPriceTenThousandths: null,
       coverageProvinces: [{ value: "广东", count: 2 }], coverageCities: [{ province: "广东", value: "深圳市", count: 1 }],
       aiPlatforms: [{ value: "Kimi", count: 1 }], recommendationGroups: [{ value: "无免责声明", count: 1 }],
+      publishTimeBands: [], entryCategories: [], linkCategories: [], festivalStatuses: [],
     };
     expect(mediaCatalogFacetsOutputSchema.parse(result)).toMatchObject({ filterSchemaVersion: 2,
       coverageCities: result.coverageCities, aiPlatforms: result.aiPlatforms, recommendationGroups: result.recommendationGroups });

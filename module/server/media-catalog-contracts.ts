@@ -7,6 +7,12 @@ import {
   publisherMediaListOutputSchema,
 } from "@frontmind/monitoring-contracts";
 import { aiPlatformRawValues, coverageRawValues, recommendationRawValues } from "../shared/media-catalog-filters.js";
+import { ENTRY_OPTIONS, LINK_OPTIONS } from "../shared/media-advanced-filters.js";
+
+const categoryInput = (options: readonly { value: string }[]) => z.string().min(1).max(512).refine(
+  (value) => options.some((option) => option.value === value) || (value.startsWith("raw:") && value.length > 4 && value.slice(4).trim().length > 0),
+  { message: "Unknown normalized category" },
+);
 
 /** Module-owned additions; the shared vendor contract remains untouched. */
 export const mediaCatalogListInputSchema = publisherMediaListInputSchema.and(
@@ -20,10 +26,22 @@ export const mediaCatalogListInputSchema = publisherMediaListInputSchema.and(
     recommendationGroup: z.string().trim().min(1).max(120).optional(),
     minimumMobileWeight: z.number().int().min(0).max(100).optional(),
     minimumPriceExclusive: z.boolean().optional(),
+    publishTimeBand: z.enum(["within_1h", "within_3h", "within_6h", "within_12h", "within_1d", "within_2d", "within_3d", "over_3d", "unconfirmed"]).optional(),
+    entryCategory: categoryInput(ENTRY_OPTIONS).optional(),
+    linkCategory: categoryInput(LINK_OPTIONS).optional(),
+    festivalStatus: z.enum(["publishable", "not_publishable", "unspecified"]).optional(),
     // Resource UUIDs, never supplier-local numeric IDs. [] means an empty scope.
     mediaIds: z.array(idSchema).max(500).optional(),
   }),
 ).superRefine((value, context) => {
+  for (const [normalized, legacy] of [
+    ["publishTimeBand", ["publishSpeed"]], ["entryCategory", ["entryType", "entryLevel"]],
+    ["linkCategory", ["linkType"]], ["festivalStatus", ["festivalPublishable"]],
+  ] as const) {
+    if (value[normalized] !== undefined && legacy.some((key) => value[key] !== undefined)) {
+      context.addIssue({ code: "custom", path: [normalized], message: "Choose either the normalized filter or its legacy exact value" });
+    }
+  }
   if (value.coverageCity && !value.coverageProvince) {
     context.addIssue({ code: "custom", path: ["coverageCity"], message: "A city requires its coverage province" });
   }
@@ -45,6 +63,7 @@ export type MediaCatalogListInput = z.infer<typeof mediaCatalogListInputSchema>;
 
 const catalogSnapshotFields = {
   filterSchemaVersion: z.literal(2),
+  advancedFilterVersion: z.literal(1),
   catalogCounts: z.object({
     all: z.number().int().nonnegative(),
     news: z.number().int().nonnegative(),
@@ -65,4 +84,8 @@ export const mediaCatalogFacetsOutputSchema = publisherMediaFacetsOutputSchema.e
   aiPlatforms: z.array(publisherMediaFacetOptionSchema),
   recommendationGroups: z.array(publisherMediaFacetOptionSchema),
   mobileWeightThresholds: z.array(publisherMediaFacetOptionSchema),
+  publishTimeBands: z.array(publisherMediaFacetOptionSchema),
+  entryCategories: z.array(publisherMediaFacetOptionSchema),
+  linkCategories: z.array(publisherMediaFacetOptionSchema),
+  festivalStatuses: z.array(publisherMediaFacetOptionSchema),
 });
