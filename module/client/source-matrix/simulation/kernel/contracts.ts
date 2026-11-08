@@ -1,3 +1,4 @@
+import { isMatrixTargetPlatform } from '../../../../shared/matrix-requirements.js';
 import { issue, object, rows, text, type Issue, type Row, timestamp } from './common.js';
 import { validateIndustryContext } from './industry-context-evidence.js';
 export const precision:Record<string,number>=Object.assign(Object.create(null),{CNY:2,USD:2,EUR:2,JPY:0});
@@ -39,6 +40,7 @@ export function validateRequest(r:unknown,stage:string,asOf:string):Issue[] {
   if(!object(r))return [...errors,issue('invalid_type','$')];
   if(!object(r.task))errors.push(issue('invalid_type','task'));
   else {
+    if('target_platforms' in r.task && (!Array.isArray(r.task.target_platforms)||r.task.target_platforms.length>1||!r.task.target_platforms.every((value:unknown)=>typeof value==='string'&&isMatrixTargetPlatform(value))))errors.push(issue('invalid_type','task.target_platforms'));
     if(!text(r.task.industry))errors.push(issue('required','task.industry'));
     if(!rows(r.task.questions)||!r.task.questions.length)errors.push(issue('required','task.questions'));
     else r.task.questions.forEach((q,i)=>{for(const f of ['question_id','text'])if(!text(q[f]))errors.push(issue('required',`task.questions[${i}].${f}`));});

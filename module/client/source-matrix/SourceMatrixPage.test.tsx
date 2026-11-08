@@ -832,7 +832,7 @@ it('adopts the latest verified research draft when identity arrives before a pen
  let submitted:Record<string,unknown>={};
  const fetcher=platformFixture(platformTask(),async body=>{submitted=body;return generationPromise;});
  const base=fetcher.getMockImplementation()!;
- fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/form-scope')?{ok:true,json:async()=>scopePromise}:base(input,init));
+ fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/matrix/form-scope')?{ok:true,json:async()=>scopePromise as {}}:base(input,init));
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});

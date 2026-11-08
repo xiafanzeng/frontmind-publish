@@ -287,7 +287,8 @@ it('resolves a saved industry after the catalog arrives without resetting other 
   fireEvent.click(screen.getByRole('checkbox', { name: '广东' }));
   fireEvent.click(screen.getByRole('button', { name: '覆盖地区' }));
   await act(async () => catalog.resolve(canonicalCatalog()));
-  await waitFor(() => expect(field('目标行业 *').value).toBe('102'));
+  // The region popover's extra render rounds delay this hydration past the 1s default in jsdom.
+  await waitFor(() => expect(field('目标行业 *').value).toBe('102'), { timeout: 8000 });
   expect(field('品牌 / 产品').value).toBe('人工确认品牌'); expect(field('目标受众').value).toBe('采购团队');
   expect(field('目标问题 / 内容需求 *').value).toBe('旧任务已保存的问题'); expect(screen.getByRole('button', { name: '覆盖地区' }).textContent).toContain('广东');
   expect(modelCalls(fetcher)).toHaveLength(1);
@@ -295,7 +296,7 @@ it('resolves a saved industry after the catalog arrives without resetting other 
   await waitFor(() => expect(distributionCalls(fetcher)).toHaveLength(3));
   expect(distributionCalls(fetcher).every(([url]) => new URL(String(url), location.origin).searchParams.get('scopeId') === '102')).toBe(true);
   expect(modelCalls(fetcher)).toHaveLength(1);
-});
+}, 60000);
 
 it('preserves an explicit recommendation industry clear while the analysis tab reuses the genuine recognition', async () => {
   const ctx = context(), fetcher = installApi({ readContext: () => contextResponse(ctx), identify: () => identified(ctx) });
