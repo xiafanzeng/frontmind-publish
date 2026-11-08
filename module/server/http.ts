@@ -121,7 +121,7 @@ export function registerPublisherHttpRoutes(
 ): void {
   // V8：稿件字数（模块自有只读端点；摘要契约层不含字数）。
   app.get(
-    "/publisher/article-word-counts",
+    "/publisher/articles/word-counts",
     publisherEnabled(dependencies),
     dependencies.sameOrigin,
     dependencies.requireCustomer,

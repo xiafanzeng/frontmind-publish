@@ -144,7 +144,7 @@ export function createServerBackedPublisherGateway(
     try {
       throwIfAborted(signal);
       const response = await fetchImpl(
-        "/api/monitoring/publisher/article-word-counts",
+        "/api/monitoring/publisher/articles/word-counts",
         { credentials: "same-origin", signal },
       );
       if (!response.ok) return counts;
