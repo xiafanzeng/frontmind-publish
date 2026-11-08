@@ -6,7 +6,7 @@ import { PublishingError } from "../components/PublishingUi";
 import { DEFAULT_PUBLICATION_FILTERS } from "../queryState";
 import { publishingDateTime } from "../types";
 import { batchBadge } from "./adapters";
-import { Badge, Icon, MiniFlowSteps, PageHeading, money, toast } from "./ui";
+import { Icon, MiniFlowSteps, PageHeading, money, toast } from "./ui";
 
 /** 工作台“待继续的稿件”最多展示的行数；完整列表经“查看全部”进入管理稿件。 */
 const RESUME_DISPLAY_LIMIT = 6;
@@ -24,7 +24,6 @@ type ResumeRow = {
   updatedAt: string;
   wordCount?: number;
   href: string;
-  actionLabel: string;
 };
 
 /** index3 发布工作台: compact heading, status strip, per-article resume list and problem batches. */
@@ -99,16 +98,13 @@ export default function Index3Workbench() {
       ...(readyDraft
         ? {
             href: `/publishing/drafts/${encodeURIComponent(readyDraft.id)}/titles`,
-            actionLabel: "继续配置",
           }
         : article.status === "frozen" && article.currentVersionId
           ? {
               href: `/publishing/media?articleVersion=${encodeURIComponent(article.currentVersionId)}`,
-              actionLabel: "继续投放",
             }
           : {
               href: `/publishing/articles/${encodeURIComponent(article.id)}/edit`,
-              actionLabel: "继续编辑",
             }),
     };
   });
@@ -165,8 +161,9 @@ export default function Index3Workbench() {
                   </div>
                 </div>
                 <div className="task-actions">
+                  {/* V8：按钮文案统一“继续投放”，点击仍进入该稿件实际所在步骤的界面。 */}
                   <Link className="btn small primary" href={row.href}>
-                    {row.actionLabel}
+                    继续投放
                   </Link>
                   <button
                     type="button"
@@ -198,10 +195,12 @@ export default function Index3Workbench() {
               <caption className="sr-only">需处理的投放列表</caption>
               <thead>
                 <tr>
-                  <th>稿件 / 批次</th>
+                  <th style={{ width: "34%" }}>稿件标题</th>
+                  <th>版本</th>
                   <th className="right">金额</th>
-                  <th>执行状态</th>
-                  <th>更新时间</th>
+                  <th>字数</th>
+                  <th>状态</th>
+                  <th>失败时间</th>
                   <th className="right">操作</th>
                 </tr>
               </thead>
@@ -212,10 +211,11 @@ export default function Index3Workbench() {
                       <Link className="link neutral table-title" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>
                         {batch.articleTitle}
                       </Link>
-                      <div className="table-sub">发布批次 · {batch.itemCount} 家媒体</div>
                     </td>
+                    <td className="small numeric">v{batch.articleVersion}</td>
                     <td className="right numeric">{money(batch.totalTenThousandths)}</td>
-                    <td><Badge tone={batchBadge(batch.status).tone}>{batchBadge(batch.status).label}</Badge></td>
+                    <td className="right numeric">—</td>
+                    <td><span className="badge solid-red">{batchBadge(batch.status).label}</span></td>
                     <td className="small muted numeric">{publishingDateTime(batch.updatedAt ?? batch.createdAt)}</td>
                     <td className="right">
                       <Link className="btn small primary" href={`/publishing/publications/${encodeURIComponent(batch.id)}`}>查看详情</Link>

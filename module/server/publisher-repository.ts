@@ -633,6 +633,29 @@ class PublishingRepository {
     }));
   }
 
+  /**
+   * V8：稿件字数（与编辑器“正文字符”同口径：去除空白后的字符数）。
+   * 摘要 tRPC 契约（vendor）不含字数，列表页经模块自有 HTTP 端点补齐。
+   */
+  async listArticleWordCounts(ownerId: string) {
+    const rows = await this.db
+      .select({
+        articleId: publisherArticles.id,
+        wordCount: sql<number>`CHAR_LENGTH(REGEXP_REPLACE(${publisherArticles.plainText}, '[[:space:]]+', ''))`,
+      })
+      .from(publisherArticles)
+      .where(
+        and(
+          monitoringProjectOwnerPredicate(publisherArticles, ownerId),
+          ne(publisherArticles.status, "archived"),
+        ),
+      );
+    return rows.map((row) => ({
+      articleId: row.articleId,
+      wordCount: Number(row.wordCount ?? 0),
+    }));
+  }
+
   async listPublisherArticles(
     ownerId: string,
     input: {

@@ -132,6 +132,36 @@ export function createServerBackedPublisherGateway(
     return articles;
   }
 
+  /**
+   * V8：摘要契约不含字数，经模块自有只读端点补齐；失败时优雅回退为 0。
+   */
+  async function loadArticleWordCounts(
+    signal?: AbortSignal,
+  ): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (typeof fetchImpl !== "function") return counts;
+    try {
+      throwIfAborted(signal);
+      const response = await fetchImpl(
+        "/api/monitoring/publisher/article-word-counts",
+        { credentials: "same-origin", signal },
+      );
+      if (!response.ok) return counts;
+      const payload: unknown = await response.json();
+      const items = Array.isArray((payload as { items?: unknown }).items)
+        ? (payload as { items: Array<{ articleId?: unknown; wordCount?: unknown }> }).items
+        : [];
+      for (const item of items) {
+        if (typeof item.articleId === "string" && typeof item.wordCount === "number") {
+          counts.set(item.articleId, item.wordCount);
+        }
+      }
+    } catch {
+      // 字数为增强信息，读取失败不阻断列表
+    }
+    return counts;
+  }
+
   async function loadArticleBundle(
     articleId: string,
     signal?: AbortSignal,
@@ -320,11 +350,19 @@ export function createServerBackedPublisherGateway(
 
     listArticles(signal) {
       captureOperation();
-      return translateGatewayErrors(async () =>
-        (await loadArticleSummaries(signal))
-          .map(mapArticleSummary)
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
-      );
+      return translateGatewayErrors(async () => {
+        const [rows, wordCounts] = await Promise.all([
+          loadArticleSummaries(signal),
+          loadArticleWordCounts(signal),
+        ]);
+        return rows
+          .map((row) => {
+            const summary = mapArticleSummary(row);
+            const wordCount = wordCounts.get(summary.id);
+            return wordCount === undefined ? summary : { ...summary, wordCount };
+          })
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      });
     },
 
     getArticle(articleId, signal) {
