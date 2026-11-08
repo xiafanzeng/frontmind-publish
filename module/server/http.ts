@@ -38,9 +38,6 @@ export type PublisherUpload = {
 
 export type PublisherHttpService = {
   isCustomerFeatureEnabled(): Promise<boolean>;
-  listArticleWordCounts(input: {
-    ownerId: string;
-  }): Promise<Array<{ articleId: string; wordCount: number }>>;
   createDocxImport(input: {
     ownerId: string;
     upload: PublisherUpload;
@@ -119,28 +116,6 @@ export function registerPublisherHttpRoutes(
   app: Express,
   dependencies: PublisherHttpDependencies,
 ): void {
-  // V8：稿件字数（模块自有只读端点；摘要契约层不含字数）。
-  app.get(
-    "/publisher/articles/word-counts",
-    publisherEnabled(dependencies),
-    dependencies.sameOrigin,
-    dependencies.requireCustomer,
-    async (request, response, next) => {
-      try {
-        if (!dependencies.service) {
-          response.status(404).end();
-          return;
-        }
-        const items = await dependencies.service.listArticleWordCounts({
-          ownerId: String(response.locals.publisherUserId),
-        });
-        response.json({ items });
-      } catch (error) {
-        next(error);
-      }
-    },
-  );
-
   app.post(
     "/publisher/docx-imports",
     publisherEnabled(dependencies),

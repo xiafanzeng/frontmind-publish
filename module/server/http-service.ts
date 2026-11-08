@@ -34,10 +34,6 @@ export function createPublisherHttpService(
       return runtime?.featureEnabled === true;
     },
 
-    async listArticleWordCounts({ ownerId }) {
-      return dependencies.repository.listArticleWordCounts(ownerId);
-    },
-
     async createDocxImport({ ownerId, upload }) {
       const writer = requirePublisherWriter(dependencies.writer);
       const sha256 = digest(upload.body);
