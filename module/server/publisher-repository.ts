@@ -5,7 +5,7 @@ import type { MediaCatalogListInput } from "./media-catalog-contracts.js";
 import { MediaCatalogPromiseCache } from "./media-catalog-cache.js";
 import { aiPlatformRawValues, coverageRawValues, normalizedCoverageFacets, normalizedTagFacets, recommendationRawValues } from "../shared/media-catalog-filters.js";
 import { ADVANCED_FILTER_VERSION, normalizeEntry, normalizeLink, normalizedEntryFacets, normalizedLinkFacets,
-  normalizedPublishTimeFacets, publishTimeMatches, type RawAdvancedFacet } from "../shared/media-advanced-filters.js";
+  normalizedPublishTimeFacets, publishTimeMatches } from "../shared/media-advanced-filters.js";
 import { mediaRulesTitleLimit, mediaRulesEvidence, mediaRulesImageBlocker } from "./providers/kol/media-rules.js";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -47,7 +47,11 @@ import { RepositoryError } from "@frontmind/module-contracts/errors";
 import type { PublishApiCore, PublishDatabase as Database, PublishTransaction as Transaction } from "./persistence-core.js";
 
 type RealPublicationMode = Exclude<PublicationMode, "mock">;
-type AdvancedFilterGroups = { publishTimes: RawAdvancedFacet[]; entries: RawAdvancedFacet[]; links: RawAdvancedFacet[] };
+// Self-contained structural types: PublishingRepository is a factory-local class,
+// so the host's declaration emit serializes every public member structurally.
+// A type imported from the unexported shared/ path would be unnameable there (TS2742).
+type AdvancedFilterRow = { value: string | null; count: number };
+type AdvancedFilterGroups = { publishTimes: AdvancedFilterRow[]; entries: AdvancedFilterRow[]; links: AdvancedFilterRow[] };
 type PublisherExecutionOptions =
   | Date
   | {
@@ -938,7 +942,7 @@ class PublishingRepository {
     const conditions = [inArray(publisherMediaResources.mediaKind, ["news", "self_media"])];
     const rawMembership = (
       column: typeof publisherMediaResources.publishSpeed | typeof publisherMediaResources.entryLevel | typeof publisherMediaResources.linkType,
-      rows: readonly RawAdvancedFacet[] | undefined,
+      rows: readonly AdvancedFilterRow[] | undefined,
       matches: (value: string | null) => boolean,
     ) => {
       const selected = (rows ?? []).filter((row) => matches(row.value));
@@ -1453,7 +1457,7 @@ class PublishingRepository {
     }
     // Legacy facets omit NULL/empty values as before. New facets include them
     // directly from grouped rows, never from inventory minus a partial scope.
-    const rawOptions = (rows: RawAdvancedFacet[]) => rows.filter((row): row is { value: string; count: number } => Boolean(row.value));
+    const rawOptions = (rows: AdvancedFilterRow[]) => rows.filter((row): row is { value: string; count: number } => Boolean(row.value));
     const publishSpeeds = rawOptions(publishTimeRows);
     const entryLevels = rawOptions(entryRows);
     const linkTypes = rawOptions(linkRows);
