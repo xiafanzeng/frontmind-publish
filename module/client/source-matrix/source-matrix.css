@@ -223,3 +223,6 @@
 .fm-media .sm-recommendation-workspace .sm-candidate header h4{flex:0 1 auto;min-width:3em}
 .fm-media .sm-recommendation-workspace .sm-candidate header .sm-reason-link{margin-left:auto}
 .fm-media .sm-layer-table th.sm-layer-label .sm-layer-multi{font-size:14px!important;font-weight:700!important}
+/* flex-wrap 按基准尺寸决定换行、收缩不参与换行判断：名称用小基准(40px)+增长填充，
+   确保媒体资料、查看推荐理由与名称同排一行（窄卡时查看推荐理由才独占次行）。 */
+.fm-media .sm-recommendation-workspace .sm-candidate header h4{flex:1 1 40px;min-width:0}
