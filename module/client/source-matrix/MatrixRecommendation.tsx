@@ -12,7 +12,7 @@ export {matrixRoles} from './matrix-readiness';
 export function firstSentence(text:string):string {
  const trimmed=text.trim();if(!trimmed)return'';
  const end=trimmed.search(/[。！？!?；;]/);
- if(end>=0&&end<=44)return trimmed.slice(0,end+1);
+ if(end>=0&&end<=44){const ch=trimmed[end]!;return trimmed.slice(0,end)+('。！？'.includes(ch)?ch:'。');}
  if(end>44){
   let cut=-1;for(let i=44;i>=20;i-=1){if('，,、；;'.includes(trimmed[i]??'')){cut=i;break;}}
   return cut>=0?trimmed.slice(0,cut)+'。':trimmed.slice(0,44)+'…';
