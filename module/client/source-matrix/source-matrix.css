@@ -218,3 +218,8 @@
 .fm-media .sm-plan-media small.sm-reason-heading{color:var(--ink);font-weight:600}
 .fm-media .sm-plan-media .sm-reason-body{margin:2px 0 6px 18px;font-size:12px;line-height:1.7;color:var(--ink)}
 .fm-media #dialog .sm-layer-check{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+/* 复核修正：名称与媒体资料同行相邻，查看推荐理由靠右（窄卡时独占次行仍右对齐）；
+   多选本层可投媒体需压过宿主主题 .link 的 500/13px（white-theme .link 链特异度更高）。 */
+.fm-media .sm-recommendation-workspace .sm-candidate header h4{flex:0 1 auto;min-width:3em}
+.fm-media .sm-recommendation-workspace .sm-candidate header .sm-reason-link{margin-left:auto}
+.fm-media .sm-layer-table th.sm-layer-label .sm-layer-multi{font-size:14px!important;font-weight:700!important}
