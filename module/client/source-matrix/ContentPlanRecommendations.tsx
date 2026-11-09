@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {MediaDialog} from './MediaMarket';
-import {PlanExplanation,planMoney,pricingReason,ContentResourceIdentity,contentResourceIdentity,ContentFeeScope} from './PlanningDetails';
+import {PlanExplanation,planMoney,pricingReason,directSummary,ContentResourceIdentity,contentResourceIdentity,ContentFeeScope} from './PlanningDetails';
 import {recommendationKey} from './recommendations';
 import type {Candidate,ContentPlan} from './types';
 
@@ -53,8 +53,8 @@ export function ContentPlanRecommendations({plans,candidates,selectedIndex,onSel
     <ContentResourceIdentity item={item} candidate={candidate}/>
     <div className="sm-price-equation"><span>{item.pricing_kind==='package'?'套餐计价（不拆算单价）':`${planMoney(item.unit_price,item.currency??selected.currency)} × ${bad?'—':quantities[index]} 篇`}{item.price_source==='catalog'?' · 目录价':''}{item.pricing_kind==='range'?' · 报价上界':''}{item.base_cost!=null?' = ':''}</span><strong>{amount(item.base_cost??item.known_cost??item.cost,item.currency??selected.currency)}</strong></div>
     {item.base_cost!=null&&item.known_cost!=null&&item.base_cost!==item.known_cost&&<small>含已知必要费用小计：{amount(item.known_cost,item.currency??selected.currency)}</small>}
-    {!updating&&<ContentFeeScope item={item} currency={selected.currency}/>}
-    {candidate?.reason_summary&&<small>{candidate.reason_summary}</small>}{item.quantity_reason&&<small>{item.quantity_reason}</small>}
+    {!updating&&<ContentFeeScope item={item} currency={selected.currency} quiet/>}
+    {(candidate?.reason_summary||item.quantity_reason)&&<><small className="sm-reason-heading">推荐理由</small>{candidate?.reason_summary&&<p className="sm-reason-body">{directSummary(candidate.reason_summary,identity.name)}</p>}{item.quantity_reason&&<p className="sm-reason-body">{item.quantity_reason}</p>}</>}
     {(item.content_tasks??[]).length>0&&<><small>稿件修改建议</small><ul className="sm-content-tasks">{item.content_tasks.map((task,taskIndex)=><li key={taskIndex}>{task}</li>)}</ul></>}
    </li>;})}</ul>
    {draft?.failed&&dirty&&<p className="block-error" role="alert">篇数已保留，费用暂未更新。<button type="button" className="link" disabled={disabled||stale} onClick={()=>setDrafts(current=>({...current,[key]:{...current[key]!,revision:(current[key]?.revision??0)+1,failed:false}}))}>重试更新费用</button></p>}

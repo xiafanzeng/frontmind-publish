@@ -75,6 +75,15 @@ it('requires an explicit formal quantity review before a changed plan can be app
  expect(apply).not.toHaveBeenCalled();
 });
 
+it('marks cards blue only for cart members and labels the add action 加入购物车',()=>{
+ const mediaOf=(id:string,name:string)=>({id,externalResourceId:'external-'+id,name,shortName:name,kind:'news',platform:'新闻',taxonomy:'',mediaType:'',channel:'',region:'',titleLimit:200,priceTenThousandths:'1000000',turnaround:'',active:true,capability:'image',catalogRevision:'catalog-1',logoSource:'generated_fallback',logoResolutionStatus:'missing'}) as import('../types').MediaResource;
+ const mapped={...result,matrix:{...result.matrix,candidates:result.matrix.candidates.map(item=>item.candidate_id==='A'?{...item,resource_id:'A'}:item.candidate_id==='B'?{...item,resource_id:'B'}:item)}};
+ render(<MatrixRecommendation result={mapped} highlightedPlan={null} highlightedCandidateIds={['B']} mediaFor={id=>id==='A'?mediaOf('A','甲媒体'):id==='B'?mediaOf('B','乙媒体'):undefined} isSelected={media=>media.id==='A'} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
+ // 用户反馈：未加入购物车的候选不标蓝；加入/已在购物车才标蓝（B 仅是组合高亮成员）
+ expect(document.querySelector('.sm-candidate[data-source-id="A"]')?.classList.contains('is-highlighted')).toBe(true);
+ expect(document.querySelector('.sm-candidate[data-source-id="B"]')?.classList.contains('is-highlighted')).toBe(false);
+ expect(screen.getByText('已加入')).toBeTruthy();expect(screen.getByText('加入购物车')).toBeTruthy();
+});
 it('keeps incomplete layers distinct from a completed empty result and preserves available cards',()=>{
  const partial={...result,matrix:{...result.matrix,coverage:{catalog:{status:'incomplete'},model:{status:'incomplete',unprocessed_candidates:3}},layers:[{role:'authority',display_name:'权威参考',status:'incomplete',candidate_ids:['A','B'],auxiliary_candidate_ids:[],reason_summary:'还有一批候选尚未完成读取'}]}};
  render(<MatrixRecommendation result={partial} highlightedPlan={null} highlightedCandidateIds={['B']} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);

@@ -123,6 +123,23 @@ it('creates the exact frozen-version draft only after an eligible matrix selecti
  expect(mediaGateway.createDraft).toHaveBeenCalledTimes(1);
 });
 
+it('opens the layer multi-select with every layer media checked and only adds kept checks',async()=>{
+ liveDirectory();const owner=flow();
+ mediaGateway.createDraft.mockImplementation(async()=>{const saved=draft('draft-1',1,[media]);mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
+ openMatrix('articleVersion=version-1&mode=multi',owner);
+ fireEvent.click(await screen.findByRole('button',{name:'多选本层可投媒体'}));
+ const check=await screen.findByRole('checkbox',{name:'加入 可投媒体'});
+ expect((check as HTMLInputElement).checked).toBe(true); // 默认全部勾选
+ expect(screen.getByText(/已勾选 1 项/)).toBeTruthy();
+ fireEvent.click(check); // 可以取消勾选
+ await waitFor(()=>expect((check as HTMLInputElement).checked).toBe(false));
+ expect((screen.getByRole('button',{name:'确认应用差异'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(check); // 重新勾选后确认
+ await waitFor(()=>expect((check as HTMLInputElement).checked).toBe(true));
+ fireEvent.click(screen.getByRole('button',{name:'确认应用差异'}));
+ await waitFor(()=>expect(mediaGateway.createDraft).toHaveBeenCalledWith('version-1',[media.id],expect.stringMatching(/^publisher:draft:/),'per_media'));
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('draftId')).toBe('draft-1'));
+});
 it('keeps the first matrix selection when the host assigns its task ID during ensureTask',async()=>{
  liveDirectory();const owner=flow();
  mediaGateway.createDraft.mockImplementation(async()=>{const saved=draft('draft-1',1,[media]);mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
@@ -353,7 +370,7 @@ it('discards obsolete combinations but reuses the saved revision after a budget 
  await screen.findByText('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');
  expect(screen.queryByText('过期响应媒体')).toBeNull();expect((screen.getByLabelText('总预算（CNY）') as HTMLInputElement).value).toBe('300');
  expect(screen.queryByText('过期正式组合')).toBeNull();expect(screen.queryByText('过期内容组合')).toBeNull();
- expect((screen.getByRole('button',{name:'导出当前版本'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await waitFor(()=>expect(bodies[1]).toMatchObject({plan_version:'saved-obsolete-budget',budget:{total_cap:'300'}}));
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
@@ -459,7 +476,7 @@ it('shows a retryable budget failure and retries using its saved revision withou
  await waitFor(()=>expect((screen.getByRole('button',{name:/生成组合|更新组合/}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'200'}});fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await screen.findByText('组合生成未通过复核，请调整条件后重试：篇数建议未通过核验');
- expect((screen.getByRole('button',{name:'导出当前版本'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/生成组合|更新组合/}));
  await waitFor(()=>expect(versions).toEqual(['plan-version-1','saved-retryable-budget']));
  expect(fetcher.mock.calls.some(call=>String(call[0]).endsWith('/matrix/generate'))).toBe(false);
@@ -483,12 +500,12 @@ it('does not let an old cancellation clear a newly opened matrix task',async()=>
  expect(screen.getByRole('heading',{name:'任务二研究媒体'})).toBeTruthy();expect(screen.queryByText('等待生成矩阵')).toBeNull();
 });
 
-it('pins export to the currently displayed persisted plan rather than the task latest report',async()=>{
+it('removes the heading export entry while the download helper still pins the displayed plan',async()=>{
  liveDirectory();openMatrix('draftId=draft-1&articleVersion=version-1');
- const link=await screen.findByRole('link',{name:'导出当前版本'});
- const url=new URL((link as HTMLAnchorElement).href);
- expect(url.pathname).toBe('/api/modules/publish/classify/matrix-1/download');
- expect(Object.fromEntries(url.searchParams)).toEqual({plan_id:matrix.plan_id,plan_version:matrix.plan_version});
+ await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
+ expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
+ expect(screen.getByRole('button',{name:'查看报告'})).toBeTruthy();
+ expect(downloadUrl('matrix-1',matrix.plan_id,matrix.plan_version)).toBe(`/api/modules/publish/classify/matrix-1/download?plan_id=${matrix.plan_id}&plan_version=${matrix.plan_version}`);
  expect(downloadUrl('legacy-task')).toBe('/api/modules/publish/classify/legacy-task/download');
 });
 
@@ -603,7 +620,9 @@ it('shows the actual saved sample without configured services and never writes a
  expect(screen.queryByRole('button',{name:'加入本组合'})).toBeNull();
  expect(screen.queryByRole('checkbox',{name:/^选择 /})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/^组合 2/}));
- expect([...document.querySelectorAll('.sm-candidate.is-highlighted')].map(node=>node.getAttribute('data-source-id')).sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
+ // 用户反馈：蓝色仅表示已加入购物车；组合成员改用「当前组合」文字标记（demo 不可加入购物车）
+ expect([...document.querySelectorAll('.sm-candidate .sm-member')].map(node=>node.closest('.sm-candidate')?.getAttribute('data-source-id')??'').sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
+ expect(document.querySelectorAll('.sm-candidate.is-highlighted')).toHaveLength(0);
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(fetcher.mock.calls.some(call=>String(call[0]).includes('/matrix/generate'))).toBe(false);
 });
@@ -998,5 +1017,5 @@ it.each(['','4'])('discards previous local quantity %s when regenerating the sam
  const next={...recommendation,items:[{...recommendation.items[0]!,quantity:5,base_cost:'500.00',cost:'500.00',known_cost:'500.00'}],total_articles:5,known_total_cost:'500.00',total_cost:'500.00',total_remaining:'500.00'};
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'generated-second',recommendations:[next],content_plans:[]}})}));
  await waitFor(()=>expect((screen.getByLabelText('可投媒体建议篇数') as HTMLInputElement).value).toBe('5'));
- expect(screen.getByText('预计总价').parentElement?.textContent).toContain('500.00');expect(await screen.findByRole('link',{name:'导出当前版本'})).toBeTruthy();expect(quantityRequests).toEqual([]);
+ expect(screen.getByText('预计总价').parentElement?.textContent).toContain('500.00');expect(screen.getByRole('button',{name:'查看报告'})).toBeTruthy();expect(quantityRequests).toEqual([]);
 });
