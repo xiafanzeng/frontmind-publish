@@ -152,21 +152,57 @@ function normalizeDecisions(value: unknown): { matrix_decisions: Row } | undefin
   };
   // A syntactically valid envelope without decisions is not a recommendation.
   if (!Array.isArray(source.items) || !Array.isArray(source.fit_order)) return undefined;
+  const normalized = items.map(item => {
+    const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of ['candidate_id','primary_role','reason_summary','selection','supplemental_value','exploration_hypothesis','media_intro','content_direction','ranking_reason'])
+      if (row[key] != null) out[key] = String(row[key]);
+    for (const key of ['auxiliary_roles','matched_questions','reason_details','unconfirmed_items','verification_items','supplemental_to'])
+      if (row[key] !== undefined) { const list = strings(row[key]); if (list) out[key] = list; }
+    if (row.layer_rank !== undefined) out.layer_rank = row.layer_rank;
+    if (Array.isArray(row.references)) out.references = row.references;
+    return out;
+  });
+  /* Deterministic shape repair, never new content: keep the first decision per
+   * candidate, project fit_order onto the kept items, and renumber each role's
+   * layer_rank in the model's own fit_order sequence. Observed live batches
+   * repeatedly lost otherwise-valid work to duplicate ids and rank gaps. */
+  const kept: Record<string, unknown>[] = [];
+  for (const item of normalized) {
+    const id = String(item.candidate_id ?? '');
+    if (!id || kept.some(entry => String(entry.candidate_id) === id)) continue;
+    kept.push(item);
+  }
+  const modelOrder = source.fit_order.map((x:unknown) => String(x));
+  const position = new Map(modelOrder.map((id, index) => [id, index]));
+  const fitOrder = [...modelOrder.filter(id => kept.some(entry => String(entry.candidate_id) === id)),
+    ...kept.map(entry => String(entry.candidate_id)).filter(id => !modelOrder.includes(id))];
+  if (kept.some(item => item.layer_rank !== undefined)) {
+    const perRole = new Map<string, Record<string, unknown>[]>();
+    for (const id of fitOrder) {
+      const item = kept.find(entry => String(entry.candidate_id) === id)!;
+      const role = String(item.primary_role ?? '');
+      perRole.set(role, [...(perRole.get(role) ?? []), item]);
+    }
+    for (const members of perRole.values()) members.forEach((item, index) => { item.layer_rank = index + 1; });
+  }
+  const itemIds = new Set(kept.map(entry => String(entry.candidate_id)));
+  const excluded: Row[] = [];
+  if (Array.isArray(source.excluded_candidates)) {
+    const seenExcluded = new Set<string>();
+    for (const item of source.excluded_candidates) {
+      const row = item && typeof item === 'object' ? item as Row : {};
+      const id = String(row.candidate_id ?? '');
+      if (!id || itemIds.has(id) || seenExcluded.has(id)) continue;
+      seenExcluded.add(id);
+      excluded.push({candidate_id: row.candidate_id, reason: row.reason});
+    }
+  }
   return {
     matrix_decisions: {
-      items: items.map(item => {
-        const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
-        const out: Record<string, unknown> = {};
-        for (const key of ['candidate_id','primary_role','reason_summary','selection','supplemental_value','exploration_hypothesis','media_intro','content_direction','ranking_reason'])
-          if (row[key] != null) out[key] = String(row[key]);
-        for (const key of ['auxiliary_roles','matched_questions','reason_details','unconfirmed_items','verification_items','supplemental_to'])
-          if (row[key] !== undefined) { const list = strings(row[key]); if (list) out[key] = list; }
-        if (row.layer_rank !== undefined) out.layer_rank = row.layer_rank;
-        if (Array.isArray(row.references)) out.references = row.references;
-        return out;
-      }),
-      fit_order: source.fit_order.map((x:unknown) => String(x)),
-      ...(Array.isArray(source.excluded_candidates)?{excluded_candidates:source.excluded_candidates.map((item:unknown)=>{const row=item&&typeof item==='object'?item as Row:{};return {candidate_id:row.candidate_id,reason:row.reason};})}:{}),
+      items: kept,
+      fit_order: fitOrder,
+      ...(excluded.length || Array.isArray(source.excluded_candidates) ? {excluded_candidates: excluded} : {}),
     },
   };
 }
