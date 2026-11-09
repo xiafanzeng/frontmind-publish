@@ -4,7 +4,7 @@ import { domain,matchIdentity } from './evidence.js';
 import { candidateCatalogMatches } from './export-research.js';
 import { industryContextAggregates } from './industry-context-evidence.js';
 import { authorityBasis, catalogChannelChecks as channel, createCandidateRanker, regionalApplicable } from './candidate-ranking.js';
-const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items media_intro content_direction layer_rank ranking_reason'.split(' '));
+const decisionFields=new Set('candidate_id primary_role auxiliary_roles matched_questions references reason_summary reason_details unconfirmed_items selection supplemental_value supplemental_to exploration_hypothesis verification_items media_intro content_direction layer_rank ranking_reason decision_basis'.split(' '));
 function manuscriptChecks(manuscripts:Row[],catalog:Row[]):Row {
   const checks=manuscripts.map(m=>{
     const matches=catalog.flatMap(r=>r.manuscript_checks??[]).filter(c=>m.article_id&&m.version&&c.article_id===m.article_id&&c.version===m.version);
@@ -70,7 +70,7 @@ function paths(v:any,prefix='',out:Row={}):Row {
 export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
   const errors:Issue[]=[],err=(c:string,path:string,message?:string)=>errors.push(issue(c,path,message));
   if(!object(d))return [issue('invalid_type','decisions.matrix_decisions')];
-  for(const k of Object.keys(d))if(!['items','fit_order','excluded_candidates','reviewed_candidate_ids','review_error','ranking_method'].includes(k))err('untrusted_field','decisions.'+k);
+  for(const k of Object.keys(d))if(!['items','fit_order','excluded_candidates','reviewed_candidate_ids','review_error','ranking_method','failed_candidates','unprocessed_candidate_ids'].includes(k))err('untrusted_field','decisions.'+k);
   if(!rows(d.items??[]))return [...errors,issue('invalid_type','decisions.items')];
   const items:Row[]=d.items??[],byId=new Map<string,Row>(p.candidates.map((c:Row)=>[c.candidate_id,c])),questions=(r.task.questions??[]).map((q:Row)=>q.question_id),validPaths=paths(semantic({task:r.task,catalog:r.catalog??[],industry_recommendations:r.industry_recommendations??[]})),seen:string[]=[];
   items.forEach((item,i)=>{
@@ -78,6 +78,7 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
     for(const f of ['primary_role','candidate_id','reason_summary','selection','supplemental_value','exploration_hypothesis','media_intro','content_direction','ranking_reason'])if(f in item&&(typeof item[f]!=='string'||!item[f].trim()))err('invalid_type',path+'.'+f);
     if('layer_rank' in item&&(!Number.isSafeInteger(item.layer_rank)||item.layer_rank<1))err('invalid_type',path+'.layer_rank');
     for(const f of ['auxiliary_roles','matched_questions','reason_details','unconfirmed_items','verification_items','supplemental_to'])if(f in item&&!strings(item[f]))err('invalid_type',path+'.'+f);
+    if('decision_basis' in item&&!['ai','rule'].includes(String(item.decision_basis)))err('invalid_type',path+'.decision_basis');
     if('references' in item&&!rows(item.references))err('invalid_type',path+'.references');
     for(const k of Object.keys(item))if(!decisionFields.has(k))err('untrusted_field',path+'.'+k);
     if(!c){err('unknown_candidate',path);return;}
@@ -138,9 +139,21 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
     if(!equal(Object.keys(entry).sort(),['candidate_id','reason'])||!text(entry.reason)||!byId.has(entry.candidate_id))err('invalid_excluded_candidate',path);
     if(seen.includes(entry.candidate_id)||excludedIds.has(entry.candidate_id))err('duplicate_candidate',path);excludedIds.add(entry.candidate_id);
   });
-  if(d.reviewed_candidate_ids!==undefined&&(!strings(d.reviewed_candidate_ids)||unique(d.reviewed_candidate_ids).length!==d.reviewed_candidate_ids.length||d.reviewed_candidate_ids.some((id:string)=>!byId.has(id)||!seen.includes(id)&&!excludedIds.has(id))))err('invalid_review_coverage','decisions.reviewed_candidate_ids');
+  /* Per-candidate failures are recorded evidence, not a global verdict: the
+   * kernel validates accepted items strictly and keeps failed work visible. */
+  const failedCandidates:Row[]=rows(d.failed_candidates)?d.failed_candidates:[];
+  if(d.failed_candidates!==undefined&&!rows(d.failed_candidates))err('invalid_type','decisions.failed_candidates');
+  const failedIds=new Set<string>();
+  failedCandidates.forEach((entry,index)=>{
+    const path=`decisions.failed_candidates[${index}]`;
+    if(!byId.has(entry.candidate_id))err('unknown_candidate',path);
+    if(failedIds.has(entry.candidate_id)||seen.includes(entry.candidate_id)||excludedIds.has(entry.candidate_id))err('duplicate_candidate',path);
+    failedIds.add(entry.candidate_id);
+    if(!Array.isArray(entry.errors))err('invalid_type',path+'.errors');
+  });
+  if(d.unprocessed_candidate_ids!==undefined&&(!strings(d.unprocessed_candidate_ids)||d.unprocessed_candidate_ids.some((id:string)=>!byId.has(id)||seen.includes(id)||excludedIds.has(id)||failedIds.has(id))))err('invalid_type','decisions.unprocessed_candidate_ids');
+  if(d.reviewed_candidate_ids!==undefined&&(!strings(d.reviewed_candidate_ids)||unique(d.reviewed_candidate_ids).length!==d.reviewed_candidate_ids.length||d.reviewed_candidate_ids.some((id:string)=>!byId.has(id)||!seen.includes(id)&&!excludedIds.has(id)&&!failedIds.has(id))))err('invalid_review_coverage','decisions.reviewed_candidate_ids');
   if(d.review_error!==undefined&&!text(d.review_error))err('invalid_type','decisions.review_error');
-  if(d.review_error==='matrix_batch_invalid')err('invalid_model_batch','decisions.review_error','至少一个候选批次未通过完整校验');
   if(d.ranking_method!==undefined&&d.ranking_method!=='task_attributes_then_batch_semantic_order')err('invalid_type','decisions.ranking_method');
   if(!strings(d.fit_order??[])||unique(d.fit_order??[]).length!==(d.fit_order??[]).length||!equal([...(d.fit_order??[])].sort(),[...seen].sort()))err('invalid_fit_order','decisions.fit_order');
   if(items.some(item=>'layer_rank' in item||'ranking_reason' in item)){
@@ -154,24 +167,61 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
   return errors;
 }
 export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {
-  const p=prepareCandidates(r,a),errors=validateDecisions(d,p,r),catalog=clone(r.catalog_coverage??{status:'unknown',total_resources:null,scanned_resources:null,reason:'legacy_coverage_unavailable'});
-  const reviewed=unique<string>(d.reviewed_candidate_ids??[...(d.items??[]).map((item:Row)=>item.candidate_id),...(d.excluded_candidates??[]).map((item:Row)=>item.candidate_id)]);
-  const knownIds=new Set(p.candidates.map((candidate:Row)=>candidate.candidate_id)),reviewedCount=reviewed.filter(id=>knownIds.has(id)).length;
-  const unprocessed=Math.max(0,p.candidates.length-reviewedCount),catalogIncomplete=['failed','incomplete'].includes(catalog.status);
-  const modelStatus=errors.length?'failed':d.review_error?(reviewedCount?'incomplete':'failed'):unprocessed?(reviewedCount?'incomplete':'pending'):(d.reviewed_candidate_ids!==undefined||d.items?.length||d.excluded_candidates?.length)?'complete':'pending';
-  const missing=!d.items?.length&&modelStatus!=='complete';
-  const status=errors.length?'invalid_decisions':catalogIncomplete||missing||d.review_error||d.reviewed_candidate_ids!==undefined&&unprocessed>0?'needs_ai_decisions':'complete';
-  let candidates:Row[]=p.candidates;const order:string[]=status==='complete'?d.fit_order??[]:[];
-  candidates=candidates.map(c=>{const decision=status==='complete'?d.items?.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),industry_aggregate_ids:decision?unique<string>((decision.references??[]).filter((ref:Row)=>ref.type==='aggregate'&&p.industry_aggregate_ids.includes(ref.aggregate_id)).map((ref:Row)=>ref.aggregate_id)):[],semantic_decision_validated:!!decision};});
+  const p=prepareCandidates(r,a),catalog=clone(r.catalog_coverage??{status:'unknown',total_resources:null,scanned_resources:null,reason:'legacy_coverage_unavailable'});
+  const knownIds=new Set(p.candidates.map((candidate:Row)=>candidate.candidate_id));
+  const allItems:Row[]=(rows(d.items)?d.items:[]).filter((item:Row)=>knownIds.has(item.candidate_id));
+  const excluded:Row[]=(rows(d.excluded_candidates)?d.excluded_candidates:[]).filter((entry:Row)=>knownIds.has(entry.candidate_id)&&text(entry.reason));
+  const errors=validateDecisions(d,p,r);
+  /* The kernel stays the single authority: an item that fails validation is
+   * demoted to a failed candidate with its evidence preserved, so invalid work
+   * never displays — but its valid siblings survive. Envelope-contract
+   * violations (untrusted fields, invalid types) still reject the submission. */
+  const envelopeErrors:Issue[]=[];const itemFailure=new Map<string,Issue[]>();
+  for(const error of errors){
+    const match=/^decisions\.items\[(\d+)\]/.exec(error.path);
+    if(match){const row=(d.items??[])[Number(match[1])],id=row?String(row.candidate_id??''):'';if(id&&knownIds.has(id)){const list=itemFailure.get(id)??[];list.push(error);itemFailure.set(id,list);}else envelopeErrors.push(error);continue;}
+    if(/^decisions\.excluded_candidates\[/.test(error.path)||['candidate_outside_batch','batch_candidates_unreviewed','invalid_fit_order','invalid_layer_ranks','layer_rank_order_mismatch','invalid_review_coverage'].includes(error.code))continue;
+    envelopeErrors.push(error);
+  }
+  const items=allItems.filter(item=>!itemFailure.has(String(item.candidate_id)));
+  const failedMap=new Map<string,Row>();
+  for(const entry of (rows(d.failed_candidates)?d.failed_candidates:[]).filter((entry:Row)=>knownIds.has(entry.candidate_id)))failedMap.set(String(entry.candidate_id),entry);
+  for(const [id,list] of itemFailure)if(!failedMap.has(id))failedMap.set(id,{candidate_id:id,errors:list,raw:(d.items??[]).find((row:Row)=>String(row.candidate_id)===id)});
+  const failedCandidates=[...failedMap.values()];
+  /* Failed-candidate evidence stays visible in the result diagnosis instead of
+   * poisoning the validated remainder. */
+  for(const entry of failedCandidates)for(const itemError of Array.isArray(entry.errors)?entry.errors:[])errors.push(itemError as Issue);
+  const unprocessedList=unique<string>((strings(d.unprocessed_candidate_ids)?d.unprocessed_candidate_ids:[]).filter(id=>knownIds.has(id)));
+  const decisionIds=new Set(items.map(item=>String(item.candidate_id)));
+  const excludedIds=new Set(excluded.map(entry=>String(entry.candidate_id)));
+  const failedIds=new Set(failedCandidates.map(entry=>String(entry.candidate_id)));
+  /* Counted outcomes are decided, excluded-with-reason and failed; every other
+   * candidate is unprocessed. A missing id never silently becomes an exclusion. */
+  const accounted=new Set<string>([...decisionIds,...excludedIds,...failedIds]);
+  const unprocessedTotal=Math.max(0,p.candidates.length-accounted.size);
+  const decidedCount=items.length;
+  const catalogIncomplete=['failed','incomplete'].includes(catalog.status);
+  const modelStatus=decidedCount>0?(failedIds.size+unprocessedTotal>0?'partial':'complete'):(failedIds.size>0?'failed':unprocessedTotal>0?'incomplete':'pending');
+  /* A valid subset is viewable and usable: partial matrices keep every
+  * validated decision attached with an explicit coverage limitation. */
+  const attach=!catalogIncomplete&&envelopeErrors.length===0&&decidedCount>0;
+  const status=envelopeErrors.length>0?'invalid_decisions':!attach?(decidedCount===0&&failedIds.size>0?'invalid_decisions':'needs_ai_decisions'):(failedIds.size+unprocessedTotal>0?'partial':'complete');
+  let candidates:Row[]=p.candidates;const order:string[]=attach?d.fit_order??[]:[];
+  candidates=candidates.map(c=>{const decision=attach?d.items?.find((x:Row)=>x.candidate_id===c.candidate_id):null;return {...c,primary_role:null,auxiliary_roles:[],selection:'undecided',matched_questions:[],...(decision??{}),industry_aggregate_ids:decision?unique<string>((decision.references??[]).filter((ref:Row)=>ref.type==='aggregate'&&p.industry_aggregate_ids.includes(ref.aggregate_id)).map((ref:Row)=>ref.aggregate_id)):[],semantic_decision_validated:!!decision};});
   const fitRank=new Map<string,number>(order.map((id,index)=>[id,index]));
   if(order.length)candidates.sort((a,b)=>(fitRank.get(a.candidate_id)??order.length)-(fitRank.get(b.candidate_id)??order.length));
-  const ranker=createCandidateRanker(r.task),coverage={catalog,model:{status:modelStatus,shortlisted_candidates:p.candidates.length,reviewed_candidates:reviewedCount,classified_candidates:errors.length?0:(d.items??[]).filter((item:Row)=>reviewed.includes(item.candidate_id)).length,excluded_candidates:errors.length?0:(d.excluded_candidates??[]).filter((item:Row)=>reviewed.includes(item.candidate_id)).length,unprocessed_candidates:unprocessed,batches_are_bounded:true,reason:d.review_error??null},ranking_method:d.ranking_method??'legacy_semantic_order'};
+  /* Program-owned continuous per-layer numbering: ranks are derived from the
+   * deterministic fit order after validation, never trusted from the model. */
+  if(order.length)for(const role of Object.keys(roles)){let rank=0;for(const id of order){const candidate=candidates.find(item=>item.candidate_id===id);if(candidate&&candidate.primary_role===role)candidate.layer_rank=++rank;}}
+  const ranker=createCandidateRanker(r.task),coverage={catalog,model:{status:modelStatus,shortlisted_candidates:p.candidates.length,reviewed_candidates:Math.min(p.candidates.length,accounted.size),classified_candidates:decidedCount,ai_classified_candidates:items.filter(item=>item.decision_basis!=='rule').length,rule_classified_candidates:items.filter(item=>item.decision_basis==='rule').length,excluded_candidates:excluded.length,failed_candidates:failedIds.size,unprocessed_candidates:unprocessedTotal,batches_are_bounded:true,reason:d.review_error??null},ranking_method:d.ranking_method??'legacy_semantic_order'};
   const layers=Object.entries(roles).map(([role,display_name])=>{
     const members=candidates.filter(c=>c.primary_role===role).sort((a,b)=>(a.layer_rank??Infinity)-(b.layer_rank??Infinity)||(fitRank.get(a.candidate_id)??Infinity)-(fitRank.get(b.candidate_id)??Infinity));
     const available=catalog.eligible_by_role?.[role]??p.candidates.filter((candidate:Row)=>ranker(candidate).eligible[role]).length;
-    const state=role==='regional'&&!regionalApplicable(r.task)?'not_applicable':catalog.status==='failed'||modelStatus==='failed'?'failed':catalogIncomplete||modelStatus!=='complete'?'incomplete':members.length?'populated':'empty';
+    const pending=failedIds.size+unprocessedTotal>0;
+    const state=role==='regional'&&!regionalApplicable(r.task)?'not_applicable':catalog.status==='failed'?'failed':members.length?'populated':catalogIncomplete||pending?'incomplete':'empty';
     const reason=state==='not_applicable'?'本轮未指定局部地域，地域覆盖层不适用。':state==='failed'?'候选读取或分层请求失败，请重试。':state==='incomplete'?'候选尚未完整读取或审阅，暂不能判断本层是否有合适资源。':members.length>=3?'':members.length?`本轮排序候选审阅后，本层仅保留${members.length}个符合条件的资源。`:available===0?'完整目录属性筛选未找到满足本层必要条件的资源。':'本轮排序候选均已审阅，尚无满足本层要求的资源；其他目录条目未经过模型分类。';
     return {role,display_name,status:state,reason_summary:reason,available_count:available,classified_count:members.length,candidate_ids:members.map(c=>c.candidate_id),auxiliary_candidate_ids:candidates.filter(c=>c.auxiliary_roles.includes(role)).map(c=>c.candidate_id)};
   });
-  return {schema_version:'1.0',matrix_version:p.matrix_version,status,source_analysis:clone(a),data_quality:clone(a.data_quality),scope:{task:clone(r.task),evidence_scope:clone(a.scope)},matrix:{status,candidates,layers,fit_order:order,coverage_kind:'semantic_relevance',coverage},research_only:candidates.filter(c=>c.channel_status==='research_only'),pending_items:candidates.filter(c=>c.pending_conditions.length||c.manuscript_status==='needs_manuscript_check').map(c=>({candidate_id:c.candidate_id,conditions:c.pending_conditions,manuscript_status:c.manuscript_status})),limitations:unique([...p.limitations,...(catalogIncomplete?['catalog_scan_incomplete']:[]),...(modelStatus==='incomplete'?['model_classification_incomplete']:[])]),errors,budget_plans:[]};
+  void unprocessedList;
+  return {schema_version:'1.0',matrix_version:p.matrix_version,status,source_analysis:clone(a),data_quality:clone(a.data_quality),scope:{task:clone(r.task),evidence_scope:clone(a.scope)},matrix:{status,candidates,layers,fit_order:order,coverage_kind:'semantic_relevance',coverage},research_only:candidates.filter(c=>c.channel_status==='research_only'),pending_items:candidates.filter(c=>c.pending_conditions.length||c.manuscript_status==='needs_manuscript_check').map(c=>({candidate_id:c.candidate_id,conditions:c.pending_conditions,manuscript_status:c.manuscript_status})),limitations:unique([...p.limitations,...(catalogIncomplete?['catalog_scan_incomplete']:[]),...(modelStatus==='incomplete'?['model_classification_incomplete']:[]),...(status==='partial'?['model_classification_partial']:[])]),errors,budget_plans:[]};
 }

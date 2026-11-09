@@ -1,7 +1,7 @@
 import { and,eq } from 'drizzle-orm';
 import type { MySql2Database } from 'drizzle-orm/mysql2';
 import { sourceMatrixIndustries as industries,sourceMatrixTasks as tasks,sourceMatrixSnapshots as snapshots } from '../../schema/source-matrix.js';
-import { clone,digest,type Row } from './common.js';
+import { clone,digest,issue,type Row } from './common.js';
 import { DISTRIBUTION_LIMITS,readSourceDistribution } from './distribution.js';
 export class MatrixRepository {
  constructor(private db:MySql2Database<any>,readonly tenantId:string,private actorId?:string){}
@@ -48,15 +48,27 @@ export class MatrixRepository {
    // persisted retry revision, never any partially accepted formal/content plan.
    // Initial rejected matrix decisions have no reusable matrix and stay rejected.
    const prior=current.latest;
-   if(rejected&&prior?.matrix?.status==='complete'&&prior.snapshot&&prior.scope?.input_snapshot){
-    const validCurrent=result.stage==='budget'&&result.matrix?.status==='complete'&&result.snapshot&&result.scope?.input_snapshot;
+   if(rejected&&prior&&['complete','partial'].includes(String(prior.matrix?.status))&&prior.snapshot&&prior.scope?.input_snapshot){
+    const validCurrent=result.stage==='budget'&&['complete','partial'].includes(String(result.matrix?.status))&&result.snapshot&&result.scope?.input_snapshot;
     saved={...clone(validCurrent?result:prior),stage:'budget',status:result.status,errors:clone(result.errors??[]),recommendations:[],budget_plans:[],content_plans:[],minimum_known_cost:null,retryable_budget:true,last_budget_attempt:{status:result.status,errors:clone(result.errors??[]),attempted_plan_version:result.plan_version??null}};
     saved.plan_version='plan-version-'+digest({retryOf:prior.plan_version,result:saved});
     saved.report={...clone(saved.report??{}),status:saved.status,plan_version:saved.plan_version,recommendations:[],budget_plans:[],content_plans:[],minimum_known_cost:null,errors:clone(saved.errors),last_budget_attempt:clone(saved.last_budget_attempt)};
    }
-   const reusable=saved.matrix?.status==='complete'&&(!rejected||saved.retryable_budget===true);
+   /* Complete and partial matrices are both reusable stage results: a partial
+    * snapshot is what "retry unprocessed candidates" resumes from. */
+   const reusable=['complete','partial'].includes(String(saved.matrix?.status))&&(!rejected||saved.retryable_budget===true);
    if(reusable)await tx.insert(snapshots).values({tenantId:this.tenantId,taskId,planId:saved.plan_id,planVersion:saved.plan_version,result:clone(saved)}).onDuplicateKeyUpdate({set:{planId:saved.plan_id}});
    await tx.update(tasks).set({state:'complete',latest:saved}).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId)));return true;
+  });
+ }
+ /** Terminalize an orphaned running task whose worker died (deploy restart,
+  * crash). Read-path healing only: an actively running task is never touched. */
+ async failInterrupted(taskId:string,reason:string){
+  return this.db.transaction(async tx=>{
+   const current=(await tx.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1).for('update'))[0];
+   if(!current||current.state!=='running'||current.latest)return false;
+   const failed={schema_version:'1.0',status:'invalid_decisions',errors:[issue('run_interrupted','decisions',reason)],limitations:[reason],recommendations:[],budget_plans:[],content_plans:[],matrix:{status:'invalid_decisions',candidates:[],layers:[],fit_order:[],coverage_kind:'semantic_relevance',coverage:{model:{status:'failed',shortlisted_candidates:0,reviewed_candidates:0,classified_candidates:0,excluded_candidates:0,failed_candidates:0,unprocessed_candidates:0,batches_are_bounded:true,reason:'run_interrupted'}}}};
+   await tx.update(tasks).set({state:'complete',latest:failed}).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId)));return true;
   });
  }
  async cancel(taskId:string){await this.db.update(tasks).set({state:'cancelled'}).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId)));}

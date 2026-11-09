@@ -42,18 +42,21 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     }
     const out=assembleMatrix(r,analysis,md);
     if(out.errors.some((e:Row)=>e.code==='invalid_type'))return fail('invalid_input',out.errors);
+    /* A validated subset can drive scoped estimates: the partial matrix keeps
+     * every validated decision and the limitation makes the coverage explicit. */
+    if(stage==='budget'&&out.matrix.status==='partial')out.limitations.push('matrix_partial_coverage');
     out.stage=stage;out.as_of=asOf;out.snapshot={binding:binding(r),matrix_decisions:clone(md),generated_at:asOf};
     if(stage==='budget'&&previous?.snapshot.expires_at)out.snapshot.expires_at=previous.snapshot.expires_at;
     out.scope.input_snapshot=clone(r);out.scope.generated_at=asOf;out.selected_items=clone(r.selected_items??r.task.selected_items??[]);
     out.recommendations=[];
-    if(stage==='budget'&&out.matrix.status==='complete'&&d.recommendations!==undefined){
+    if(stage==='budget'&&['complete','partial'].includes(out.matrix.status)&&d.recommendations!==undefined){
       if(d.budget_plans!==undefined||d.content_plans!==undefined)return fail('invalid_decisions',[issue('mixed_recommendation_contract','decisions')]);
       const verified=verifyRecommendations(d.recommendations,out,r,asOf);
       out.recommendations=verified.plans;out.errors.push(...verified.errors);out.recommendation_warnings=verified.warnings;
-      out.status=verified.errors.length?'invalid_decisions':verified.plans.length?'complete':'needs_budget_plans';
+      out.status=verified.plans.length?'complete':verified.errors.length?'invalid_decisions':'needs_budget_plans';
       if(verified.warnings.some((warning:Row)=>warning.code==='matching_recommendations_after_edit'))out.recommendation_limit_reason='篇数调整后部分组合配置相同，已保留原有组合位置。';
       else if(verified.plans.length<3)out.recommendation_limit_reason=(verified.warnings.some((warning:Row)=>warning.code==='duplicate_recommendation_omitted')?'重复资源配置已合并。':'')+`本次生成 ${verified.plans.length} 个不同组合，可调整要求后重新生成。`;
-    }else if(stage==='budget'&&out.matrix.status==='complete'){
+    }else if(stage==='budget'&&['complete','partial'].includes(out.matrix.status)){
       const submitted=d.budget_plans??[],uniquePlans=new Map<string,Row>(),planErrors:Row[]=[];
       if(!rows(submitted))return fail('invalid_input',[issue('invalid_type','decisions.budget_plans')]);
       for(const [i,p] of submitted.entries()){
@@ -77,7 +80,7 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     out.warnings=r.budget?.exploration_enabled===true&&!('exploration_cap' in r.budget)?[issue('exploration_cap_required','budget.exploration_cap','探索投放需要显式正子额度；普通方案仍可校验')]:[];
     out.minimum_known_cost=minimum(r,out);
     out.plan_id='plan-'+digest(r.task_id?binding(r):{...binding(r),task:semantic(r.task)});
-    out.skill_version='source-matrix-planner/2026.11.09-web.1';
+    out.skill_version='source-matrix-planner/2026.11.09-web.2';
     out.resource_selections=clone(r.resource_selections??[]);
     out.quantity_mode=r.publication_intent==='repeat_existing_article'?'repeat_article':'new_articles';
     out.research_observation=clone(r.research_observation??null);

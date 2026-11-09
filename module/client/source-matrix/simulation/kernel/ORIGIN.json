@@ -1,95 +1,95 @@
 {
-  "baseCommit": "69b39c4f2098d0a15cd0d544afa033ad351bf225",
-  "files": [
-    {
-      "source": "module/server/source-matrix/common.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/common.ts",
-      "source_sha256": "b09d0a7151c30e6aacbe671c1cde3fa273514f1c4542bfa4bb79b8121aebfa9c",
-      "browser_sha256": "c46c5c206082bdc0a9daac459c7b96bcd8800b8429689664afdf693cd896c30b",
-      "adaptation": "hash import only"
-    },
-    {
-      "source": "module/server/source-matrix/contracts.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/contracts.ts",
-      "source_sha256": "e86f5649c9fcf7cb0b6f3e605f2a6a8e0f928acef4bd077bb9bbf2cae357a66f",
-      "browser_sha256": "24bf79b84c82a96df21756abe51a58ea18a744451d07e99af932c98eae6c15ad",
-      "adaptation": "shared import path ../../shared -> ../../../../shared"
-    },
-    {
-      "source": "module/server/source-matrix/evidence.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/evidence.ts",
-      "source_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
-      "browser_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
-      "adaptation": "none"
-    },
-    {
-      "source": "module/server/source-matrix/matrix.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/matrix.ts",
-      "source_sha256": "b9eeb86c2a35ef827bcbcb1752d0a87307984e00487de486be630c03467ed93a",
-      "browser_sha256": "f0e4d01a03dfe3f7c6f28c08232db804b28f074bc9eddb21ebb52b8650fbad0c",
-      "adaptation": "shared import path ../../shared -> ../../../../shared"
-    },
-    {
-      "source": "module/server/source-matrix/budget.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/budget.ts",
-      "source_sha256": "11a87141170c32a1ee4c18b17b71e3d30b27113e2b11380ab5bd3499f618e235",
-      "browser_sha256": "11a87141170c32a1ee4c18b17b71e3d30b27113e2b11380ab5bd3499f618e235",
-      "adaptation": "none"
-    },
-    {
-      "source": "module/server/source-matrix/planner.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/planner.ts",
-      "source_sha256": "352a2a87dd8914953a15d7816e78ada7f9383bc305a305f73f1325afbbd52b70",
-      "browser_sha256": "352a2a87dd8914953a15d7816e78ada7f9383bc305a305f73f1325afbbd52b70",
-      "adaptation": "none"
-    },
-    {
-      "source": "module/server/source-matrix/export-research.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/export-research.ts",
-      "source_sha256": "f5f45885f2bf6fac12409816735a64da9266d0964e8a9a65f6d3b9055325cff1",
-      "browser_sha256": "f5f45885f2bf6fac12409816735a64da9266d0964e8a9a65f6d3b9055325cff1",
-      "adaptation": "none (new in 2026.10.26-web.1 sync)"
-    },
-    {
-      "source": "module/server/source-matrix/content-plans.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/content-plans.ts",
-      "source_sha256": "1a0f0ba13d5490f2f376d45d545fe09b5f6af78c01aab7be22c1e7aa9972b1c2",
-      "browser_sha256": "1a0f0ba13d5490f2f376d45d545fe09b5f6af78c01aab7be22c1e7aa9972b1c2",
-      "adaptation": "none (new in 2026.10.26-web.1 sync)"
-    },
-    {
-      "source": "module/server/source-matrix/candidate-ranking.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/candidate-ranking.ts",
-      "adaptation": "shared import path ../../shared -> ../../../../shared",
-      "source_sha256": "ed505d185a3aeb8d92e0ffb44512475f35ba7ad083da3ed016636c5e0ba0f345",
-      "browser_sha256": "0acfdbee74b9641de21d5155517496ed86cbd03e233b2980e799450594cafdd1"
-    },
-    {
-      "source": "module/server/source-matrix/industry-context-evidence.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/industry-context-evidence.ts",
-      "adaptation": "none",
-      "source_sha256": "2b013626733d5415042d7bc78bb569a195ee3049f29a76d7f8e9a67a19947148",
-      "browser_sha256": "2b013626733d5415042d7bc78bb569a195ee3049f29a76d7f8e9a67a19947148"
-    },
-    {
-      "source": "module/server/source-matrix/industry-query.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/industry-query.ts",
-      "adaptation": "none",
-      "source_sha256": "dac3fc7b9088ed8d75c19a5e9f9b90e5e67ba26798e55d602760f435791b57ef",
-      "browser_sha256": "dac3fc7b9088ed8d75c19a5e9f9b90e5e67ba26798e55d602760f435791b57ef"
-    },
-    {
-      "source": "module/server/source-matrix/recommendation-pricing.ts",
-      "browser": "module/client/source-matrix/simulation/kernel/recommendation-pricing.ts",
-      "adaptation": "none",
-      "source_sha256": "f9fcf41d95ee092caab2a9d0aa727bae5777fdd3be6ab0dfa30b5876b5bb26c5",
-      "browser_sha256": "f9fcf41d95ee092caab2a9d0aa727bae5777fdd3be6ab0dfa30b5876b5bb26c5"
-    }
-  ],
-  "hash_source": "module/server/domain/hash.ts",
-  "hash_source_sha256": "ec2df827c90f6b60da0fdcd19e79e88ffcd951f54d5152b854080449cc2daea6",
-  "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto",
-  "sync_note": "2026-11-09 source-only sync against publish 69b39c4f2098d0a15cd0d544afa033ad351bf225: matrix/content-plans/planner refreshed, candidate-ranking/recommendation-pricing added. Existing browser shared-import and hash adaptations retained. All listed hashes reflect delivered bytes. No runtime verification performed; these historical simulation helpers are not the live service adapter or the current sample-page data source.",
-  "hash_browser": "module/client/source-matrix/simulation/kernel/hash.ts",
-  "hash_browser_sha256": "05d716406cdb1aae2dfccf867d4939d6273ffdb4d69fb1114852243f248bfeb5"
+ "baseCommit": "5a4655c9ecd0bd117fcd91cf26114b3f20323a8c",
+ "files": [
+  {
+   "source": "module/server/source-matrix/common.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/common.ts",
+   "source_sha256": "b09d0a7151c30e6aacbe671c1cde3fa273514f1c4542bfa4bb79b8121aebfa9c",
+   "browser_sha256": "c46c5c206082bdc0a9daac459c7b96bcd8800b8429689664afdf693cd896c30b",
+   "adaptation": "hash import only"
+  },
+  {
+   "source": "module/server/source-matrix/contracts.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/contracts.ts",
+   "source_sha256": "e86f5649c9fcf7cb0b6f3e605f2a6a8e0f928acef4bd077bb9bbf2cae357a66f",
+   "browser_sha256": "24bf79b84c82a96df21756abe51a58ea18a744451d07e99af932c98eae6c15ad",
+   "adaptation": "shared import path ../../shared -> ../../../../shared"
+  },
+  {
+   "source": "module/server/source-matrix/evidence.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/evidence.ts",
+   "source_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
+   "browser_sha256": "10932c8e7167b9af955040cc0c456b4e9b2eede46011eb52f6f3361d2ddb5684",
+   "adaptation": "none"
+  },
+  {
+   "source": "module/server/source-matrix/matrix.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/matrix.ts",
+   "source_sha256": "04efb99248cf612d62fb145e3ba6b70faf875707722d2e5acb38f4230d7bf6ed",
+   "browser_sha256": "c8f80c9e9c6ab3e06d92ad3726a2a39e1d7bf12134c2f8f9424e92f8a5fe450b",
+   "adaptation": "shared import path ../../shared -> ../../../../shared"
+  },
+  {
+   "source": "module/server/source-matrix/budget.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/budget.ts",
+   "source_sha256": "11a87141170c32a1ee4c18b17b71e3d30b27113e2b11380ab5bd3499f618e235",
+   "browser_sha256": "11a87141170c32a1ee4c18b17b71e3d30b27113e2b11380ab5bd3499f618e235",
+   "adaptation": "none"
+  },
+  {
+   "source": "module/server/source-matrix/planner.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/planner.ts",
+   "source_sha256": "a7526836f965e99f4cced267e8768e2a646f89369030b84ed467f78f711b1732",
+   "browser_sha256": "a7526836f965e99f4cced267e8768e2a646f89369030b84ed467f78f711b1732",
+   "adaptation": "none"
+  },
+  {
+   "source": "module/server/source-matrix/export-research.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/export-research.ts",
+   "source_sha256": "f5f45885f2bf6fac12409816735a64da9266d0964e8a9a65f6d3b9055325cff1",
+   "browser_sha256": "f5f45885f2bf6fac12409816735a64da9266d0964e8a9a65f6d3b9055325cff1",
+   "adaptation": "none (new in 2026.10.26-web.1 sync)"
+  },
+  {
+   "source": "module/server/source-matrix/content-plans.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/content-plans.ts",
+   "source_sha256": "72dddc4a287fa94891f78a3a0642315cda0a81e1364038c6f390536b9afc07e1",
+   "browser_sha256": "72dddc4a287fa94891f78a3a0642315cda0a81e1364038c6f390536b9afc07e1",
+   "adaptation": "none (new in 2026.10.26-web.1 sync)"
+  },
+  {
+   "source": "module/server/source-matrix/candidate-ranking.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/candidate-ranking.ts",
+   "adaptation": "shared import path ../../shared -> ../../../../shared",
+   "source_sha256": "722c43cee479a73e8c7b2290be989d9c1498340cfcb26180bfdd2160364dcc09",
+   "browser_sha256": "5f8349535ee56c098824a41d97878a3b2a7175166ad7d64ddca3dbaac2816d8c"
+  },
+  {
+   "source": "module/server/source-matrix/industry-context-evidence.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/industry-context-evidence.ts",
+   "adaptation": "none",
+   "source_sha256": "2b013626733d5415042d7bc78bb569a195ee3049f29a76d7f8e9a67a19947148",
+   "browser_sha256": "2b013626733d5415042d7bc78bb569a195ee3049f29a76d7f8e9a67a19947148"
+  },
+  {
+   "source": "module/server/source-matrix/industry-query.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/industry-query.ts",
+   "adaptation": "none",
+   "source_sha256": "dac3fc7b9088ed8d75c19a5e9f9b90e5e67ba26798e55d602760f435791b57ef",
+   "browser_sha256": "dac3fc7b9088ed8d75c19a5e9f9b90e5e67ba26798e55d602760f435791b57ef"
+  },
+  {
+   "source": "module/server/source-matrix/recommendation-pricing.ts",
+   "browser": "module/client/source-matrix/simulation/kernel/recommendation-pricing.ts",
+   "adaptation": "none",
+   "source_sha256": "f9fcf41d95ee092caab2a9d0aa727bae5777fdd3be6ab0dfa30b5876b5bb26c5",
+   "browser_sha256": "f9fcf41d95ee092caab2a9d0aa727bae5777fdd3be6ab0dfa30b5876b5bb26c5"
+  }
+ ],
+ "hash_source": "module/server/domain/hash.ts",
+ "hash_source_sha256": "ec2df827c90f6b60da0fdcd19e79e88ffcd951f54d5152b854080449cc2daea6",
+ "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto",
+ "sync_note": "2026-11-09 source-only sync against publish 69b39c4f2098d0a15cd0d544afa033ad351bf225: matrix/content-plans/planner refreshed, candidate-ranking/recommendation-pricing added. Existing browser shared-import and hash adaptations retained. All listed hashes reflect delivered bytes. No runtime verification performed; these historical simulation helpers are not the live service adapter or the current sample-page data source.",
+ "hash_browser": "module/client/source-matrix/simulation/kernel/hash.ts",
+ "hash_browser_sha256": "05d716406cdb1aae2dfccf867d4939d6273ffdb4d69fb1114852243f248bfeb5"
 }

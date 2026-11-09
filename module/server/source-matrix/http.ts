@@ -2,7 +2,7 @@ import { createHash,randomUUID } from 'node:crypto';
 import { Router,json,type Request,type Response,type NextFunction } from 'express';
 import { z } from 'zod';
 import type { ModuleHttpCore } from '../http-api.js';
-import { digest,clone,equal,issue,semantic,type Row } from './common.js';
+import { digest,clone,equal,issue,rows,semantic,strings,type Row } from './common.js';
 import { validateBudget } from './contracts.js';
 import { isMatrixTargetPlatform,normalizeMatrixRegions } from '../../shared/matrix-requirements.js';
 import { runPlanner } from './planner.js';
@@ -57,6 +57,14 @@ function datasetRequest(dataset:Row,task:Row,tenantId:string,taskId:string,brand
 }
 export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
  const router=Router();router.use(json({limit:'256kb'}));
+ /** In-process run registry: cancellation aborts the live model request, and
+  * the read path can distinguish a live run from an orphaned task row left by
+  * a process restart (there is no other worker or reaper for these tasks). */
+ const activeRuns=new Map<string,{controller:AbortController;startedAt:number}>();
+ const RUN_GRACE_MS=25*60_000;
+ const beginRun=(taskId:string)=>{const controller=new AbortController();activeRuns.set(taskId,{controller,startedAt:Date.now()});return controller;};
+ const endRun=(taskId:string,controller:AbortController)=>{if(activeRuns.get(taskId)?.controller===controller)activeRuns.delete(taskId);};
+ const abortRun=(taskId:string)=>{activeRuns.get(taskId)?.controller.abort();};
  const actor=(req:Request)=>digest({actor:core.context(req).actorUserId,account:core.context(req).accountUserId});
  const wrap=(fn:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response,next:NextFunction)=>{void fn(req,res).catch(next);};
  async function repository(req:Request){const c=core.context(req);if(!c.enterpriseProjectId||!c.businessOwnerId)throw Object.assign(new Error('需要已授权企业项目'),{status:403});
@@ -164,9 +172,11 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   await repo.create(taskId,industry.industryId,industry.brandId,task);
   res.status(202).json({task_id:taskId,state:'running',progress:'analyzing',result:prepared});
   void (async()=>{
+  const run=beginRun(taskId);
   let result=prepared;
-  try{if(decision.adapter){const d=await decision.adapter.matrix({request:clone(request),prepared:clone(prepared),as_of:body.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});await repo.progress(taskId,'validating');if(d)result=runPlanner(request,d,'matrix',undefined,body.as_of);}}
+  try{if(decision.adapter){const d=await decision.adapter.matrix({request:clone(request),prepared:clone(prepared),as_of:body.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS,signal:run.signal});await repo.progress(taskId,'validating');if(d)result=runPlanner(request,d,'matrix',undefined,body.as_of);}}
   catch(reason){result={...prepared,limitations:[...prepared.limitations,'decision_adapter_unavailable']};}
+  finally{endRun(taskId,run);}
   if(result.report)result.report.limitations=clone(result.limitations);
   await repo.save(taskId,result);
   })().catch(async()=>{await repo.save(taskId,{...prepared,limitations:[...prepared.limitations,'result_persistence_failed']}).catch(()=>undefined);});
@@ -207,18 +217,29 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   await repo.progress(task.taskId,'analyzing');
   res.status(202).json({task_id:task.taskId,state:'running',progress:'analyzing',result:precheck});
   void (async()=>{
+  const run=beginRun(task.taskId);
   let result=precheck;
   try{if(decision.adapter){const d=await decision.adapter.budget({request:clone({...request,selection_preferences:ids}),matrix:clone(precheck),as_of:asOf,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});await repo.progress(task.taskId,'validating');if(d)result=runPlanner(request,d,'budget',previous,asOf);}}
   catch(reason){result={...precheck,limitations:[...precheck.limitations,'decision_adapter_unavailable']};}
+  finally{endRun(task.taskId,run);}
   if(result.report)result.report.limitations=clone(result.limitations);
   await repo.save(task.taskId,result);
   })().catch(async()=>{await repo.save(task.taskId,{...precheck,limitations:[...precheck.limitations,'result_persistence_failed']}).catch(()=>undefined);});
  }));
  router.get('/classify/:taskId',wrap(async(req,res)=>{
 
-  const repo=await repository(req),task=await repo.get(String(req.params.taskId));
+  const repo=await repository(req);let task=await repo.get(String(req.params.taskId));
 
   if(!task){res.status(404).json({status:'not_found'});return;}
+
+  /* Heal orphaned running rows: a task whose worker died (process restart)
+   * must reach a terminal failed state instead of spinning "生成中" forever. */
+  if(task.state==='running'&&!activeRuns.has(task.taskId)){
+   const created=task.createdAt instanceof Date?task.createdAt.getTime():Date.parse(String(task.createdAt));
+   if(Number.isFinite(created)&&Date.now()-created>RUN_GRACE_MS&&await repo.failInterrupted(task.taskId,'生成进程中断（运行超时无响应），结果未保存；可重新生成矩阵。')){
+    const refreshed=await repo.get(String(req.params.taskId));if(refreshed)task=refreshed;
+   }
+  }
 
   const publicTask:Row={};
 
@@ -330,7 +351,33 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   if(!applied.ok){res.status(409).json({status:applied.reason,message:applied.reason==='plan_changed'?'推荐方案已更新或正在重新生成，请使用当前方案重试':applied.reason==='revision_conflict'?'购物车刚被其他操作更新，请刷新后重试':'草稿状态已变化，请刷新后重试'});return;}
   res.json({...summary,draft:{id:body.draft_id,revision:applied.revision}});
  }));
- router.post('/classify/:taskId/cancel',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}await repo.cancel(task.taskId);res.json({task_id:task.taskId,state:'cancelled'});}));
+ router.post('/classify/:taskId/cancel',wrap(async(req,res)=>{const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}abortRun(task.taskId);await repo.cancel(task.taskId);res.json({task_id:task.taskId,state:'cancelled'});}));
+ // Resume a persisted partial matrix: only unprocessed/failed candidates are
+ // re-reviewed; validated decisions and reasoned exclusions are reused verbatim.
+ router.post('/classify/:taskId/retry-matrix',wrap(async(req,res)=>{
+  const parsed=z.object({as_of:z.string()}).strict().safeParse(req.body);if(!parsed.success){res.status(400).json({status:'invalid_input',errors:parsed.error.issues});return;}
+  const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}
+  if(task.task.model_source!=='environment'){res.status(409).json({status:'platform_regenerate_required',message:'此历史矩阵尚未使用平台模型与行业依据，请重新生成矩阵'});return;}
+  const previous=task.latest;
+  if(task.state!=='complete'||!previous||!previous.snapshot?.matrix_decisions||!previous.scope?.input_snapshot||!['partial','invalid_decisions'].includes(String(previous.matrix?.status))){res.status(409).json({status:'needs_matrix',message:'当前矩阵没有可续跑的部分结果，请重新生成矩阵'});return;}
+  const md=previous.snapshot.matrix_decisions;
+  const pending=[...new Set([...(strings(md.unprocessed_candidate_ids)?md.unprocessed_candidate_ids:[]),...(rows(md.failed_candidates)?md.failed_candidates.map((entry:Row)=>String(entry.candidate_id)):[])])];
+  if(!pending.length){res.status(409).json({status:'needs_matrix',message:'当前矩阵没有未完成候选，可直接生成组合'});return;}
+  const decision=await resolvePlatformDecisionAdapter(core,req);
+  if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
+  if(!await repo.begin(task.taskId,previous.plan_version)){res.status(409).json({status:'task_busy_or_cancelled',message:'任务版本已更新、正在处理或已取消'});return;}
+  await repo.progress(task.taskId,'analyzing');
+  res.status(202).json({task_id:task.taskId,state:'running',progress:'analyzing',result:previous});
+  void (async()=>{
+  const run=beginRun(task.taskId);
+  let result=previous;
+  try{const d=await decision.adapter!.matrix({request:clone(previous.scope!.input_snapshot!),prepared:clone(previous),as_of:parsed.data.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS,signal:run.signal,resume:{pending_ids:pending,accepted_items:md.items??[],excluded:md.excluded_candidates??[]}});await repo.progress(task.taskId,'validating');if(d)result=runPlanner(previous.scope!.input_snapshot!,d,'matrix',undefined,parsed.data.as_of);}
+  catch(reason){result={...previous,limitations:[...previous.limitations,'decision_adapter_unavailable']};}
+  finally{endRun(task.taskId,run);}
+  if(result.report)result.report.limitations=clone(result.limitations);
+  await repo.save(task.taskId,result);
+  })().catch(async()=>{await repo.save(task.taskId,{...previous,limitations:[...previous.limitations,'result_persistence_failed']}).catch(()=>undefined);});
+ }));
  router.get('/classify/:taskId/download',wrap(async(req,res)=>{
   const parsed=download.safeParse(req.query);if(!parsed.success){res.status(400).json({status:'invalid_input',message:'请同时提供有效的方案与版本标识'});return;}
   const repo=await repository(req),task=await repo.get(String(req.params.taskId));if(!task){res.status(404).json({status:'not_found'});return;}

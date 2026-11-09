@@ -14,6 +14,8 @@ export interface SourceMatrixDecisionAdapter {
  /** Optional read-only four-field extraction. The route validates all output.
   * Replace the host adapter when configuration changes; honor signal where possible. */
  identify?(input:ArticleIdentificationInput):Promise<unknown>;
- matrix(input:{request:Readonly<Row>;prepared:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{matrix_decisions:Row}|undefined>;
+ /** Resume continues a persisted partial matrix: only pending candidates are
+  * reviewed and the seeded decisions are merged verbatim by the adapter. */
+ matrix(input:{request:Readonly<Row>;prepared:Readonly<Row>;as_of:string;skill:string;instructions:string;signal?:AbortSignal;resume?:{pending_ids:readonly string[];accepted_items:readonly Row[];excluded:readonly Row[]}}):Promise<{matrix_decisions:Row}|undefined>;
  budget(input:{request:Readonly<Row>;matrix:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{recommendations?:Row[];budget_plans?:Row[];content_plans?:Row[]}|undefined>;
 }

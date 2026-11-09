@@ -113,3 +113,35 @@ it('keeps normal generation deduplication and rejects a model-supplied edit bypa
  expect(runPlanner(r,{recommendations:duplicate,quantity_edits:edit},'budget',m,now).status).toBe('invalid_input');
  expect(runPlanner({...r,quantity_edits:{...edit,items:[{...edit.items[0],candidate_id:'other'}]}},{recommendations:duplicate},'budget',m,now).recommendations).toHaveLength(1);
 });
+
+// --- per-plan isolation and explanation degradation (2026.11.09-web.2) ---
+
+it('keeps a valid combination when a sibling plan has a broken explanation',()=>{
+ const r=request(),m=matrix(r),good=plan();
+ const broken=plan();broken.strategy='解释损坏的组合';broken.items[0].quantity=3;(broken as any).explanation={objective:'',selection_logic:'not-an-array'};
+ const out=runPlanner(r,{recommendations:[broken,good]},'budget',m,now);
+ expect(out.status).toBe('complete');
+ expect(out.recommendations).toHaveLength(2);
+ expect(out.recommendation_warnings.map((warning:Row)=>warning.code)).toContain('explanation_rule_generated');
+ // The broken explanation is replaced by the factual rule explanation, never dropped silently.
+ const repaired=out.recommendations.find((plan:Row)=>plan.strategy==='解释损坏的组合')!;
+ expect(repaired.explanation.explanation_source).toBe('rule');
+ expect(repaired.total_cost).toBe('335.00');
+});
+it('drops only the structurally invalid plan and reports it as a warning while keeping siblings',()=>{
+ const r=request(),m=matrix(r),good=plan();
+ const poisoned=plan();poisoned.strategy='未知候选组合';poisoned.items[0].candidate_id='not-in-matrix';
+ const out=runPlanner(r,{recommendations:[poisoned,good]},'budget',m,now);
+ expect(out.status).toBe('complete');
+ expect(out.recommendations).toHaveLength(1);
+ expect(out.recommendations[0].strategy).toBe('方法与案例');
+ expect(out.recommendation_warnings.some((warning:Row)=>warning.code==='invalid_recommendation_omitted')).toBe(true);
+});
+it('accepts an item whose content advice is unusable instead of invalidating its price',()=>{
+ const r=request(),p=plan();(p.items[0] as any).content_tasks='不是数组';
+ const out=verifyContentPlans([p],matrix(r),r,now);
+ expect(out.errors).toEqual([]);
+ expect(out.plans[0]!.total_cost).toBe('225.00');
+ expect(out.plans[0]!.items[0].content_tasks).toEqual([]);
+ expect(out.warnings.some((warning:Row)=>warning.code==='content_tasks_pending')).toBe(true);
+});
