@@ -13,7 +13,10 @@ export function firstSentence(text:string):string {
  const trimmed=text.trim();if(!trimmed)return'';
  const end=trimmed.search(/[。！？!?；;]/);
  if(end>=0&&end<=44)return trimmed.slice(0,end+1);
- if(end>44){const comma=trimmed.lastIndexOf('，',44);return comma>=20?trimmed.slice(0,comma)+'。':trimmed.slice(0,44)+'…';}
+ if(end>44){
+  let cut=-1;for(let i=44;i>=20;i-=1){if('，,、；;'.includes(trimmed[i]??'')){cut=i;break;}}
+  return cut>=0?trimmed.slice(0,cut)+'。':trimmed.slice(0,44)+'…';
+ }
  return trimmed.length<=44?trimmed:trimmed.slice(0,44).replace(/[，、；,\s]+$/,'')+'…';
 }
 const purposes: Record<string, string> = {authority:'提供可信参考与背景',industry:'覆盖目标行业的核心问题',regional:'补充目标地区的信息覆盖',supplement:'补足核心层之外的触达',exploration:'小范围验证尚待确认的机会'};
