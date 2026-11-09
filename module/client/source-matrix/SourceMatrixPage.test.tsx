@@ -140,6 +140,31 @@ it('opens the layer multi-select with every layer media checked and only adds ke
  await waitFor(()=>expect(mediaGateway.createDraft).toHaveBeenCalledWith('version-1',[media.id],expect.stringMatching(/^publisher:draft:/),'per_media'));
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('draftId')).toBe('draft-1'));
 });
+
+it('treats a freshly loaded task with saved combinations as current instead of demanding regeneration',async()=>{
+ liveDirectory();
+ const loaded:ContentPlan={schema_version:'recommendation/1.0',recommendation_id:'recommendation-loaded',kind:'recommendation',strategy:'行业组合',reason_summary:'按当前要求生成',explanation:null,items:[{candidate_id:'candidate-1',resource_id:'external-1',offer_id:'quote-1',publication_spec:'text',quantity:2,quantity_mode:'new_articles',content_tasks:['补充事实依据'],purpose:'standard',unit_price:'100.00',base_cost:'200.00',cost:'200.00',known_cost:'200.00',pricing_status:'priced'}],total_articles:2,currency:'CNY',known_total_cost:'200.00',total_cost:'200.00',total_remaining:'800.00',total_cap:'1000.00',budget_feasible:true,ready_to_publish:false,execution_recommended:false,unknown_items:[],errors:[]};
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{const url=String(input);if(url.includes('/classify/matrix-1'))return Promise.resolve({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'plan-loaded',recommendations:[loaded],content_plans:[]}})});return base(input,init);});
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ // 载入即登记当前输入为组合基线：输入稳定后篇数可直接编辑，不再误报“请更新组合”。
+ const quantity=await screen.findByLabelText('可投媒体建议篇数');
+ await waitFor(()=>expect((quantity as HTMLInputElement).disabled).toBe(false),{timeout:5000});
+ expect(screen.queryByText('投放要求、预算或资源选择已变化，请更新组合。')).toBeNull();
+},10000);
+
+it('lists generation history and opens an archived task',async()=>{
+ liveDirectory();
+ const fetcher=globalThis.fetch as ReturnType<typeof vi.fn>,base=fetcher.getMockImplementation()!;
+ fetcher.mockImplementation((input:RequestInfo|URL,init?:RequestInit)=>{const url=String(input);if(url.includes('/classify/history'))return Promise.resolve({ok:true,json:async()=>({items:[{task_id:'history-2',created_at:'2026-11-10T08:00:00.000Z',state:'complete',industry:'净水器',product:'测试产品',matrix_status:'complete',candidate_count:26,recommendation_count:3}]})});return base(input,init);});
+ openMatrix('draftId=draft-1&articleVersion=version-1');
+ fireEvent.click(await screen.findByRole('button',{name:'历史记录'}));
+ (screen.getByRole('button',{name:'历史记录'}) as HTMLButtonElement).click();
+ await screen.findByText('净水器',{selector:'strong'});
+ expect(screen.getByText(/26 候选 · 3 组组合/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'查看'}));
+ await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('history-2'));
+});
 it('keeps the first matrix selection when the host assigns its task ID during ensureTask',async()=>{
  liveDirectory();const owner=flow();
  mediaGateway.createDraft.mockImplementation(async()=>{const saved=draft('draft-1',1,[media]);mediaGateway.getDraft.mockResolvedValue(saved);return saved;});
@@ -214,10 +239,9 @@ it('ignores an old draft update after changing the bound draft',async()=>{
  await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=matrix-1&draftId=draft-2&articleVersion=version-1');window.dispatchEvent(new PopStateEvent('popstate'));});
  await waitFor(()=>expect(mediaGateway.getDraft).toHaveBeenCalledWith('draft-2',expect.any(AbortSignal)));
  await act(async()=>resolveUpdate(draft('draft-1',2,[media])));
- // The matrix binding changed with the draft: selection stays conservatively
- // disabled until the matrix is regenerated; the stale update must not check it.
- await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(true));
- expect(screen.getByText('需求已变化，请更新矩阵。')).toBeTruthy();
+ // 同一冻结稿件版本换绑投放草稿不算需求变化：媒体保持可选；过期响应不得写入勾选。
+ await waitFor(()=>expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).disabled).toBe(false));
+ expect(screen.queryByText('需求已变化，请更新矩阵。')).toBeNull();
  expect((screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'}) as HTMLInputElement).checked).toBe(false);
  expect((screen.getByText('完整购物车 →',{selector:'a'}) as HTMLAnchorElement).pathname).toBe('/publishing/drafts/draft-2/media/cart');
 });
@@ -353,7 +377,7 @@ it('retains the complete matrix across budget-only responses and invalidates pla
  expect(screen.queryByText('不得覆盖原矩阵的预算理由')).toBeNull();
  expect(screen.getByRole('heading',{name:'权威参考层'})).toBeTruthy();expect(screen.getByRole('heading',{name:'探索验证层'})).toBeTruthy();
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'150'}});
- expect(screen.getByText('投放要求、预算或资源选择已变化，请更新组合。')).toBeTruthy();
+ expect(screen.queryByText('投放要求、预算或资源选择已变化，请更新组合。')).toBeNull();
  expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
 });
 

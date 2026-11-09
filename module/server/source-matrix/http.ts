@@ -226,6 +226,12 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   await repo.save(task.taskId,result);
   })().catch(async()=>{await repo.save(task.taskId,{...precheck,limitations:[...precheck.limitations,'result_persistence_failed']}).catch(()=>undefined);});
  }));
+ router.get('/classify/history',wrap(async(req,res)=>{
+  // Read-only archive index: summary extracts only, no manuscript or full results.
+  const repo=await repository(req);
+  const items=await repo.listRecent(20);
+  res.json({items:items.map(row=>({task_id:row.taskId,created_at:row.createdAt instanceof Date?row.createdAt.toISOString():String(row.createdAt),state:row.state,industry:row.industry??row.industryId,product:row.product??null,matrix_status:row.matrixStatus??null,candidate_count:row.candidateCount??null,recommendation_count:row.recommendationCount??null}))});
+ }));
  router.get('/classify/:taskId',wrap(async(req,res)=>{
 
   const repo=await repository(req);let task=await repo.get(String(req.params.taskId));

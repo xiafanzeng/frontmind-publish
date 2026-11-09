@@ -8,6 +8,14 @@ import {PlanExplanation,formalItemDetail,planMoney,plainValue,planQuantity,manda
 import {matrixCandidateGroups,matrixReadiness} from './matrix-readiness';
 
 export {matrixRoles} from './matrix-readiness';
+/** 卡片只放一句完整介绍；更长内容留在推荐理由弹窗里。 */
+export function firstSentence(text:string):string {
+ const trimmed=text.trim();if(!trimmed)return'';
+ const end=trimmed.search(/[。！？!?；;]/);
+ if(end>=0&&end<=44)return trimmed.slice(0,end+1);
+ if(end>44){const comma=trimmed.lastIndexOf('，',44);return comma>=20?trimmed.slice(0,comma)+'。':trimmed.slice(0,44)+'…';}
+ return trimmed.length<=44?trimmed:trimmed.slice(0,44).replace(/[，、；,\s]+$/,'')+'…';
+}
 const purposes: Record<string, string> = {authority:'提供可信参考与背景',industry:'覆盖目标行业的核心问题',regional:'补充目标地区的信息覆盖',supplement:'补足核心层之外的触达',exploration:'小范围验证尚待确认的机会'};
 const roleHelp:Record<string,{sources:string;usage:string}>={authority:{sources:'行业背景、技术概念、研究资料、标准解释等有来源的内容。',usage:'先建立事实背景，再衔接核心层的选型内容。参考阅读来源不等于可购买发布位。'},industry:{sources:'与目标行业和当前问题直接相关的专业介绍、选型问答、技术文章。',usage:'解释需求、比较条件、实施方法和交付内容，构成整套方案的主线。'},regional:{sources:'与目标地区场景相关、实际覆盖范围有依据的媒体或栏目。',usage:'说明本地服务和采购情境；没有匹配依据时保留空层，不按名称推断地域覆盖。'},supplement:{sources:'能补充核心问题或阅读场景的问答、比较图文、流程内容。',usage:'先明确补充哪一项，再安排内容分工，避免重复核心层的相同内容。'},exploration:{sources:'有明确假设、待验证的新表达方式、受众或查询场景。',usage:'限定验证内容、观察方式和停止条件；探索预算包含在总预算之内。'}};
 function LayerHelp({role}:{role:string}) {
@@ -85,9 +93,9 @@ export function MatrixRecommendation({result,highlightedPlan,highlightedCandidat
   const source=candidate.attributes.domain??candidate.attributes.media_domain??candidate.attributes.source_url??candidate.attributes.url;
   let domain=typeof source==='string'?source:'';try{if(domain.includes('://'))domain=new URL(domain).hostname;}catch{domain='';}
   return <article key={candidate.candidate_id} className={'sm-candidate'+(media&&isSelected(media)?' is-highlighted':'')} data-source-id={candidate.candidate_id}>
-   <header><h4>{media?.name??candidateName(candidate)}</h4>{media&&<button className="link sm-media-doc-link" onClick={()=>onMediaDetails(media)}>媒体资料</button>}<button className="link small sm-reason-link" onClick={()=>onDetails(candidate)}>查看推荐理由</button></header>
+   <header><h4>{media?.name??candidateName(candidate)}</h4><span className="sm-card-links">{media&&<button className="link small" onClick={()=>onMediaDetails(media)}>媒体资料</button>}<button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button></span></header>
    {(domain||highlighted.has(candidate.candidate_id))&&<span className="sm-candidate-domain">{domain}{highlighted.has(candidate.candidate_id)&&<span className="sm-member">{domain?' · ':''}当前组合</span>}</span>}
-   <p className="sm-media-intro">{directSummary(candidate.media_intro||candidate.reason_summary||'',candidateName(candidate))||'查看媒体资料了解发布要求。'}</p>
+   <p className="sm-media-intro">{firstSentence(directSummary(candidate.media_intro||candidate.reason_summary||'',candidateName(candidate)))||'查看媒体资料了解发布要求。'}</p>
    <div className="sm-candidate-foot"><strong className="sm-candidate-price">{referenceOnly.has(candidate.candidate_id)?'参考阅读':candidate.offers.length?quote(candidate):media&&/^\d+$/.test(media.priceTenThousandths)&&BigInt(media.priceTenThousandths)>0n?`${formatPublishingMoney(media.priceTenThousandths)} · 目录价`:'待询价'}</strong><div className="actions">{media?<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+media.name+' '+media.platform} checked={isSelected(media)} disabled={!!blocked} onChange={()=>onToggle(candidate.candidate_id)}/>{isSelected(media)?'已加入':'加入购物车'}</label>:<span className="small muted">仅供研究</span>}</div></div>
    {media&&blocked&&<small className="sm-candidate-issue">{blocked}</small>}
   </article>;

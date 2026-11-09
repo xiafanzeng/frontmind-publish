@@ -59,12 +59,9 @@ export function ContentPlanRecommendations({plans,candidates,selectedIndex,onSel
    </li>;})}</ul>
    {draft?.failed&&dirty&&<p className="block-error" role="alert">篇数已保留，费用暂未更新。<button type="button" className="link" disabled={disabled||stale} onClick={()=>setDrafts(current=>({...current,[key]:{...current[key]!,revision:(current[key]?.revision??0)+1,failed:false}}))}>重试更新费用</button></p>}
    <dl className="sm-plan-totals" aria-live="polite"><div><dt>总篇数</dt><dd>{totalArticles===null?'请修正篇数':`${totalArticles} 篇`}</dd></div><div><dt>预计总价</dt><dd>{amount(selected.known_total_cost??selected.total_cost,selected.currency)}</dd></div><div><dt>总预算</dt><dd>{planMoney(selected.total_cap,selected.currency)}</dd></div><div><dt>{selected.remaining_is_estimate?'按已知费用计算的余量':'预算余量 / 超额'}</dt><dd>{amount(selected.known_total_remaining??selected.total_remaining,selected.currency)}</dd></div>{selected.exploration_cap!=null&&<div><dt>探索费用 / 上限</dt><dd>{amount(selected.known_exploration_cost??selected.exploration_cost,selected.currency)} / {planMoney(selected.exploration_cap,selected.currency)}</dd></div>}</dl>
-   <p className="sm-plan-status" role="status">{updating?(invalid?'请先修正篇数，费用未更新':draft?.failed?'费用未更新，请重试':'正在按当前篇数更新费用…'):selected.budget_feasible===true?'预计费用在预算内':selected.budget_feasible===false?'预计费用超出预算或存在约束冲突':selected.known_total_cost!=null?'已显示可计算费用，未确认的费用范围见对应媒体':'当前组合暂无可计算报价'}</p>
    {!updating&&(selected.errors??[]).map((issue,index)=><p className="block-error" key={index}>{pricingReason(issue.message||issue.code)}</p>)}
-   {stale&&<p className="block-error">投放要求、预算或资源选择已变化，请更新组合。</p>}
    <button type="button" className="button secondary sm-plan-reason-button" onClick={()=>{opener.current=document.activeElement instanceof HTMLElement?document.activeElement:null;setExplanation(true);}}>查看组合理由</button>
    {onApply&&<><button type="button" className="button primary" disabled={disabled||stale||updating||!!applicationIssue} onClick={()=>onApply(activeIndex)}>加入本组合</button>{applicationIssue&&<p className="small muted">{applicationIssue}</p>}</>}
-   <p className="small muted">篇数为投放计划；修改建议尚未写入稿件。实际发布沿用稿件绑定、报价核验与预检流程。</p>
   </section>}
   <MediaDialog open={explanation} title={selected?.strategy||'组合理由'} confirmLabel="关闭" onCancel={close} onConfirm={close} footer={<button className="button primary" onClick={close}>关闭</button>}><PlanExplanation value={selected?.explanation} candidates={candidates}/></MediaDialog>
  </aside>;
