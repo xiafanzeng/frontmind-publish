@@ -171,6 +171,10 @@ function normalizeDecisions(value: unknown): { matrix_decisions: Row } | undefin
   for (const item of normalized) {
     const id = String(item.candidate_id ?? '');
     if (!id || kept.some(entry => String(entry.candidate_id) === id)) continue;
+    /* The model emitted off-enum or missing selection values (live batch:
+     * invalid_selection x2). An accepted item defaults to 'recommended';
+     * 'alternative' stays when the model actually said so. */
+    if (!['recommended', 'alternative'].includes(String(item.selection))) item.selection = 'recommended';
     kept.push(item);
   }
   const modelOrder = source.fit_order.map((x:unknown) => String(x));
