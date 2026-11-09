@@ -73,7 +73,7 @@ it('retains the previous successful batch count after a later provider failure',
  const input=matrixInput(30);let calls=0;
  const decision=await createDecisionAdapter(async messages=>{if(++calls===2)throw new Error('provider_timeout');return batchDecisions(JSON.parse(messages[1]!.content));}).matrix(input);
  const result=runPlanner(input.request,decision,'matrix',undefined,now);
- expect(result.matrix.status).toBe('needs_ai_decisions');expect(result.matrix.coverage.model).toMatchObject({status:'incomplete',reviewed_candidates:24,unprocessed_candidates:6,reason:'provider_timeout'});
+ const reviewed=Math.min(PROMPT_CANDIDATE_BATCH_SIZE,30);expect(result.matrix.status).toBe('needs_ai_decisions');expect(result.matrix.coverage.model).toMatchObject({status:'incomplete',reviewed_candidates:reviewed,unprocessed_candidates:30-reviewed,reason:'provider_timeout'});
 });
 
 it('bounds budget context but retains explicit candidates beyond the ranked top slots and exact prices',async()=>{

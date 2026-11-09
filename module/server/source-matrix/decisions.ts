@@ -121,8 +121,12 @@ function normalizeDecisions(value: unknown): { matrix_decisions: Row } | undefin
   };
 }
 
-/** Requests batch the entire retained pool; this is never a prefix window. */
-export const PROMPT_CANDIDATE_BATCH_SIZE = 24;
+/** Requests batch the entire retained pool; this is never a prefix window.
+ * 12 per request keeps one batch's full adjudication output inside the platform
+ * gateway's edge window: at 24 the first batch reliably returned llm_http_524
+ * (four consecutive live runs, 2026-11-09) while small calls on the same
+ * connection succeeded. Total model work is unchanged; only transport batching. */
+export const PROMPT_CANDIDATE_BATCH_SIZE = 12;
 const MAX_MATRIX_PROMPT_CHARS = 120_000;
 export function compactCandidates(request: Row, prepared: Row): Row[] {
   const candidates: Row[] = Array.isArray(prepared?.matrix?.candidates) ? prepared.matrix.candidates : [];
