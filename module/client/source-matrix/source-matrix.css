@@ -204,3 +204,17 @@
 .fm-media.fm-media .sm-workspace.sm-workspace.sm-recommendation-workspace.sm-recommendation-workspace .sm-quantity-control input[aria-invalid="true"]{border-color:var(--danger,#a12a2a)}
 .fm-media .sm-plan-switch button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 @media(max-width:600px){.fm-media .sm-layer-table,.fm-media .sm-layer-table tbody,.fm-media .sm-layer-table tr,.fm-media .sm-layer-table th.sm-layer-label,.fm-media .sm-layer-table td.sm-layer-cell{display:block;width:auto}.fm-media .sm-layer-table tr+tr{margin-top:12px}.fm-media .sm-layer-table th.sm-layer-label{border-radius:8px 8px 0 0}.fm-media .sm-layer-table td.sm-layer-cell{border-top:0;border-radius:0 0 8px 8px}.fm-media .sm-layer-table-wrap{overflow:visible}}
+
+/* 2026-11-09 用户反馈：本层候选默认三个同排一行、卡片收紧；蓝色只表示已加入购物车；
+   媒体资料紧跟名称，查看推荐理由与名称行居中对齐；组合条目增加「推荐理由」小节。 */
+@media(min-width:900px){.fm-media .sm-recommendation-workspace .sm-layer-candidates{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.fm-media .sm-recommendation-workspace .sm-layer-cell .sm-candidate{padding:8px 9px}
+.fm-media .sm-recommendation-workspace .sm-candidate header{align-items:center;row-gap:2px;column-gap:5px}
+.fm-media .sm-recommendation-workspace .sm-candidate header h4{flex-basis:auto}
+.fm-media .sm-recommendation-workspace .sm-candidate p.sm-media-intro{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:4px 0 6px}
+.fm-media .sm-candidate-foot{margin-top:5px}
+.fm-media .sm-media-doc-link{flex:none;white-space:nowrap;font-size:11px}
+.fm-media .sm-layer-table th.sm-layer-label .sm-layer-multi{font-size:13px;font-weight:700;color:var(--brand)}
+.fm-media .sm-plan-media small.sm-reason-heading{color:var(--ink);font-weight:600}
+.fm-media .sm-plan-media .sm-reason-body{margin:2px 0 6px 18px;font-size:12px;line-height:1.7;color:var(--ink)}
+.fm-media #dialog .sm-layer-check{display:inline-flex;align-items:center;gap:6px;cursor:pointer}

@@ -5,7 +5,9 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
-## 网站集成扩展 2026.11.09-web.2
+## 网站集成扩展 2026.11.09-web.3
+
+2026.11.09-web.3 起 reason_summary 以媒体本身为主语直接陈述（如「东方网覆盖…」），不以「目录将其描述为」等转述开头；依据仍记录在 references。展示端对历史结果同步做同一改写。
 
 网站运行规则增加 [平台 AI 与真实行业快照](references/platform-industry-context.md)：统一服务端 XTY 平台模型，使用当前授权冻结稿件、当前真实媒体库和与行业分布板块同源的 molizhishu 免费分布快照。模型同时读取 task.industry_context 的真实状态、查询口径、来源/版本、完整统计记录及限制；类型/时间统计只用于宏观组合与理由，不是单媒体身份或品牌命中证据。正文 content_excerpt_truncated=true 时只能声称读了片段。个人连接及宿主适配器不再被选用于生成或四字段识别。
 

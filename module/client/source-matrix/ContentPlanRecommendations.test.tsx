@@ -46,7 +46,18 @@ it('keeps the target combination visible when an earlier save completes after sw
 });
 it('shows known base price even with unknown fees, without inventing zero fees',()=>{
  mount();expect(screen.getByText(/100.00 × 2 篇/)).toBeTruthy();expect(screen.getByText('预计总价').parentElement?.textContent).toContain('200.00');
- expect(screen.getByText('未确认的必要附加费未计入预计费用')).toBeTruthy();expect(screen.queryByText(/附加费.*0元/)).toBeNull();
+ // 用户反馈：组合条目不再展示三条待确认模板行（报价有效期/发布规格/附加费未计入）
+ expect(screen.queryByText('报价有效期待确认')).toBeNull();expect(screen.queryByText('媒体库尚未提供具体发布规格')).toBeNull();expect(screen.queryByText('未确认的必要附加费未计入预计费用')).toBeNull();
+ expect(screen.queryByText(/附加费.*0元/)).toBeNull();
+});
+it('rewrites catalog-attributed reason summaries under a 推荐理由 heading',()=>{
+ const attributed={...candidate,reason_summary:'目录将其描述为全国重点新闻网站，覆盖时政与财经'};
+ render(<ContentPlanRecommendations plans={[plan]} candidates={[attributed]} selectedIndex={0} onSelect={vi.fn()} onDetails={vi.fn()} onUpdate={async()=>true} disabled={false} stale={false}><p>预算表单</p></ContentPlanRecommendations>);
+ expect(screen.getByText('推荐理由')).toBeTruthy();
+ expect(screen.getByText('专业媒体是全国重点新闻网站，覆盖时政与财经')).toBeTruthy();
+ expect(screen.queryByText('目录将其描述为全国重点新闻网站，覆盖时政与财经')).toBeNull();
+ expect(screen.getByText('结合预算安排投放次数')).toBeTruthy();
+ expect(screen.getByText('稿件修改建议')).toBeTruthy();
 });
 it('prevents stale plans from editing and never multiplies a package price by quantity',()=>{
  mount({stale:true,values:[{...plan,items:[{...plan.items[0]!,pricing_kind:'package',unit_price:null,base_cost:null,cost:'500.00',known_cost:'500.00',mandatory_fees:[],unknown_reasons:[]}],known_total_cost:'500.00',total_cost:'500.00'}]});

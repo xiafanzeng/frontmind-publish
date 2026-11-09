@@ -19,11 +19,21 @@ export function ContentResourceIdentity({item,candidate}:{item:ContentPlanItem;c
  return parts.length?<small className="sm-content-resource">{parts.join(' · ')}</small>:null;
 }
 /** Known fees and excluded scope are stated once; missing fees never become zero. */
-export function ContentFeeScope({item,currency}:{item:ContentPlanItem;currency?:string|null}) {
+const panelQuietNotes=/^(?:报价有效期待确认|媒体库尚未提供具体发布规格|未确认的必要附加费未计入预计费用)$/;
+export function ContentFeeScope({item,currency,quiet}:{item:ContentPlanItem;currency?:string|null;quiet?:boolean}) {
  const notes=[...(item.scope_notes??[]).filter(reason=>reason!=='catalog_price_estimate'||item.price_source!=='catalog').map(pricingReason),...(item.unknown_reasons??[]).filter(reason=>!['mandatory_fees_unknown','mandatory_fee_unknown'].includes(reason)).map(pricingReason)];
  const unknownFees=(item.unknown_reasons??[]).some(reason=>['mandatory_fees_unknown','mandatory_fee_unknown'].includes(reason));
  if(unknownFees&&!notes.some(note=>/附加费|额外费用/.test(note)))notes.push('未确认的必要附加费未计入预计费用');
- return <>{item.known_mandatory_cost!=null&&!/^0(?:\.0+)?$/.test(item.known_mandatory_cost)?<small>必要附加费：{Array.isArray(item.known_mandatory_fees)&&item.known_mandatory_fees.length?mandatoryFeeText(item.known_mandatory_fees)+'；':''}已计入 {planMoney(item.known_mandatory_cost,item.currency??currency)}</small>:item.known_mandatory_cost==null&&Array.isArray(item.mandatory_fees)&&item.mandatory_fees.length?<small>必要附加费：{mandatoryFeeText(item.mandatory_fees)}</small>:null}{[...new Set(notes)].map(note=><small key={note}>{note}</small>)}</>;
+ const shown=quiet?notes.filter(note=>!panelQuietNotes.test(note)):notes;
+ return <>{item.known_mandatory_cost!=null&&!/^0(?:\.0+)?$/.test(item.known_mandatory_cost)?<small>必要附加费：{Array.isArray(item.known_mandatory_fees)&&item.known_mandatory_fees.length?mandatoryFeeText(item.known_mandatory_fees)+'；':''}已计入 {planMoney(item.known_mandatory_cost,item.currency??currency)}</small>:item.known_mandatory_cost==null&&Array.isArray(item.mandatory_fees)&&item.mandatory_fees.length?<small>必要附加费：{mandatoryFeeText(item.mandatory_fees)}</small>:null}{[...new Set(shown)].map(note=><small key={note}>{note}</small>)}</>;
+}
+/** Display-layer rewrite: 「目录将X描述为…」hedges become direct statements; the
+ *  generation prompt is constrained the same way for newly produced summaries. */
+export function directSummary(text:string,fallbackName:string):string {
+ const trimmed=text.trim();
+ const match=trimmed.match(/^目录将(其|.{1,24}?)描述为[：:，,]?\s*([\s\S]+)$/);
+ if(!match||!match[2])return text;
+ return `${match[1]==='其'?fallbackName:match[1]}是${match[2].trim()}`;
 }
 const reasonLabels:Record<string,string>={mandatory_fees_not_included:'未确认的必要附加费未计入预计费用',unresolved_fees_not_included:'未明确计费规则的附加费未计入预计费用',catalog_price_estimate:'按媒体库目录价估算',publication_spec_unconfirmed:'媒体库尚未提供具体发布规格',locked_publications_require_separate_order_verification:'已有锁定发布项沿用原订单核验',quantity_required_positive_integer:'篇数须为正整数',publication_identity_incomplete:'资源、规格或稿件身份尚未齐备',purpose_required:'请确认标准投放或探索用途',offer_missing_or_ambiguous:'报价缺失或存在多个匹配',offer_spec_mismatch:'发布规格与报价不一致',quantity_limit_invalid:'资源的数量限制待确认',quantity_out_of_range:'篇数超出该资源允许范围',currency_unknown:'报价币种待确认',quote_not_valid:'报价尚未生效或已经过期',quote_dates_unknown:'报价有效期待确认',price_unknown:'报价金额待确认',pricing_rule_unknown:'计价方式待确认',mandatory_fees_unknown:'必要附加费尚未确认',mandatory_fee_unknown:'附加费金额或计费方式待确认',package_cross_resource_unresolved:'套餐涉及的资源范围待确认',package_members_unresolved:'套餐包含的发布项待确认',package_purpose_allocation_unknown:'套餐用途分摊待确认',multiple_currencies:'不同币种不可直接合计',currency_mismatch:'报价币种与预算不一致',total_cap_exceeded:'完整费用超过总预算',exploration_not_enabled:'尚未启用探索预算',exploration_cap_exceeded:'探索费用超过子额度',locked_selection_removed:'必须保留已锁定发布项',locked_selection_changed:'锁定发布项不能自动修改',selected_offer_changed:'已选报价发生变化',repeat_publication_not_authorized:'当前稿件或资源尚不支持重复发布',content_tasks_incomplete:'稿件修改建议尚未补全',new_articles_need_individual_binding:'不同内容须逐篇绑定真实稿件',channel_not_eligible:'渠道条件未通过',channel_conditions_unconfirmed:'所选资源的投放条件待确认',locked_publications_require_formal_plan:'已有锁定发布项须在正式方案中核验',resource_mapping_requires_confirmation:'请先确认对应的可售资源',selected_resource_changed:'组合未保留本次明确选择的资源',quantity_intent_mismatch:'篇数含义与当前选择不一致',unit_price_above_max:'单篇费用超过所设上限',unit_price_below_min:'单篇费用低于所设下限',package_unit_limit_unresolved:'套餐不能直接套用单篇价格限制'};
 export const pricingReason=(value:string)=>reasonLabels[value]??(/[\u4e00-\u9fff]/.test(value)?value:'存在待核验条件，完整记录见导出结果');
