@@ -36,7 +36,7 @@ export function MediaTaskbar({title,count=0,total,children,actions,saveStatus,ca
  * 数据来自调用方传入的真实选择集合，不维护第二份购物车状态。
  * 独立“查看购物车”按钮已移除，完整购物车页面路由保留，可经抽屉内链接进入。
  */
-export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,publicationItems,onRemove,researchNotice,selectionPending=false}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];publicationItems?:PublicationDraftItem[];onRemove?:(media:MediaResource)=>void;researchNotice?:string;selectionPending?:boolean}) {
+export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',onNext,pending=0,nextLabel='配置标题',nextDisabled=false,nextHint,articlesHref,items,publicationItems,onRemove,onClear,researchNotice,selectionPending=false}:{count:number;total?:string;cartHref?:string;onNext?:()=>void;pending?:number;nextLabel?:string;nextDisabled?:boolean;nextHint?:string;articlesHref?:string;items?:MediaResource[];publicationItems?:PublicationDraftItem[];onRemove?:(media:MediaResource)=>void;onClear?:()=>void;researchNotice?:string;selectionPending?:boolean}) {
  const [open,setOpen]=useState(false);
  const slotRef=useRef<HTMLDivElement>(null),dockRef=useRef<HTMLDivElement>(null),toggleRef=useRef<HTMLButtonElement>(null);
  const drawerId=useId(),hintId=useId(),expanded=open&&count>0;
@@ -93,6 +93,16 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
   }
  },[count,open]);
  const close=()=>{setOpen(false);toggleRef.current?.focus({preventScroll:true});};
+ // 展开后点击抽屉外任意位置即可收回；展开动作本身的点击不会触发（监听在展开后才挂载）。
+ useEffect(()=>{
+  if(!expanded)return;
+  const onPointerDown=(event:PointerEvent)=>{
+   const dock=dockRef.current;
+   if(dock&&event.target instanceof Node&&!dock.contains(event.target))setOpen(false);
+  };
+  document.addEventListener('pointerdown',onPointerDown);
+  return()=>document.removeEventListener('pointerdown',onPointerDown);
+ },[expanded]);
  const priceOf=(media:MediaResource)=>!/^[0-9]+$/.test(media.priceTenThousandths)||BigInt(media.priceTenThousandths)<=0n
    ?<span className="y-cart-pending">待确认</span>
    :formatPublishingMoney(media.priceTenThousandths);
@@ -103,7 +113,6 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
   <div className="y-cart-bar-wrap">
     <button ref={toggleRef} type="button" className="y-cart-bar" aria-expanded={expanded} aria-disabled={count===0||undefined} aria-controls={drawerId} onClick={()=>{if(count>0)setOpen(v=>!v)}}>
       <span className="y-cart-bar-summary"><strong>购物车 {selectionPending?'数量待确认':count+' 家'} <span style={{fontWeight:400,color:'#c2c2c2'}}>·</span> {selectionPending||count>0&&pending===count?<span className="y-cart-pending">总价待确认</span>:<>{total===undefined?'待确认':formatPublishingMoney(total)}{pending>0&&<> <span className="y-cart-pending">+ 待询价</span></>}</>}</strong><span className="small muted">{selectionPending?'已选内容尚未读取，请重试；不会清空原选择。':pending?`${pending} 项待询价 / 待确认；未知报价不计为 0 元。`:''}</span>{nextDisabled&&nextHint&&<span id={hintId} className="small muted y-cart-next-hint" role="status">{nextHint}</span>}</span>
-      <span className={'y-cart-toggle'+(expanded?' is-open':'')} aria-hidden="true"><i>▴</i></span>
       <span className="sr">{expanded?'收起已选媒体':'展开已选媒体'}</span>
     </button>
     <div className="actions y-cart-actions">{nextDisabled&&articlesHref&&<Link className="button secondary" href={articlesHref}>进入稿件选择</Link>}<button type="button" className="button primary" disabled={nextDisabled} aria-describedby={nextDisabled&&nextHint?hintId:undefined} onClick={onNext}>{nextLabel} →</button></div>
@@ -112,7 +121,7 @@ export function MediaCartFooter({count,total,cartHref='/publishing/media/cart',o
     <header className="y-cart-drawer-head">
       <strong>已选媒体 {count} 家{publicationItems?.length ? ` · ${amounts.quantity??'待确认'} 次发布` : ''}</strong>
       <span className="small muted">{selectionPending?'合计待确认':count>0&&pending===count?'全部报价待确认':<>{total===undefined?'总价待确认':formatPublishingMoney(total)}{pending>0?<> · {pending} 项待询价</>:''}</>}</span>
-      <div className="actions"><Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link><button className="link small" type="button" aria-label="收起购物车" onClick={close}>▾</button></div>
+      <div className="actions">{onClear&&count>0&&<button className="link danger small" type="button" onClick={()=>{onClear();}}>清空购物车</button>}<Link className="link small" href={projectWorkspaceUrl(cartHref)}>完整购物车 →</Link></div>
     </header>
     <ul>{(items??[]).map(media=>{const amount=amounts.byMedia.get(media.id);return <li key={media.id}><strong>{media.name}</strong><small>{media.kind==='self_media'?'自媒体':'软文媒体'}{amount?.boundRows ? ` · ${amount.quantity??'待确认'} 次发布` : ''}</small><span className="b-price">{amount?.boundRows ? <>{amount.total===null?'小计待确认':formatPublishingMoney(amount.total)}<small>单价 {priceOf(media)} · 费用以复核结果为准</small></> : priceOf(media)}</span><button className="link danger small" type="button" aria-label={`移除 ${media.name}`} onClick={()=>onRemove?.(media)}>移除</button></li>;})}</ul>
   </section>

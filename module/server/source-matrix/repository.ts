@@ -1,4 +1,4 @@
-import { and,eq } from 'drizzle-orm';
+import { and,desc,eq,sql } from 'drizzle-orm';
 import type { MySql2Database } from 'drizzle-orm/mysql2';
 import { sourceMatrixIndustries as industries,sourceMatrixTasks as tasks,sourceMatrixSnapshots as snapshots } from '../../schema/source-matrix.js';
 import { clone,digest,issue,type Row } from './common.js';
@@ -28,6 +28,21 @@ export class MatrixRepository {
  async industry(id:string){return (await this.db.select().from(industries).where(and(eq(industries.tenantId,this.tenantId),eq(industries.industryId,id))).limit(1))[0];}
  async create(taskId:string,industryId:string,brandId:string,task:Row){await this.db.insert(tasks).values({tenantId:this.tenantId,taskId,industryId,brandId,task,state:'running'});}
  async get(taskId:string){const row=(await this.db.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1))[0];return row&&(!row.task?.private_actor||row.task.private_actor===this.actorId)?row:undefined;}
+ /** History list stays slim: only summary extracts, never full results, and the
+  * recent-ids subquery keeps ORDER BY off the wide JSON columns (sort-buffer trap). */
+ async listRecent(limit=20){
+  const recent=this.db.select({taskId:tasks.taskId,createdAt:tasks.createdAt}).from(tasks).where(eq(tasks.tenantId,this.tenantId)).orderBy(desc(tasks.createdAt)).limit(limit).as('recent');
+  const rowsFound=await this.db.select({
+   taskId:tasks.taskId,createdAt:tasks.createdAt,state:tasks.state,industryId:tasks.industryId,
+   privateActor:sql<string|null>`JSON_UNQUOTE(JSON_EXTRACT(${tasks.task},'$.private_actor'))`,
+   product:sql<string|null>`JSON_UNQUOTE(JSON_EXTRACT(${tasks.task},'$.product'))`,
+   industry:sql<string|null>`JSON_UNQUOTE(JSON_EXTRACT(${tasks.latest},'$.scope.task.industry'))`,
+   matrixStatus:sql<string|null>`JSON_UNQUOTE(JSON_EXTRACT(${tasks.latest},'$.matrix.status'))`,
+   candidateCount:sql<number|null>`JSON_LENGTH(${tasks.latest},'$.matrix.candidates')`,
+   recommendationCount:sql<number|null>`JSON_LENGTH(${tasks.latest},'$.recommendations')`,
+  }).from(tasks).innerJoin(recent,eq(tasks.taskId,recent.taskId));
+  return rowsFound.filter(row=>!row.privateActor||row.privateActor===this.actorId).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime());
+ }
  async progress(taskId:string,stage:'analyzing'|'validating'){
   await this.db.transaction(async tx=>{const row=(await tx.select().from(tasks).where(and(eq(tasks.tenantId,this.tenantId),eq(tasks.taskId,taskId))).limit(1).for('update'))[0];
    if(!row||row.state!=='running'||row.task?.private_actor&&row.task.private_actor!==this.actorId)return;

@@ -5,7 +5,7 @@ import { matrixApi } from './api';
 import {matrixCandidateGroups,matrixReadiness} from './matrix-readiness';
 import {useExactMediaMapping} from './useExactMediaMapping';
 import type { ApplyPlanDiff,BudgetPlan,MatrixResult,ServerBinding,TaskResponse,ResourceSelection } from './types';
-import { label,display,Report,BudgetConfirmDialog,downloadMatrixData } from './SourceMatrixPresentation';
+import { label,display,Report,BudgetConfirmDialog,MatrixDialog,downloadMatrixData } from './SourceMatrixPresentation';
 import {MatrixRecommendation,RecommendationReason,candidateForItem,itemObject} from './MatrixRecommendation';
 import {LiveIndustryDistribution} from './industry/IndustryDistribution';
 import {matrixDemo,demoInitialForm,demoSemanticKey,demoBudgetMatches} from './demo';
@@ -72,6 +72,7 @@ function selectedIndustryQuery(params:URLSearchParams,industry:string):{query?:I
  return {query:{periodType:periodType as IndustryCommonQuery['periodType'],...(periodType!=='ALL'?{date}:{}),scopeType:'CATEGORY',scopeId:industry,modelCode}};
 }
 type MatrixView='matrix'|'analysis'|'report'|'industry';
+interface MatrixHistoryEntry {task_id:string;created_at:string;state:string;industry:string|null;product:string|null;matrix_status:string|null;candidate_count:number|null;recommendation_count:number|null}
 const matrixGatewayScopes=new WeakMap<object,number>();let nextMatrixGatewayScope=0;
 function matrixGatewayScope(gateway:object){let scope=matrixGatewayScopes.get(gateway);if(scope===undefined){scope=++nextMatrixGatewayScope;matrixGatewayScopes.set(gateway,scope);}return scope;}
 export default function SourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
@@ -146,6 +147,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const [showDemo,setShowDemo]=useState(!taskId&&!hasArticleContext);
  const [confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[layerChecked,setLayerChecked]=useState<string[]>([]),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0),[showReport,setShowReport]=useState(false);
  const [importOpen,setImportOpen]=useState(false);
+ const [historyOpen,setHistoryOpen]=useState(false),[historyItems,setHistoryItems]=useState<MatrixHistoryEntry[]|null>(null),[historyError,setHistoryError]=useState('');
  const [importedDataIds,setImportedDataIds]=useState<string[]>(params.getAll('researchDataset'));
  const [importedDatasets,setImportedDatasets]=useState<ResearchDatasetSummary[]>([]);
  const [historicalImportRefs,setHistoricalImportRefs]=useState<{owner:string;versions:Array<{id:string;version:string}>}>();
@@ -313,6 +315,13 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    if(owner)owner.bindingKey=latestBinding.current;
    receiveTask(r);if(r.state==='running')setPollEpoch(n=>n+1);
   }}catch(e){if(current())setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));}}
+ // 历史存档：每次生成的矩阵与组合按任务留档，此处仅读取摘要，不载入正文。
+ async function openHistory(){
+  setHistoryOpen(true);
+  if(historyItems||historyError)return;
+  try{const data=await matrixApi<{items:MatrixHistoryEntry[]}>('/classify/history',new AbortController().signal);setHistoryItems(data.items??[]);}
+  catch(e){setHistoryError(e instanceof Error?e.message:'历史记录读取失败，请重试。');}
+ }
 
  // Resume a partial matrix on the server: only unprocessed/failed candidates
  // are re-reviewed, validated decisions are reused and never cleared.
@@ -517,15 +526,25 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  // This client-context snapshot only invalidates comparison after navigation;
  // it is not proof that dataset.manuscripts matches the current frozen version.
  latestRecommendationContext.current=JSON.stringify([workspace,taskId,bindingKey]);
- const matrixStale=showingPrevious||!!result&&(serverStale||matrixInput!==null&&matrixInput!==inputKey||matrixBinding!==null&&matrixBinding!==bindingKey);
- const budgetKey=JSON.stringify([inputKey,bindingKey,currency,total,enabled,exploration,min,max,selected.slice().sort(),serverDraft?.revision,resourceSelections,quantityMode]);latestBudget.current=budgetKey;
+ /** 矩阵内容只依赖冻结稿件版本；承载它的投放草稿或工作台任务变化不算需求变化。 */
+ const matrixVersionBinding=(value:string|null):string|null=>{if(value===null)return null;if(value==='mismatched')return 'mismatched';try{const parsed:unknown=JSON.parse(value);return JSON.stringify([Array.isArray(parsed)&&typeof parsed[1]==='string'?parsed[1]:'']);}catch{return value;}};
+ const matrixStale=showingPrevious||!!result&&(serverStale||matrixInput!==null&&matrixInput!==inputKey||matrixBinding!==null&&matrixVersionBinding(matrixBinding)!==matrixVersionBinding(bindingKey));
+ const budgetKey=JSON.stringify([inputKey,bindingKey,currency,total,enabled,exploration,min,max,selected.slice().sort(),resourceSelections,quantityMode]);latestBudget.current=budgetKey;
  const recommendations=useMemo(()=>normalizeRecommendations(result),[result]);
  const selectedRecommendation=recommendations[planIndex]??recommendations[0];
  const budgetStale=matrixStale||budgetPending||budgetNeedsRecompute||!!recommendations.length&&appliedBudget.current!==budgetKey;
+ // 载入已保存任务且输入稳定后，把当前输入登记为组合基线：用户未改动前不提示“请更新组合”。
+ // 延迟一拍读取，避免草稿/行业等异步水合改写 budgetKey 造成误报；写入 ref 后主动触发一次渲染。
+ const [,bumpBudgetBaseline]=useState(0);
+ useEffect(()=>{
+  if(!taskState||taskState==='running'||!recommendations.length||budgetPending||budgetNeedsRecompute||matrixStale)return;
+  const timer=setTimeout(()=>{if(appliedBudget.current===''){appliedBudget.current=latestBudget.current;bumpBudgetBaseline(value=>value+1);}},1500);
+  return()=>clearTimeout(timer);
+ },[taskState,recommendations.length,budgetPending,budgetNeedsRecompute,matrixStale]);
  const reportReady=!!result&&!busy&&!quantityEditing&&!budgetStale&&result.matrix.status==='complete'&&['complete','needs_budget','needs_budget_plans'].includes(result.status)&&!result.errors.length&&!!result.plan_id&&!!result.plan_version;
  const highlightedContentIds=selectedRecommendation?.items.map(item=>item.candidate_id)??[];
  const candidateIssue=(candidate:typeof candidates[number],media:MediaResource)=>bindingIssue||(busy?'矩阵正在更新，请稍后再选。':cartBusy?'正在保存媒体选择…':'')
-  ||(!cart.has(media.id)?(matrixStale?'需求已变化，请更新矩阵。':!(candidate.semantic_decision_validated??result?.matrix.status==='complete')?'该候选尚未完成分层校验，暂供研究。':!rules.ready?rules.error||'正在读取媒体规则…':!rules.rules[media.id]?'媒体要求暂不可用，请刷新后重试。':candidate.channel_status!=='eligible'?'此信源的可投条件尚未通过。':mediaSelectionBlocker(media,articleHasImages)|| (cart.size>=20?'一次最多选择 20 家媒体':'')):'');
+  ||(!cart.has(media.id)?(!(candidate.semantic_decision_validated??result?.matrix.status==='complete')?'该候选尚未完成分层校验，暂供研究。':!rules.ready?rules.error||'正在读取媒体规则…':!rules.rules[media.id]?'媒体要求暂不可用，请刷新后重试。':candidate.channel_status!=='eligible'?'此信源的可投条件尚未通过。':mediaSelectionBlocker(media,articleHasImages)|| (cart.size>=20?'一次最多选择 20 家媒体':'')):'');
  const toggleCandidate=async(id:string)=>{
   const candidate=candidates.find(item=>item.candidate_id===id),media=candidate?mediaFor(candidate.resource_id):undefined;
   if(!candidate||!media)return;const issue=candidateIssue(candidate,media);if(issue){setNotice(issue);return;}
@@ -595,7 +614,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const pendingPrices=cartAmounts.pending;
  const moneyTotal=currentBinding?.loading||currentBinding?.error||!currentBinding?undefined:cartAmounts.knownTotal;
  const cartHref=mediaHref('cart');
- const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} nextLabel="配置标题" nextDisabled={!!bindingIssue||cartBusy||busy||registrationPending||!serverDraft||!cart.size} nextHint={bindingIssue||registrationPending?'请完成当前稿件与任务关联后继续。':cartBusy?'正在核验或保存媒体选择…':busy?'正在更新信源规划，请稍候。':!cart.size?'请先选择媒体':undefined} onNext={()=>void continueToTitles()} pending={pendingPrices} publicationItems={serverDraft?.items} items={[...cart.values()]} onRemove={media=>{void persistCart([...cart.keys()].filter(id=>id!==media.id));}}/>;
+ const footer=<MediaCartFooter count={cart.size} total={moneyTotal} cartHref={cartHref} nextLabel="配置标题" nextDisabled={!!bindingIssue||cartBusy||busy||registrationPending||!serverDraft||!cart.size} nextHint={bindingIssue||registrationPending?'请完成当前稿件与任务关联后继续。':cartBusy?'正在核验或保存媒体选择…':busy?'正在更新信源规划，请稍候。':!cart.size?'请先选择媒体':undefined} onNext={()=>void continueToTitles()} pending={pendingPrices} publicationItems={serverDraft?.items} items={[...cart.values()]} onRemove={media=>{void persistCart([...cart.keys()].filter(id=>id!==media.id));}} onClear={()=>{void persistCart([]);}}/>;
  const cartBudgetMessage=currency!=='CNY'&&total?'购物车费用以人民币展示；当前组合预算为 '+currency+'，不能直接比较或自动换汇。':total&&/^\d+(?:\.\d{1,4})?$/.test(total)&&moneyTotal!==undefined?(()=>{const [whole='0',fraction='']=total.split('.'),cap=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0')),actual=BigInt(moneyTotal);return `当前购物车已知费用 ${formatPublishingMoney(moneyTotal)}${pendingPrices?'，另有 '+pendingPrices+' 项待询价':''}${actual>cap?'；超出当前预算 '+formatPublishingMoney((actual-cap).toString()):'；预算内仍需核对报价和预检'}。`;})():'';
  const serverBinding=(()=>{const value=result?.scope?.task?.binding;return value&&typeof value==='object'&&!Array.isArray(value)?value as unknown as ServerBinding:undefined;})();
  const planItemIssue=(item:BudgetPlan['items'][number])=>{
@@ -651,7 +670,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   summary:confirmLayer?`已勾选 ${new Set(checkedPreviewIds.filter(id=>!cart.has(id))).size} 项，重复 ${checkedPreviewIds.filter(id=>cart.has(id)).length} 项；已有 ${cart.size} 项保留。`+(new Set([...cart.keys(),...checkedPreviewIds]).size>20?'合并后超过 20 家上限。':'')+'仅勾选媒体加入购物车，报价、规格与锁定项不自动替换。'
    :planPreviewData?`新增 ${planPreviewData.additions.filter(item=>!item.replaceExisting).length} 项，更新数量 ${planPreviewData.additions.filter(item=>item.replaceExisting).length} 项，保留已选 ${planPreviewData.alreadySelected.length} 项${planPreviewData.skipped.length?'，暂不加入 '+planPreviewData.skipped.length+' 项':''}；合并后 ${planPreviewData.mergedCount} 项`+(planPreviewData.knownTotalTenThousandths?'，已知费用 '+formatPublishingMoney(planPreviewData.knownTotalTenThousandths):'')+(planPreviewData.pendingPriced?'，待询价 '+planPreviewData.pendingPriced+' 项':'')+'。发布项保留报价与规格身份；手选与标题不被动改。':'服务端核验组合成员、报价与购物车差异。'}:undefined;
  const confirmBudgetMedia=async()=>{
-  if(confirmLayer){if(!budgetPreview||budgetPreview.blocked||matrixStale)return;const ids=confirmLayer.flatMap(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!candidateIssue(candidate,media)&&layerChecked.includes(media.id)?[media.id]:[];});if(!ids.length)return;if(await persistCart([...new Set([...cart.keys(),...ids])]))setConfirmLayer(null);return;}
+  if(confirmLayer){if(!budgetPreview||budgetPreview.blocked)return;const ids=confirmLayer.flatMap(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!candidateIssue(candidate,media)&&layerChecked.includes(media.id)?[media.id]:[];});if(!ids.length)return;if(await persistCart([...new Set([...cart.keys(),...ids])]))setConfirmLayer(null);return;}
   if(!confirmBudget||cartMutation.current)return;
   if(!confirmBudget.budget_feasible||confirmBudget.is_estimate||confirmBudget.unknown_items.length||confirmBudget.errors.length||confirmBudget.semantic_pending.length){setNotice('预算组合仍有待确认费用或未通过校验，购物车尚未更新。');setConfirmBudget(null);return;}
   if(budgetStale||appliedBudget.current!==budgetKey){setNotice('预算或购物车已变化，请重新生成组合。');setConfirmBudget(null);return;}
@@ -733,7 +752,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    {registrationPending&&<button className="link small" disabled={cartBusy} onClick={()=>void retryAssociation()}>重试关联当前投放草稿</button>}
   </div></div>;
  return <MediaShell title="信源矩阵" actions={<Link className="button secondary" href={mediaHref('third')} onClick={event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigateFromHeader(mediaHref('third'));}}}>进入媒体库自选</Link>} taskbar={taskbar}
- dialogs={<><ResearchImportDialog key={formScope+':imports'} scopeKey={formScope} open={importOpen} selectedIds={importedDataIds} onChange={updateImports} onRefresh={refreshImportedMetadata} onNotice={message=>{if(importScope.current===formScope)setImportNotice(message);}} onClose={()=>setImportOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy||applyBusy} preview={budgetPreview} checkedIds={confirmLayer?layerChecked:undefined} onToggleItem={confirmLayer?(id=>setLayerChecked(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])):undefined} onClose={()=>{setConfirmBudget(null);setConfirmLayer(null);setLayerChecked([]);setApplyPreview(null);}} onConfirm={()=>void confirmBudgetMedia()}/><RecommendationReason candidate={reasonCandidate} result={displayResult} returnFocus={reasonTrigger.current} resourceSelection={resourceSelections.find(value=>value.candidate_id===reasonCandidate?.candidate_id)} disabled={busy||matrixStale} onResourceSelection={!demoActive&&!showingPrevious&&reasonCandidate?value=>{setResourceSelections(current=>[...current.filter(item=>item.candidate_id!==reasonCandidate.candidate_id),...(value?[value]:[])]);}:undefined} onClose={()=>setReasonCandidate(null)}/></>}>
+ dialogs={<><ResearchImportDialog key={formScope+':imports'} scopeKey={formScope} open={importOpen} selectedIds={importedDataIds} onChange={updateImports} onRefresh={refreshImportedMetadata} onNotice={message=>{if(importScope.current===formScope)setImportNotice(message);}} onClose={()=>setImportOpen(false)}/><BudgetConfirmDialog plan={confirmBudget} candidates={candidates} busy={cartBusy||applyBusy} preview={budgetPreview} checkedIds={confirmLayer?layerChecked:undefined} onToggleItem={confirmLayer?(id=>setLayerChecked(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])):undefined} onClose={()=>{setConfirmBudget(null);setConfirmLayer(null);setLayerChecked([]);setApplyPreview(null);}} onConfirm={()=>void confirmBudgetMedia()}/><MatrixDialog open={historyOpen} title="历史矩阵与组合" onClose={()=>setHistoryOpen(false)} width={760} footer={<button className="button primary" onClick={()=>setHistoryOpen(false)}>关闭</button>}><div className="sm-history-list">{historyError&&<p className="block-error" role="alert">{historyError}<button className="link small" onClick={()=>{setHistoryError('');setHistoryItems(null);void openHistory();}}>重试</button></p>}{!historyError&&historyItems===null&&<p role="status">正在读取历史记录…</p>}{historyItems&&!historyItems.length&&<p>还没有生成记录。</p>}{historyItems?.map(item=><div className={'sm-history-row'+(item.task_id===taskId?' is-current':'')} key={item.task_id}><span className="sm-history-when">{new Date(item.created_at).toLocaleString()}</span><span className="sm-history-meta"><strong>{display(item.industry||'未记录行业')}</strong>{item.product?` · ${item.product}`:''}<small>{item.state==='complete'?`矩阵${label(item.matrix_status??item.state)} · ${item.candidate_count??'—'} 候选 · ${item.recommendation_count??0} 组组合`:item.state==='running'?'生成中':item.state}</small></span><button className="link small" onClick={()=>{setHistoryOpen(false);navigate(href('matrix',item.task_id));}}>查看</button></div>)}</div></MatrixDialog><RecommendationReason candidate={reasonCandidate} result={displayResult} returnFocus={reasonTrigger.current} resourceSelection={resourceSelections.find(value=>value.candidate_id===reasonCandidate?.candidate_id)} disabled={busy||matrixStale} onResourceSelection={!demoActive&&!showingPrevious&&reasonCandidate?value=>{setResourceSelections(current=>[...current.filter(item=>item.candidate_id!==reasonCandidate.candidate_id),...(value?[value]:[])]);}:undefined} onClose={()=>setReasonCandidate(null)}/></>}>
   <div className={'sm-workspace'+(view==='matrix'?' sm-recommendation-workspace':'')}>
    <nav className="x-matrix-nav" aria-label="信源矩阵子板块"><Link className={view==='analysis'?'active':''} aria-current={view==='analysis'?'page':undefined} href={href('analysis')}>行业信源分布</Link><Link className={view==='matrix'?'active':''} aria-current={view==='matrix'?'page':undefined} href={href('matrix')}>信源矩阵推荐</Link></nav>
    {view==='analysis'?<>{hasArticleContext&&identificationStatus}<LiveIndustryDistribution article={distributionArticle} selectedIndustry={{id:industry,onChange:setIndustry}}/></>:<>
@@ -760,9 +779,10 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
      {errorStage==='matrix'&&fieldError&&<p id="sm-demand-error" className="block-error" role="alert">{fieldError}</p>}
     </form>
     {showingPrevious&&<p className="notice warn" role="status">本次生成尚未成功，下面保留上次有效矩阵（{comparisonResult?.as_of}）供对照，不能作为本次生成结果或新增采购依据。</p>}
+    {matrixStale&&result&&!showingPrevious&&<p className="block-error" role="status">需求已变化，当前矩阵按生成时的要求展示，媒体仍可选择；建议更新矩阵。</p>}
     {error&&<p className="block-error" role="alert">{error.message}<button className="link small" disabled={busy} onClick={e=>{if(failedOperation==='budget')void submit('budget',e);else if(failedOperation==='matrix'||!taskId)generate(e);else void refresh();}}>重试</button></p>}
     {notice&&<p className="notice" role="status">{notice}</p>}
-    <div className="sm-recommendation-layout"><section className="sm-matrix" aria-labelledby="sm-matrix-title"><header className="sm-matrix-heading"><div><h2 id="sm-matrix-title">完整信源矩阵</h2><p title={displayResult?.matrix_version}>{displayResult&&displayMatrixState?`候选池 ${displayMatrixState.poolCount} · 已分层 ${displayMatrixState.classifiedCount??'—'}${demoActive?' · 已保存的样本矩阵':showingPrevious?' · 上次有效结果':` · ${mappingSummary} · 可加入 ${selectableCount??'—'}`}`:''}</p></div>{taskId&&<div className="actions"><button className="link small" disabled={busy} onClick={()=>void refresh()}>刷新结果</button>{busy&&<button className="link small" onClick={()=>void cancel()}>取消生成</button>}{result&&!showingPrevious&&<button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起报告':'查看报告'}</button>}</div>}{demoActive&&<div className="actions"><button className="link small" onClick={()=>downloadMatrixData('一航软件-已生成研究样本.json',JSON.stringify(matrixDemo,null,2),'application/json')}>导出保存样本</button><button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起样本报告':'查看样本报告'}</button></div>}</header>
+    <div className="sm-recommendation-layout"><section className="sm-matrix" aria-labelledby="sm-matrix-title"><header className="sm-matrix-heading"><div><h2 id="sm-matrix-title">完整信源矩阵</h2><p title={displayResult?.matrix_version}>{displayResult&&displayMatrixState?`候选池 ${displayMatrixState.poolCount} · 已分层 ${displayMatrixState.classifiedCount??'—'}${demoActive?' · 已保存的样本矩阵':showingPrevious?' · 上次有效结果':` · ${mappingSummary} · 可加入 ${selectableCount??'—'}`}`:''}</p></div>{taskId&&<div className="actions"><button className="link small" onClick={()=>void openHistory()}>历史记录</button><button className="link small" disabled={busy} onClick={()=>void refresh()}>刷新结果</button>{busy&&<button className="link small" onClick={()=>void cancel()}>取消生成</button>}{result&&!showingPrevious&&<button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起报告':'查看报告'}</button>}</div>}{demoActive&&<div className="actions"><button className="link small" onClick={()=>downloadMatrixData('一航软件-已生成研究样本.json',JSON.stringify(matrixDemo,null,2),'application/json')}>导出保存样本</button><button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起样本报告':'查看样本报告'}</button></div>}</header>
      {!demoActive&&!showingPrevious&&mapping.error&&<p className="block-error" role="alert">{mapping.error}<button type="button" className="link" disabled={mapping.loading} onClick={mapping.retry}>重试读取媒体映射</button></p>}
      {!demoActive&&!showingPrevious&&mapping.loading&&<p className="small muted" role="status">正在匹配可投媒体…</p>}
      {!demoActive&&!showingPrevious&&matrixState&&!matrixState.complete&&<div className="x-empty" role="status"><strong>{matrixState.message}</strong>{matrixState.partial&&!busy&&<button type="button" className="link" onClick={()=>void retryMatrix()}>重试未完成项</button>}{!busy&&<button type="button" className="link" onClick={()=>void submit('matrix')}>重新生成矩阵</button>}</div>}

@@ -509,3 +509,13 @@ it('rejects a mismatched recommendation identity and invalid quantities before r
  for(const quantity of [0,-1,1.5,101])expect((await post({...body,quantities:[{...body.quantities[0],quantity}]})).status).toBe(400);
  expect(catalogBridge.reloadPlannerCatalog).not.toHaveBeenCalled();expect(begin).not.toHaveBeenCalled();
 });
+
+it('serves a slim generation history index instead of routing history as a task id',async()=>{
+ const listed=vi.spyOn(MatrixRepository.prototype,'listRecent').mockResolvedValue([{taskId:'t-1',createdAt:new Date('2026-11-10T08:00:00Z'),state:'complete',industryId:'净水器',privateActor:null,product:'产品A',industry:'净水器',matrixStatus:'complete',candidateCount:26,recommendationCount:3}] as any);
+ const taskRead=vi.spyOn(MatrixRepository.prototype,'get');
+ const url=await host(core({database:async()=>({} as any)}));
+ const response=await fetch(url+'/api/modules/publish/classify/history');
+ expect(response.status).toBe(200);
+ expect(await response.json()).toEqual({items:[{task_id:'t-1',created_at:'2026-11-10T08:00:00.000Z',state:'complete',industry:'净水器',product:'产品A',matrix_status:'complete',candidate_count:26,recommendation_count:3}]});
+ expect(listed).toHaveBeenCalledTimes(1);expect(taskRead).not.toHaveBeenCalled();
+});

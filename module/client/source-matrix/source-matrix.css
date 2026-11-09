@@ -226,3 +226,18 @@
 /* flex-wrap 按基准尺寸决定换行、收缩不参与换行判断：名称用小基准(40px)+增长填充，
    确保媒体资料、查看推荐理由与名称同排一行（窄卡时查看推荐理由才独占次行）。 */
 .fm-media .sm-recommendation-workspace .sm-candidate header h4{flex:1 1 40px;min-width:0}
+
+/* 2026-11-10 用户反馈：名称独占一行；媒体资料与查看推荐理由同放第二行右侧、字号一致；
+   卡片介绍只放一句完整句子（不再截断）；历史存档列表样式。 */
+.fm-media .sm-recommendation-workspace .sm-candidate header{flex-direction:column;align-items:stretch;row-gap:3px;column-gap:0}
+.fm-media .sm-recommendation-workspace .sm-candidate header h4{flex:none;flex-basis:auto;min-width:0}
+.fm-media .sm-recommendation-workspace .sm-candidate header .sm-reason-link{margin-left:0}
+.fm-media .sm-card-links{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;min-height:22px}
+.fm-media .sm-card-links .link{font-size:11px;min-height:22px}
+.fm-media .sm-recommendation-workspace .sm-candidate p.sm-media-intro{display:block;overflow:visible;margin:4px 0 6px}
+.fm-media .sm-history-list{display:grid;gap:8px;max-height:60vh;overflow:auto}
+.fm-media .sm-history-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.fm-media .sm-history-row.is-current{border-color:var(--brand);background:var(--selected)}
+.fm-media .sm-history-when{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;white-space:nowrap}
+.fm-media .sm-history-meta{flex:1;min-width:220px;font-size:13px;color:var(--ink)}
+.fm-media .sm-history-meta small{display:block;color:var(--muted);font-size:11px;margin-top:2px}

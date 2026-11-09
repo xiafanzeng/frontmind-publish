@@ -104,6 +104,22 @@ describe('media selection controls', () => {
     expect((screen.getByRole('button', { name: /配置标题/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('offers a header clear action and collapses the drawer from an outside pointer press', () => {
+    const onClear = vi.fn();
+    render(<MediaCartFooter count={1} total="1000000" items={[media]} onRemove={vi.fn()} onClear={onClear} />);
+    fireEvent.click(screen.getByRole('button', { name: /购物车 1 家/ }));
+    const drawer = screen.getByLabelText('购物车已选媒体');
+    expect((drawer as HTMLElement).hidden).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '清空购物车' }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+    // 点击抽屉外任意位置即可收回，无需小三角。
+    fireEvent.pointerDown(document.body);
+    expect((screen.getByLabelText('购物车已选媒体') as HTMLElement).hidden).toBe(true);
+    // 再点底栏可重新展开。
+    fireEvent.click(screen.getByRole('button', { name: /购物车 1 家/ }));
+    expect((screen.getByLabelText('购物车已选媒体') as HTMLElement).hidden).toBe(false);
+  });
+
   it('lets the real checkbox select unspecified image requirements without a blocking warning', () => {
     const onToggle = vi.fn();
     const blocker = mediaSelectionBlocker(media, true);
