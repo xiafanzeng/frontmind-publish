@@ -21,7 +21,12 @@ import { createCandidateRanker, mergeRankedDecisions, orderMatrixCandidates } fr
  * (validateDecisions/verifyPlan) before anything is persisted.
  */
 const PLATFORM_CHAT_ENDPOINT = 'https://api.xty.app/v1/chat/completions';
-const REQUEST_TIMEOUT_MS = 240_000;
+/* Measured 2026-11-09 on the platform gateway (api.xty.app): one full
+ * adjudication batch needs ~190s of model time (streamed, finish=stop). The
+ * non-streamed request is cut by the gateway edge at ~100s (llm_http_524 x4).
+ * Streaming keeps the connection alive, so the real bound is total model time:
+ * catalog scan + every batch + one correction must fit inside this window. */
+const REQUEST_TIMEOUT_MS = 900_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
 
 /** Only the requested platform host is accepted; append its API path once. */
@@ -50,6 +55,38 @@ async function readResponse(response: Response): Promise<string> {
   } finally { reader.releaseLock(); }
 }
 
+/** Join an SSE chat stream under the same byte cap as readResponse. */
+async function readStreamedChat(response: Response): Promise<{ content: string; finish?: string; refused: boolean }> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('provider_invalid_response');
+  const decoder = new TextDecoder();
+  let buffer = '', content = '', finish: string | undefined, refused = false, bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) { await reader.cancel(); throw new Error('provider_response_too_large'); }
+      buffer += decoder.decode(value, { stream: true });
+      let index: number;
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, index).trim(); buffer = buffer.slice(index + 1);
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        let chunk: { error?: unknown; choices?: Array<{ delta?: { content?: unknown; refusal?: unknown }; finish_reason?: string }> };
+        try { chunk = JSON.parse(data); } catch { continue; }
+        if (chunk.error) throw new Error('provider_invalid_response');
+        const choice = chunk.choices?.[0];
+        if (typeof choice?.delta?.content === 'string') content += choice.delta.content;
+        if (choice?.delta?.refusal) refused = true;
+        if (choice?.finish_reason) finish = choice.finish_reason;
+      }
+    }
+  } finally { reader.releaseLock(); }
+  return { content, finish, refused };
+}
+
 async function chat(settings: AiSettings, env: Readonly<Record<string, string | undefined>>, messages: ChatMessage[], deadline?:number): Promise<unknown> {
   const base = endpointFor(settings, env);
   const remaining=deadline===undefined?REQUEST_TIMEOUT_MS:Math.min(REQUEST_TIMEOUT_MS,deadline-Date.now());
@@ -60,16 +97,29 @@ async function chat(settings: AiSettings, env: Readonly<Record<string, string | 
     const response = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
-      body: JSON.stringify({ model: settings.model, messages, temperature: 0.1, response_format: { type: 'json_object' } }),
+      /* Streaming only changes transport: the gateway edge closes idle
+       * non-streamed waits at ~100s (llm_http_524) while the model needs
+       * ~190s for one batch. First streamed bytes arrive in ~28s, keeping
+       * the proxy connection open for the full generation. */
+      body: JSON.stringify({ model: settings.model, messages, temperature: 0.1, response_format: { type: 'json_object' }, stream: true }),
       redirect: 'error',
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`llm_http_${response.status}`);
-    const payload = JSON.parse(await readResponse(response)) as { choices?: Array<{ finish_reason?: string; message?: { content?: unknown; refusal?: unknown } }> };
-    const choice = payload.choices?.[0];
-    if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new Error('provider_refused');
-    if (choice?.finish_reason !== 'stop') throw new Error('provider_incomplete_response');
-    const content = choice.message?.content;
+    let content: string;
+    if ((response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+      const streamed = await readStreamedChat(response);
+      if (streamed.refused || streamed.finish === 'content_filter') throw new Error('provider_refused');
+      if (streamed.finish !== 'stop') throw new Error('provider_incomplete_response');
+      content = streamed.content;
+    } else {
+      /* Gateways may ignore the stream flag and answer with plain JSON. */
+      const payload = JSON.parse(await readResponse(response)) as { choices?: Array<{ finish_reason?: string; message?: { content?: unknown; refusal?: unknown } }> };
+      const choice = payload.choices?.[0];
+      if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new Error('provider_refused');
+      if (choice?.finish_reason !== 'stop') throw new Error('provider_incomplete_response');
+      content = choice.message?.content as unknown as string;
+    }
     if (typeof content !== 'string' || !content.trim()) throw new Error('provider_empty_response');
     const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const value: unknown = JSON.parse(cleaned);

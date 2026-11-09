@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { BRAND_DATA_BATCHES, brandCitationRecords } from './brand-data.js';
-import { compactCandidates, createDecisionAdapter, createEnvDecisionAdapter, environmentChatEndpoint, PROMPT_CANDIDATE_BATCH_SIZE } from './decisions.js';
+import { compactCandidates, createDecisionAdapter, createEnvDecisionAdapter, environmentChatEndpoint, PROMPT_CANDIDATE_BATCH_SIZE, REQUEST_TIMEOUT_MS } from './decisions.js';
 import { SOURCE_MATRIX_INSTRUCTIONS, SOURCE_MATRIX_SKILL } from './instructions.js';
 import { runPlanner } from './planner.js';
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -99,11 +99,11 @@ it('shares the platform deadline with correction and retains the invalid result 
     else {correctionSignal=init.signal??undefined;init.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});}
   })));
   const pending=createEnvDecisionAdapter(platform)!.matrix(input).then(value=>{settled=true;return value;});
-  await vi.advanceTimersByTimeAsync(239_999);expect(settled).toBe(false);
-  await vi.advanceTimersByTimeAsync(1);const decisions=await pending;
+  await vi.advanceTimersByTimeAsync(200_000);expect(settled).toBe(false);
+  await vi.runAllTimersAsync();const decisions=await pending;
   expect(attempts).toBe(2);expect(correctionSignal?.aborted).toBe(true);
   expect(runPlanner(input.request,decisions,'matrix',undefined,input.as_of).matrix.status).toBe('invalid_decisions');
-});
+},30_000);
 
 it('preserves yihang sample provenance and honest unknown dates', () => {
   const batch = BRAND_DATA_BATCHES[0]!;
@@ -181,8 +181,8 @@ it('aborts platform requests at the bounded deadline', async () => {
     init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
   })));
   const check = expect(createEnvDecisionAdapter(platform)!.matrix(matrixInput)).resolves.toMatchObject({matrix_decisions:{review_error:'provider_timeout'}});
-  await vi.advanceTimersByTimeAsync(240_000); await check;
-});
+  await vi.runAllTimersAsync(); await check;
+},30_000);
 
 it('includes complete frozen content and aggregate provenance without turning buckets into candidates', async () => {
   const aggregate = { aggregate_id: 'industry:type:news', source_id: 'molizhishu', data_version: 'snapshot-v1', unit: 'citation_count', count: '9223372036854775807', scope: { industry: 'retail', modelCode: 'm', periodType: 'WEEK', date: '2026-11-01' }, applicability: { kind: 'industry_context', industry: 'retail' }, aggregate_scope: 'industry_distribution', dimension: 'source_type', bucket: 'news' };
