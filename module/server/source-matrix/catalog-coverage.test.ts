@@ -66,14 +66,24 @@ it('never treats partial new review metadata as a completed matrix or an empty s
  const input=matrixInput(2),payload={candidates:[{candidate_id:'resource:r0',attribute_paths:['catalog[0]']}]},decision=batchDecisions(payload);
  decision.matrix_decisions.reviewed_candidate_ids=['resource:r0'];
  const result=runPlanner(input.request,decision,'matrix',undefined,now);
- expect(result.matrix.status).toBe('needs_ai_decisions');expect(result.matrix.coverage.model.unprocessed_candidates).toBe(1);
- expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').status).toBe('incomplete');
+ /* Isolation semantics: the reviewed candidate stays attached (partial), the
+  * unreviewed sibling is explicitly unprocessed — never complete, never empty. */
+ expect(result.matrix.status).toBe('partial');
+ expect(result.matrix.coverage.model).toMatchObject({status:'partial',classified_candidates:1,unprocessed_candidates:1});
+ expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').status).toBe('populated');
+ expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').classified_count).toBe(1);
+ expect(result.limitations).toContain('model_classification_partial');
 });
 it('retains the previous successful batch count after a later provider failure',async()=>{
  const input=matrixInput(30);let calls=0;
  const decision=await createDecisionAdapter(async messages=>{if(++calls===2)throw new Error('provider_timeout');return batchDecisions(JSON.parse(messages[1]!.content));}).matrix(input);
  const result=runPlanner(input.request,decision,'matrix',undefined,now);
- const reviewed=Math.min(PROMPT_CANDIDATE_BATCH_SIZE,30);expect(result.matrix.status).toBe('needs_ai_decisions');expect(result.matrix.coverage.model).toMatchObject({status:'incomplete',reviewed_candidates:reviewed,unprocessed_candidates:30-reviewed,reason:'provider_timeout'});
+ /* A transient provider failure is retried once for the failed batch only;
+  * successful batches are never re-run and never lost. */
+ const reviewed=PROMPT_CANDIDATE_BATCH_SIZE*2;
+ expect(result.matrix.status).toBe('partial');
+ expect(result.matrix.coverage.model).toMatchObject({status:'partial',reviewed_candidates:reviewed,classified_candidates:reviewed,unprocessed_candidates:30-reviewed,reason:'provider_timeout'});
+ expect(result.matrix.candidates.filter((candidate:Row)=>candidate.semantic_decision_validated)).toHaveLength(reviewed);
 });
 
 it('bounds budget context but retains explicit candidates beyond the ranked top slots and exact prices',async()=>{

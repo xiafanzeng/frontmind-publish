@@ -45,7 +45,8 @@ it('keeps invalid decisions rejected after one failed correction instead of stri
   expect(attempts).toBe(2);expect(result.matrix.status).toBe('invalid_decisions');
   expect(result.errors).toContainEqual({code:'invalid_aggregate_reference',path:'decisions.items[0].references[0]',message:'invalid_aggregate_reference'});
   expect(result.matrix.fit_order).toEqual([]);expect(result.matrix.candidates[0].primary_role).toBeNull();
-  expect(decisions?.matrix_decisions.items[0].references[0].aggregate_id).toBe('invented');
+  // The invalid response itself is preserved as failed-candidate evidence, never stripped.
+  expect(decisions?.matrix_decisions.failed_candidates?.[0]?.raw?.references[0].aggregate_id).toBe('invented');
 });
 
 it('preserves the invalid first response when correction transport fails', async()=>{
@@ -55,12 +56,19 @@ it('preserves the invalid first response when correction transport fails', async
   expect(result.matrix.status).toBe('invalid_decisions');expect(result.errors.some((error:any)=>error.code==='invalid_aggregate_reference')).toBe(true);
 });
 
-it('does not turn a failed candidate set into success by dropping its invalid member during repair', async()=>{
+it('does not turn a silently dropped member into success: the dropped candidate stays failed with evidence', async()=>{
   const input=validatedMatrixInput(2),first=semanticDecision('resource:r1','invented'),second={...semanticDecision('resource:r2'),layer_rank:2};
   const bad={matrix_decisions:{items:[first,second],fit_order:['resource:r1','resource:r2']}},subset={matrix_decisions:{items:[{...second,layer_rank:1}],fit_order:['resource:r2']}};
   let attempts=0;const decisions=await createDecisionAdapter(async()=>++attempts===1?bad:subset).matrix(input);
-  expect(runPlanner(input.request,decisions,'matrix',undefined,input.as_of).matrix.status).toBe('invalid_decisions');
-  expect(decisions?.matrix_decisions.items.map((item:any)=>item.candidate_id)).toEqual(['resource:r1','resource:r2']);
+  const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  /* New isolation semantics: the valid sibling survives as a partial matrix;
+   * the dropped member is recorded as failed — never silently passed. */
+  expect(result.matrix.status).toBe('partial');
+  expect(result.matrix.candidates.find((candidate:any)=>candidate.candidate_id==='resource:r2').primary_role).toBe('industry');
+  expect(result.matrix.candidates.find((candidate:any)=>candidate.candidate_id==='resource:r1').primary_role).toBeNull();
+  expect(result.matrix.coverage.model).toMatchObject({classified_candidates:1,failed_candidates:1,unprocessed_candidates:0});
+  expect(decisions?.matrix_decisions.failed_candidates?.[0]?.candidate_id).toBe('resource:r1');
+  expect(result.errors.some((error:any)=>error.code==='candidate_unreviewed')).toBe(true);
 });
 
 it('reviews every retained candidate in bounded prompts rather than accepting a prefix subset', async()=>{
@@ -238,4 +246,67 @@ it('delivers independent target to both planning stages without using the sample
  expect(budgetPayload.target_platforms).toEqual(['Kimi']);
  expect(SOURCE_MATRIX_INSTRUCTIONS).toContain('目标平台引用依据待核验');
  expect(SOURCE_MATRIX_INSTRUCTIONS).toContain('不得修改实际执行模型');
+});
+
+// --- candidate-level isolation, resume and rule fallback (2026.11.09-web.2) ---
+
+it('keeps valid siblings when one candidate in the same batch fails validation', async()=>{
+  const input=validatedMatrixInput(3);
+  const bad=semanticDecision('resource:r1','invented'),ok2=semanticDecision('resource:r2'),ok3=semanticDecision('resource:r3');
+  const decisions=await createDecisionAdapter(async()=>({matrix_decisions:{items:[bad,ok2,ok3],fit_order:['resource:r1','resource:r2','resource:r3']}})).matrix(input);
+  const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(result.matrix.status).toBe('partial');
+  expect(result.matrix.coverage.model).toMatchObject({classified_candidates:2,failed_candidates:1,unprocessed_candidates:0,ai_classified_candidates:2});
+  expect(result.matrix.fit_order).toEqual(['resource:r2','resource:r3']);
+  expect(result.errors.some((error:any)=>error.code==='invalid_aggregate_reference')).toBe(true);
+});
+
+it('resumes from a persisted partial matrix and reviews only pending candidates', async()=>{
+  const input=validatedMatrixInput(3);
+  const seed=semanticDecision('resource:r1');
+  const reviewed:string[]=[];
+  const decisions=await createDecisionAdapter(async messages=>{
+    const payload=JSON.parse(messages[1]!.content);
+    for(const candidate of payload.candidates)reviewed.push(candidate.candidate_id);
+    return {matrix_decisions:{items:payload.candidates.map((candidate:any)=>semanticDecision(candidate.candidate_id)),excluded_candidates:[]}};
+  }).matrix({...input,resume:{pending_ids:['resource:r2','resource:r3'],accepted_items:[seed],excluded:[]}});
+  expect(reviewed).toEqual(['resource:r2','resource:r3']);
+  const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  expect(result.matrix.status).toBe('complete');
+  expect(result.matrix.coverage.model).toMatchObject({classified_candidates:3,unprocessed_candidates:0});
+});
+
+it('falls back to labelled rule decisions with recorded evidence when the model produces nothing', async()=>{
+  const input=validatedMatrixInput(2);
+  // Real catalogue industry attributes make the ranker's industry rule provable.
+  input.request.catalog=input.request.catalog.map((row:any)=>({...row,industry:'零售'}));
+  const prepared=runPlanner(input.request,undefined,'matrix',undefined,input.as_of);
+  const decisions=await createDecisionAdapter(async()=>{throw new Error('provider_refused');}).matrix({...input,prepared});
+  const result=runPlanner(input.request,decisions,'matrix',undefined,input.as_of);
+  // The fixture catalog rows carry industry-related attributes, so the rule
+  // layer keeps a labelled basic matrix instead of an empty shell.
+  expect(['partial','complete']).toContain(result.matrix.status);
+  const rule=result.matrix.candidates.filter((candidate:any)=>candidate.decision_basis==='rule');
+  expect(rule.length).toBeGreaterThan(0);
+  expect(result.matrix.coverage.model.rule_classified_candidates).toBe(rule.length);
+  expect(rule[0].reason_summary as string).toContain('规则判定');
+  expect((decisions?.matrix_decisions as any).review_error).toBe('provider_refused');
+});
+
+it('degrades a failing budget composition to labelled rule combinations with real prices', async()=>{
+  const input=validatedMatrixInput(2);
+  const prepared=runPlanner(input.request,undefined,'matrix',undefined,input.as_of);
+  const seeded=runPlanner(input.request,{matrix_decisions:{items:[semanticDecision('resource:r1'),semanticDecision('resource:r2')],fit_order:['resource:r1','resource:r2'],reviewed_candidate_ids:['resource:r1','resource:r2']}},'matrix',undefined,input.as_of);
+  const request={...input.request,budget:{currency:'CNY',total_cap:'10000'},catalog:input.request.catalog.map((row:any)=>({...row,offer_id:null,publication_spec:null,pricing:{kind:'unit',amount:'100.00',currency:'CNY',quoted_at:null,valid_until:null,mandatory_fees:[]}}))};
+  const out=await createDecisionAdapter(async()=>{throw new Error('llm_http_503');}).budget({request,matrix:{...seeded,matrix:seeded.matrix},as_of:input.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS});
+  expect(out?.recommendations?.length).toBeGreaterThan(0);
+  for(const plan of out!.recommendations!){
+    expect(String(plan.strategy)).toContain('规则生成');
+    expect(plan.explanation.explanation_source).toBe('rule');
+    for(const item of plan.items)expect(item.content_tasks).toEqual([]);
+  }
+  const verified=runPlanner(request,{recommendations:out!.recommendations!},'budget',seeded,input.as_of);
+  expect(verified.status).toBe('complete');
+  expect(verified.recommendations[0].total_cost).not.toBeNull();
+  void prepared;
 });
