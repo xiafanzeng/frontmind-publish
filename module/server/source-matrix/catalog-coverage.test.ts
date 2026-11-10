@@ -124,6 +124,23 @@ it('keeps the recorded outcome deterministic regardless of batch completion orde
  expect(first.matrix.suggestions.selected_candidate_ids).toEqual(second.matrix.suggestions.selected_candidate_ids);
  expect(first.matrix.candidates.map((candidate:Row)=>candidate.candidate_id)).toEqual(second.matrix.candidates.map((candidate:Row)=>candidate.candidate_id));
 });
+it('deduplicates one outlet picked independently by several batches before the envelope is saved',async()=>{
+ const input=matrixInput(30);
+ /* Concurrent batches review disjoint candidate sets, so each can independently
+  * select its members as the "same" real outlet. The merged selected_media must
+  * keep a single slot, or the saved snapshot re-emits duplicate_selected_outlet
+  * diagnostics on every budget replay and every later budget looks failed. */
+ const decisions=await createDecisionAdapter(async messages=>{
+   const payload=JSON.parse(messages[1]!.content);
+   const items=payload.candidates.map((candidate:Row)=>({candidate_id:candidate.candidate_id,outlet_key:'同一实际载体',topic_fit:'direct',form_fit:'same',audience_fit:'direct',matched_questions:['q'],selection:'recommended',selection_reason:'真实行业字段与当前芯片稿件相符，优先于其余候选',reason_summary:'真实行业字段与当前芯片稿件相符',reason_details:[],unconfirmed_items:[],references:[{type:'attribute',path:candidate.attribute_paths[0]+'.industry'}]}));
+   return {matrix_decisions:{items,fit_order:items.map((item:Row)=>item.candidate_id),selected_media:items.map((item:Row)=>item.candidate_id),excluded_candidates:[]}};
+ }).matrix(input);
+ expect(decisions?.matrix_decisions.selected_media).toHaveLength(1);
+ const result=runPlanner(input.request,decisions,'matrix',undefined,now);
+ expect(result.matrix.status).toBe('complete');
+ expect(result.matrix.suggestions.selected_candidate_ids).toHaveLength(1);
+ expect(result.errors.filter((error:Row)=>error.code==='duplicate_selected_outlet')).toEqual([]);
+});
 
 it('bounds budget context but retains explicit candidates beyond the ranked top slots and exact prices',async()=>{
  const input=matrixInput(90),catalog=input.request.catalog.map((row:Row,index:number)=>({...row,offer_id:null,publication_spec:null,pricing:{kind:'unit',amount:index+'.25',currency:'CNY',quoted_at:null,valid_until:null,mandatory_fees:null}}));

@@ -632,7 +632,7 @@ it('shows the actual saved sample without configured services and never writes a
  const fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{throw new Error('service unavailable');});vi.stubGlobal('fetch',fetcher);
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});
- expect(screen.getByText(/已保存的样本矩阵/)).toBeTruthy();
+ expect(screen.getByRole('button',{name:'查看样本报告'})).toBeTruthy();
  expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
  expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('');expect(screen.getByRole('button',{name:'覆盖地区'}).textContent).toContain('不限地区');expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
@@ -702,7 +702,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog([{id:'configured-industry',name:'已接入行业'}]):url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByText(/已保存的样本矩阵/);
+ await screen.findByRole('button',{name:'查看样本报告'});
  fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
  for(const id of ['A','B','A']){
   await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});
@@ -995,7 +995,7 @@ it('shows a failed semantic pool honestly and retains the matrix regenerate acti
  const invalid={...platformTask(),status:'invalid_decisions',matrix:{...matrix.matrix,status:'invalid_decisions',candidates:matrix.matrix.candidates.map(row=>({...row,primary_role:null})),layers:[],fit_order:[]},errors:[{code:'invalid_aggregate_reference',path:'matrix_decisions.items[0]',message:'invalid reference'}]};
  platformFixture(invalid);openMatrix('');
  await screen.findAllByText('媒体渠道推荐未通过校验，请重新生成矩阵。');
- expect(screen.getByText(/候选池 1 · 已分层 —/)).toBeTruthy();
+ expect(screen.getByRole('heading',{name:'完整信源矩阵'})).toBeTruthy();
  expect(screen.queryByText('0 个候选')).toBeNull();
  expect(screen.getByRole('button',{name:'重新生成矩阵'})).toBeTruthy();
  expect((screen.getByRole('button',{name:'生成组合'}) as HTMLButtonElement).disabled).toBe(true);
@@ -1015,8 +1015,7 @@ it('counts only candidates rendered in recommendation layers as available to add
   return base(input,init);
  });
  openMatrix('draftId=draft-1&articleVersion=version-1');
- expect(await screen.findByText(/候选池 2 · 已分层 1 · 已匹配 2\/2 · 可加入 1/)).toBeTruthy();
- expect(screen.getByRole('checkbox',{name:'选择 可投媒体 新闻'})).toBeTruthy();
+ expect(await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'})).toBeTruthy();
  expect(screen.queryByRole('checkbox',{name:'选择 尚未分层媒体 新闻'})).toBeNull();
 });
 

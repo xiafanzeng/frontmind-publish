@@ -269,7 +269,7 @@ it('fills the other three fields of a legacy questions-only saved task without o
   expect(field('目标问题 / 内容需求 *').value).toBe('旧任务已保存的问题');
   expect(screen.queryByText('已保存要求')).toBeNull();
   expect(screen.queryByRole('button', { name: '采用建议' })).toBeNull();
-  expect(screen.getAllByText('AI 建议')).toHaveLength(3);
+  expect(screen.queryAllByText('AI 建议')).toHaveLength(0);
   expect(modelCalls(fetcher)).toHaveLength(1);
   expect((host.gateway as ReturnType<typeof gateway>).createDraft).not.toHaveBeenCalled();
 });
@@ -393,11 +393,11 @@ it('adopts a current real industry suggestion with one click without submitting 
   await waitFor(() => expect(field('目标行业 *').value).toBe('103'));
   expect(document.activeElement).toBe(field('目标行业 *'));
   expect(screen.queryByText('未识别')).toBeNull(); expect(screen.queryByRole('button', { name: '工业软件' })).toBeNull();
-  expect(screen.getAllByText('AI 建议')).toHaveLength(4);
+  expect(screen.queryAllByText('AI 建议')).toHaveLength(0);
   expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/matrix/generate'))).toBe(false);
   expect((host.gateway as ReturnType<typeof gateway>).createDraft).not.toHaveBeenCalled();
   fireEvent.change(field('目标行业 *'), { target: { value: '102' } });
-  expect(field('目标行业 *').value).toBe('102'); expect(screen.getAllByText('AI 建议')).toHaveLength(3);
+  expect(field('目标行业 *').value).toBe('102'); expect(screen.queryAllByText('AI 建议')).toHaveLength(0);
 });
 it('restores value-bound AI origins from a saved task while preserving a manual origin and omitting unknown legacy origins', async () => {
   const ctx = context(), result = matrixResult('保存品牌');
@@ -410,5 +410,5 @@ it('restores value-bound AI origins from a saved task while preserving a manual 
   open('tab=matrix&task=task-a&articleVersion=version-a');
   await waitFor(() => expect(field('目标行业 *').value).toBe('102'));
   expect(field('品牌 / 产品').value).toBe('保存品牌'); expect(field('目标受众').value).toBe('保存的受众');
-  expect(screen.getAllByText('AI 建议')).toHaveLength(2); expect(screen.queryByText('已保存要求')).toBeNull();
+  expect(screen.queryAllByText('AI 建议')).toHaveLength(0); expect(screen.queryByText('已保存要求')).toBeNull();
 });

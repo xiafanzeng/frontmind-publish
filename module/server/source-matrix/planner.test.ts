@@ -144,3 +144,24 @@ it('records the active semantic skill version in new results and reports',()=>{
  expect(out.skill_version).toBe(SOURCE_MATRIX_SKILL);
  expect(out.report.skill_version).toBe(SOURCE_MATRIX_SKILL);
 });
+
+it('does not resurface already-adjudicated matrix diagnostics as budget failures',()=>{
+ /* A saved snapshot may legitimately carry a duplicate-outlet selection: the
+  * matrix stage deduplicated it programmatically into suggestions. Budget
+  * replays re-derive the same diagnostic; it must stay out of the budget
+  * result's errors or every later budget looks failed despite valid combos. */
+ const second={...structuredClone(catalog),resource_id:'r2',offer_id:'o2'};
+ const r={...request(),catalog:[catalog,second],budget:{currency:'CNY',total_cap:'1000'}};
+ const d:any=structuredClone(md);
+ d.items[0].selection_reason='同载体演示：与任务行业直接相符';
+ d.items.push({...structuredClone(d.items[0]),candidate_id:'resource:r2',references:[{type:'attribute',path:'catalog[1].industry'}]});
+ d.fit_order=['resource:r','resource:r2'];
+ d.selected_media=['resource:r','resource:r2'];
+ const first=runPlanner(r,{matrix_decisions:d},'matrix',undefined,now);
+ expect(first.status).toBe('complete');
+ expect(first.matrix.suggestions.selected_candidate_ids).toEqual(['resource:r']);
+ expect(first.errors.filter((e:any)=>e.code==='duplicate_selected_outlet')).toHaveLength(1);
+ const budget=runPlanner(r,{budget_plans:plans},'budget',first,now);
+ expect(budget.status).toBe('complete');
+ expect(budget.errors).toEqual([]);
+});

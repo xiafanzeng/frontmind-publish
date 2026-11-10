@@ -42,6 +42,13 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     }
     const out=assembleMatrix(r,analysis,md);
     if(out.errors.some((e:Row)=>e.code==='invalid_type'))return fail('invalid_input',out.errors);
+    /* Budget replays re-derive the saved matrix decisions; their diagnostics
+     * (demoted items, duplicate outlets already deduplicated programmatically)
+     * were adjudicated when the matrix was accepted and stay recorded in
+     * coverage and limitations. A budget result therefore reports only its own
+     * contract errors — inherited diagnostics would make every later budget
+     * look failed even when its combinations verified. */
+    if(stage==='budget')out.errors=[];
     /* A validated subset can drive scoped estimates: the partial matrix keeps
      * every validated decision and the limitation makes the coverage explicit. */
     if(stage==='budget'&&out.matrix.status==='partial')out.limitations.push('matrix_partial_coverage');

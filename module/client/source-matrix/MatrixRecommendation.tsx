@@ -90,12 +90,14 @@ export function RecommendationReason({candidate,result,onClose,returnFocus,resou
  </MediaDialog>;
 }
 
-const candidateMediaType=(candidate:Candidate):string=>{
- const kind=candidate.attributes.media_kind??candidate.attributes.media_type??candidate.attributes.platform;
+/* Same taxonomy as the media library: two Chinese kinds keyed by catalog media_kind. */
+const mediaKindLabels:Record<string,string>={news:'门户媒体',self_media:'第三方自媒体'};
+const candidateMediaType=(candidate:Candidate,media?:MediaResource):string=>{
+ const mapped=media?.kind&&media.kind!=='unknown'?media.kind:candidate.attributes.media_kind??candidate.attributes.media_type;
+ const kindText=typeof mapped==='string'&&mapped.trim()?mapped.trim():'';
+ if(mediaKindLabels[kindText])return mediaKindLabels[kindText]!;
  const taxonomy=candidate.attributes.taxonomy;
- const kindText=typeof kind==='string'&&kind.trim()?kind.trim():'';
- const taxText=typeof taxonomy==='string'&&taxonomy.trim()?taxonomy.trim():'';
- return kindText||taxText||'媒体渠道';
+ return typeof taxonomy==='string'&&taxonomy.trim()?taxonomy.trim():'媒体渠道';
 };
 
 export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,isSelected,issue,onToggle,onDetails,onMediaDetails,onLayer}: {result: MatrixResult;highlightedPlan?: BudgetPlan | null;highlightedCandidateIds?:string[];referenceCandidateIds?:string[];mediaFor:(id:string|null)=>MediaResource|undefined;isSelected:(media:MediaResource)=>boolean;issue:(candidate:Candidate,media:MediaResource)=>string;onToggle:(id:string)=>void;onDetails:(candidate:Candidate)=>void;onMediaDetails:(media:MediaResource)=>void;onLayer:(candidates:Candidate[])=>void}) {
@@ -122,14 +124,12 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
   * reference-only supplier ranking names. */
  if(hasSuggestions(result.matrix)){
   const suggestion=suggestionGroups(result.matrix);
-  const addable=suggestion.selected.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!isSelected(media)&&!issue(candidate,media);});
   return <div className="sm-suggest">
-   <div className="sm-suggest-head"><strong>媒体获取渠道建议（目标 {suggestion.target} 个，按推荐顺序）</strong>{suggestion.selected.length<suggestion.target&&<span className="small muted">本次实际推荐 {suggestion.selected.length} 个；合格独立载体不足或部分候选未完成时按实数推荐。</span>}{addable.length>0&&<button className="link small" onClick={()=>onLayer(suggestion.selected)}>多选推荐渠道可投媒体</button>}</div>
-   <div className="table-wrap"><table className="sm-suggest-table"><caption className="sr-only">媒体获取渠道建议：每行一个推荐渠道及推荐依据</caption><thead><tr><th scope="col">媒体</th><th scope="col">类型</th><th scope="col">推荐依据</th><th scope="col">操作</th></tr></thead><tbody>
+   <div className="table-wrap"><table className="sm-suggest-table"><caption className="sr-only">媒体渠道推荐：每行一个推荐渠道及推荐依据，按适配度顺序排列</caption><thead><tr><th scope="col">媒体</th><th scope="col">类型</th><th scope="col">推荐依据</th><th scope="col">操作</th></tr></thead><tbody>
    {suggestion.selected.map((candidate,index)=>{
     const media=mediaFor(candidate.resource_id),blocked=referenceOnly.has(candidate.candidate_id)?'参考阅读，非购买发布位':media?issue(candidate,media):'尚未映射可售资源，仅供研究';
     const basis=candidate.selection_reason||candidate.reason_summary||'推荐依据待补充（可重试未完成项）';
-    return <tr key={candidate.candidate_id} className={media&&isSelected(media)?'is-highlighted':''}><th scope="row"><span className="sm-suggest-name">{index+1}. {media?.name??candidateName(candidate)}</span>{candidate.industry_rank&&<span className="sm-suggest-rank">行业引用第 {candidate.industry_rank.rank} 位</span>}</th><td>{candidateMediaType(candidate)}</td><td className="sm-suggest-basis">{basis}{candidate.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button>{media&&<button className="link small" onClick={()=>onMediaDetails(media)}>媒体资料</button>}{media&&!blocked&&<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+(media.name??candidateName(candidate))+' '+(media.platform??'')} checked={isSelected(media)} disabled={!!blocked} onChange={()=>onToggle(candidate.candidate_id)}/>{isSelected(media)?'已加入':'加入购物车'}</label>}{!media&&<span className="small muted">仅供研究</span>}{blocked&&media&&<small className="sm-candidate-issue">{blocked}</small>}</div></td></tr>;
+    return <tr key={candidate.candidate_id} className={media&&isSelected(media)?'is-highlighted':''}><th scope="row"><span className="sm-suggest-name">{index+1}. {media?.name??candidateName(candidate)}</span>{candidate.industry_rank&&<span className="sm-suggest-rank">行业引用第 {candidate.industry_rank.rank} 位</span>}</th><td>{candidateMediaType(candidate,media)}</td><td className="sm-suggest-basis">{basis}{candidate.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button>{media&&!blocked&&<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+(media.name??candidateName(candidate))+' '+(media.platform??'')} checked={isSelected(media)} disabled={!!blocked} onChange={()=>onToggle(candidate.candidate_id)}/>{isSelected(media)?'已加入':'加入购物车'}</label>}{!media&&<span className="small muted">仅供研究</span>}{blocked&&media&&<small className="sm-candidate-issue">{blocked}</small>}</div></td></tr>;
    })}
    {!suggestion.selected.length&&<tr><td colSpan={4}><p className="sm-layer-gap">本轮没有得到可展示的推荐渠道，请重试或重新生成。</p></td></tr>}
    </tbody></table></div>

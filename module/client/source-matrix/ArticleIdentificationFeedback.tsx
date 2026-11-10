@@ -27,14 +27,13 @@ export function ArticleIdentificationFieldInfo({ fieldKey, identification, indus
   industryCatalog?: IndustryFeedbackCatalog; onIndustryAdopted?: () => void;
 }) {
   const field = identification.fields[fieldKey];
-  const ai = !!field.value && (field.origin === 'article' || field.origin === 'inferred');
   if (fieldKey === 'industry') {
     if (industryCatalog?.loading) return <span className="sm-identification-field-info" role="status">正在读取行业…</span>;
     if (industryCatalog?.error || industryCatalog && !industryCatalog.options.length) return <span className="sm-identification-field-info" role="status">
       行业目录暂不可用。<button type="button" className="link" onClick={industryCatalog.retry}>重试读取行业</button>
     </span>;
     const valid = !!field.value && (!industryCatalog || industryCatalog.options.some(item => item.id === field.value));
-    if (valid) return ai ? <span className="sm-identification-field-info"><span className="sm-identification-origin" data-origin={field.origin}>AI 建议</span></span> : null;
+    if (valid) return null;
     if (field.value) return <span className="sm-identification-field-info" role="status">行业已失效，请重新选择。</span>;
     // The identification server may have failed its own catalog read even when
     // this page already has a valid directory. Reload recognition to clear that
@@ -54,7 +53,7 @@ export function ArticleIdentificationFieldInfo({ fieldKey, identification, indus
     return <span className="sm-identification-field-info">
       <span role="status">未识别</span>
       {options.length ? <span className="sm-identification-suggestion">
-        <span>AI 建议</span>{options.map(option => <button key={option.id} type="button" className="link" onClick={event => {
+        {options.map(option => <button key={option.id} type="button" className="link" onClick={event => {
           event.preventDefault();
           if (industryCatalog?.options.some(item => item.id === option.id) && identification.adoptIndustry(option.id)) onIndustryAdopted?.();
         }}>{option.name}</button>)}
@@ -65,11 +64,10 @@ export function ArticleIdentificationFieldInfo({ fieldKey, identification, indus
   // A differing AI value for a field the user manually edited stays adoptable;
   // saved-task values keep their own origin and never reappear as AI output.
   const suggestion = field.edited && field.suggestion?.value != null ? field.suggestion : undefined;
-  if (!ai && !reason && !suggestion) return null;
+  if (!reason && !suggestion) return null;
   return <span className="sm-identification-field-info">
-    {ai && <span className="sm-identification-origin" data-origin={field.origin}>AI 建议</span>}
     {suggestion && <span className="sm-identification-suggestion">
-      <span>AI 建议：{suggestion.value}</span>
+      <span>{suggestion.value}</span>
       <button type="button" className="link" onClick={event => { event.preventDefault(); identification.adopt(fieldKey); }}>采用建议</button>
     </span>}
     {reason && <span className="sm-identification-reason">{reason}</span>}

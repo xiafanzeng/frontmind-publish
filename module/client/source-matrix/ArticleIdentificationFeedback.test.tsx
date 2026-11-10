@@ -16,11 +16,10 @@ function identified(): ArticleIdentification {
   };
 }
 const catalog = { loading: false, options: [{ id: '1', name: '真实目录行业一' }, { id: '2', name: '需要自然换行的真实目录长行业名称' }], retry: vi.fn() };
-it('uses the same concise AI label for extracted and inferred fields while hiding all excerpts and ordinary reasons', () => {
+it('renders no provenance label for extracted and inferred fields while hiding all excerpts and ordinary reasons', () => {
   const identification = identified();
   const { container } = render(<><ArticleIdentificationFieldInfo fieldKey="product" identification={identification}/><ArticleIdentificationFieldInfo fieldKey="audience" identification={identification}/></>);
-  expect(screen.getAllByText('AI 建议')).toHaveLength(2);
-  expect(container.textContent).toBe('AI 建议AI 建议');
+  expect(container.textContent).toBe('');
   identification.fields.product = { value: 'Historical value', origin: 'saved', edited: false };
   const other = render(<ArticleIdentificationFieldInfo fieldKey="product" identification={identification}/>); expect(other.container.textContent).toBe('');
 });
@@ -44,10 +43,10 @@ it('separates loading and service failure from genuine no-suggestion identificat
   view.rerender(<ArticleIdentificationFieldInfo fieldKey="industry" identification={identification} industryCatalog={catalog}/>);
   expect(screen.getByText('未识别')).toBeTruthy(); expect(screen.getByText('请手动选择行业。')).toBeTruthy(); expect(screen.queryByRole('button')).toBeNull();
 });
-it('hides unresolved options for a valid manual or adopted industry and retains only genuine AI provenance', () => {
+it('hides unresolved options for a valid manual or adopted industry without any provenance label', () => {
   const identification = identified(); identification.fields.industry = { value: '1', origin: 'inferred', edited: true };
   const view = render(<ArticleIdentificationFieldInfo fieldKey="industry" identification={identification} industryCatalog={catalog}/>);
-  expect(screen.getByText('AI 建议')).toBeTruthy(); expect(screen.queryByText('未识别')).toBeNull(); expect(screen.queryByRole('button')).toBeNull();
+  expect(view.container.textContent).toBe(''); expect(screen.queryByText('未识别')).toBeNull(); expect(screen.queryByRole('button')).toBeNull();
   identification.fields.industry = { value: '1', origin: 'manual', edited: true };
   view.rerender(<ArticleIdentificationFieldInfo fieldKey="industry" identification={identification} industryCatalog={catalog}/>); expect(view.container.textContent).toBe('');
 });

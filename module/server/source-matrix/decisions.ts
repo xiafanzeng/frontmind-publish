@@ -3,7 +3,7 @@ import type { SourceMatrixDecisionAdapter } from './adapter.js';
 import { identificationMessages } from './article-identification.js';
 import { endpointFor, invokeAi, type AiSettings } from './ai-connection-provider.js';
 import { industryContextAggregates } from './industry-context-evidence.js';
-import { validateDecisions } from './matrix.js';
+import { outletKeyOf, validateDecisions } from './matrix.js';
 import { ruleExplanation } from './content-plans.js';
 import { minorAmount, priceRecommendationItems } from './recommendation-pricing.js';
 import { money } from './contracts.js';
@@ -544,11 +544,17 @@ export function createDecisionAdapter(send:(messages:ChatMessage[],options?:Deci
       const transportFailure=[...failedById.values()].flatMap(entry=>entry.errors.filter((err:{code:string})=>/^llm_http_/.test(err.code)))[0]??[...failedById.values()].flatMap(entry=>entry.errors.filter((err:{code:string})=>err.code.startsWith('provider_')&&err.code!=='provider_timeout'))[0];
       const reviewSummary=reviewError??transportFailure?.code??(hadFailures?'matrix_batch_invalid':null);
       /* Cross-batch selection: the model's ordered picks, kept only when the
-       * candidate actually carries a validated decision, deduplicated and
-       * capped at the suggestion target. Rule fallbacks produce no explicit
-       * selection and let the kernel derive its labelled order instead. */
+       * candidate actually carries a validated decision, deduplicated per
+       * actual outlet and capped at the suggestion target. Batches review
+       * disjoint candidate sets, so two batches can independently pick two
+       * accounts of the same outlet; the merged envelope must not carry both,
+       * or the kernel's duplicate_selected_outlet diagnostic resurfaces at
+       * every budget replay. Rule fallbacks produce no explicit selection and
+       * let the kernel derive its labelled order instead. */
       const decidedItemIds=new Set(items.map(item=>String(item.candidate_id)));
-      const selectedMedia=selectedOrder.filter(id=>decidedItemIds.has(id)).slice(0,20);
+      const itemOutlet=new Map<string,string>(items.map(item=>{const server=serverCandidates.get(String(item.candidate_id));return [String(item.candidate_id),outletKeyOf({...item,attributes:server?.attributes??{}})] as [string,string];}));
+      const outletSeen=new Set<string>();
+      const selectedMedia=selectedOrder.filter(id=>{if(!decidedItemIds.has(id))return false;const outlet=itemOutlet.get(id)??id;if(outletSeen.has(outlet))return false;outletSeen.add(outlet);return true;}).slice(0,20);
       return {matrix_decisions:{items,fit_order:items.map(item=>String(item.candidate_id)),...(selectedMedia.length?{selected_media:selectedMedia}:{}),excluded_candidates:excluded,reviewed_candidate_ids:[...reviewed],...(finalFailed.length?{failed_candidates:finalFailed}:{}),...(pendingIds.length?{unprocessed_candidate_ids:pendingIds}:{}),...(reviewSummary?{review_error:reviewSummary}:{}),ranking_method:ruleItems.length?'suggestion_order':'task_attributes_then_batch_semantic_order'}};
     },
     async budget(input) {
