@@ -294,6 +294,7 @@ items每项只有candidate_id,resource_id(可空),offer_id(可空),publication_s
 默认优先选适合当前稿件且有真实可用报价的可售资源。无法唯一匹配账号、规格或报价时尝试其他合适候选，不凭名称相似串价、不取第一个报价。目录只有一个适用记录时沿用原resource_id、offer_id、publication_spec；offer_id=null是合法原始目录价，不制造报价编号。研究候选只有confirmed映射或resource_selections明确采购选择才可绑定，suggested不确认身份。
 quantity_mode由publication_intent决定：repeat_existing_article对应repeat_article，否则new_articles。篇数是计划数量，不代表已创建不同新稿，不要求content_tasks数量等于quantity。content_tasks为字符串数组，是1至3条基于当前真实标题、正文、目标与媒体要求的简短可执行修改建议；不虚构资质、事实或效果，不自动改写保存冻结稿件，不声称已读未提供正文。
 explanation必须包含objective文本、selection_logic非空文本数组、content_allocation数组(恰覆盖所选候选，每项candidate_id,responsibility,content_angle)、tradeoffs非空文本数组、excluded_candidates数组(已判断但不在该套，每项candidate_id,reason)、fit_conditions及verification_items非空文本数组。解释与建议不合格时服务端会改用规则说明，不会因此丢弃有效媒体和价格，但仍应尽量给出真实解释。
+输出长度有硬上限：整个JSON必须一次完整输出。每条文本控制在两句话以内；selection_logic/tradeoffs/fit_conditions/verification_items各不超过3条；content_tasks每项不超过2条；excluded_candidates只列主要取舍不超过5项。候选池较大时优先把解释写精炼，不要因篇幅截断输出。
 沿用矩阵保存的industry_context与manuscripts，统计桶不是媒体、账号或报价。锁定项保留原采购身份和用途，无法满足说明具体局限。
 按真实报价规格、单价乘篇数和必要费用安排，不为花满预算加篇，探索受子额度约束。日期或附加费缺失不能抹掉目录价，明确失效报价不可用。未知费用不当0，币种不能混加。单价、小计、总价、预算和可执行状态由服务器计算，禁止模型提交金额、分数、价格、命中率或budget_feasible。`;
 
@@ -559,12 +560,19 @@ export function createDecisionAdapter(send:(messages:ChatMessage[],options?:Deci
       const fallback=()=>ruleCombos({request:input.request,matrix:input.matrix,as_of:input.as_of});
       let payload:unknown;
       try{payload=await send(messages,{deadline:Date.now()+REQUEST_TIMEOUT_MS});}
-      catch(error){const plans=fallback();return plans?{recommendations:plans}:undefined;}
+      catch(error){
+        /* Fixed diagnostic codes only: the raw provider payload never enters logs. */
+        const reason=error instanceof Error&&/^(provider_|llm_http_|cancelled)/.test(error.message)?error.message:'provider_invalid_response';
+        console.warn('source_matrix_budget_model_failed',{reason,selectable:selectable.length});
+        const plans=fallback();return plans?{recommendations:plans}:undefined;
+      }
       const result=payload as Row;
       if(!result||!Array.isArray(result.recommendations)){
+        console.warn('source_matrix_budget_model_failed',{reason:'provider_invalid_envelope',selectable:selectable.length});
         const plans=fallback();return plans?{recommendations:plans}:undefined;
       }
       if(!result.recommendations.length){
+        console.warn('source_matrix_budget_model_failed',{reason:'model_returned_no_combinations',selectable:selectable.length});
         const plans=fallback();if(plans)return {recommendations:plans};
         return {recommendations:[]};
       }
