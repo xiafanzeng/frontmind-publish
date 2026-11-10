@@ -28,6 +28,17 @@ function LayerHelp({role}:{role:string}) {
  const show=()=>{clearTimeout(timer.current);const node=trigger.current;if(node){const css=getComputedStyle(node);setStyle({fontFamily:css.fontFamily,'--sm-help-ink':css.getPropertyValue('--ink'),'--sm-help-line':css.getPropertyValue('--line'),'--sm-help-surface':css.getPropertyValue('--surface')} as CSSProperties);}setOpen(true);};
  const leave=()=>{timer.current=setTimeout(()=>{setOpen(false);trigger.current?.blur();},180);};
  useEffect(()=>()=>clearTimeout(timer.current),[]);
+ // 兜底：任何 mouseover 落在问号或说明框之外即关闭（mouseleave 链在合成移动下不可靠）。
+ useEffect(()=>{
+  if(!open)return;
+  const dismiss=(event:MouseEvent)=>{
+   const content=document.querySelector('.sm-role-popover[data-slot="popover-content"]');
+   if(event.target instanceof Node&&(trigger.current?.contains(event.target)||content?.contains(event.target)))return;
+   clearTimeout(timer.current);setOpen(false);trigger.current?.blur();
+  };
+  document.addEventListener('mouseover',dismiss);
+  return()=>document.removeEventListener('mouseover',dismiss);
+ },[open]);
  return <Popover open={open} onOpenChange={value=>{setOpen(value);if(!value)trigger.current?.blur();}}><PopoverTrigger asChild><button ref={trigger} type="button" className="sm-role-help" aria-label={`${roleNames[role]}层说明`} onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={leave}>?</button></PopoverTrigger><PopoverContent className="sm-role-popover" align="start" side="bottom" collisionPadding={16} style={style} onOpenAutoFocus={event=>event.preventDefault()} onMouseEnter={()=>clearTimeout(timer.current)} onMouseLeave={leave}><strong>{roleNames[role]}层</strong><dl><dt>用途</dt><dd>{purposes[role]}</dd><dt>适合内容</dt><dd>{roleHelp[role]?.sources}</dd><dt>使用方式</dt><dd>{roleHelp[role]?.usage}</dd></dl></PopoverContent></Popover>;
 }
 export const itemObject = (item: Json): Record<string, Json> => item && typeof item === 'object' && !Array.isArray(item) ? item : {};
