@@ -246,3 +246,6 @@
    问号说明仅键盘聚焦显示焦点框，鼠标悬停/点击不残留蓝框。 */
 .fm-media .sm-card-links{justify-content:space-between}
 .fm-media .sm-role-help:focus:not(:focus-visible){outline:none}
+/* 修正：footer 必须由 margin-top:auto 贴卡底（同层卡片目录价/加入购物车同一水平线）；
+   此前的 margin-top:5px 覆盖了贴底机制，介绍行数不同时错位。最小间距由介绍的下外边距保证。 */
+.fm-media .sm-candidate-foot{margin-top:auto;padding-top:5px}
