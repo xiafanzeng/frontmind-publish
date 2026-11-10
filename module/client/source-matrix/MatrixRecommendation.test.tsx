@@ -88,6 +88,6 @@ it('keeps incomplete layers distinct from a completed empty result and preserves
  const partial={...result,matrix:{...result.matrix,coverage:{catalog:{status:'incomplete'},model:{status:'incomplete',unprocessed_candidates:3}},layers:[{role:'authority',display_name:'权威参考',status:'incomplete',candidate_ids:['A','B'],auxiliary_candidate_ids:[],reason_summary:'还有一批候选尚未完成读取'}]}};
  render(<MatrixRecommendation result={partial} highlightedPlan={null} highlightedCandidateIds={['B']} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
  expect(screen.getByText('2 个已知候选 · 尚未完整')).toBeTruthy();expect(screen.getByText('还有一批候选尚未完成读取')).toBeTruthy();
- expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','A']);expect(screen.getByText('当前组合')).toBeTruthy();
+ expect(screen.getAllByRole('heading',{level:4}).map(node=>node.textContent)).toEqual(['B','A']);expect(screen.queryByText('当前组合')).toBeNull();
  expect(screen.queryByText('没有符合本层条件的候选。')).toBeNull();
 });

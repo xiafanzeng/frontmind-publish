@@ -21,14 +21,14 @@ export function firstSentence(text:string):string {
 }
 const purposes: Record<string, string> = {authority:'提供可信参考与背景',industry:'覆盖目标行业的核心问题',regional:'补充目标地区的信息覆盖',supplement:'补足核心层之外的触达',exploration:'小范围验证尚待确认的机会'};
 const roleHelp:Record<string,{sources:string;usage:string}>={authority:{sources:'行业背景、技术概念、研究资料、标准解释等有来源的内容。',usage:'先建立事实背景，再衔接核心层的选型内容。参考阅读来源不等于可购买发布位。'},industry:{sources:'与目标行业和当前问题直接相关的专业介绍、选型问答、技术文章。',usage:'解释需求、比较条件、实施方法和交付内容，构成整套方案的主线。'},regional:{sources:'与目标地区场景相关、实际覆盖范围有依据的媒体或栏目。',usage:'说明本地服务和采购情境；没有匹配依据时保留空层，不按名称推断地域覆盖。'},supplement:{sources:'能补充核心问题或阅读场景的问答、比较图文、流程内容。',usage:'先明确补充哪一项，再安排内容分工，避免重复核心层的相同内容。'},exploration:{sources:'有明确假设、待验证的新表达方式、受众或查询场景。',usage:'限定验证内容、观察方式和停止条件；探索预算包含在总预算之内。'}};
+/* 纯悬停/聚焦说明：离开即隐藏并释放按钮焦点，避免残留焦点框；不再提供固定与关闭按钮。 */
 function LayerHelp({role}:{role:string}) {
- const [open,setOpen]=useState(false),[pinned,setPinned]=useState(false),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),trigger=useRef<HTMLButtonElement>(null);
+ const [open,setOpen]=useState(false),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),trigger=useRef<HTMLButtonElement>(null);
  const [style,setStyle]=useState<CSSProperties>();
- const suppressFocus=useRef(false);
  const show=()=>{clearTimeout(timer.current);const node=trigger.current;if(node){const css=getComputedStyle(node);setStyle({fontFamily:css.fontFamily,'--sm-help-ink':css.getPropertyValue('--ink'),'--sm-help-line':css.getPropertyValue('--line'),'--sm-help-surface':css.getPropertyValue('--surface')} as CSSProperties);}setOpen(true);};
- const leave=()=>{if(!pinned)timer.current=setTimeout(()=>setOpen(false),180);};
+ const leave=()=>{timer.current=setTimeout(()=>{setOpen(false);trigger.current?.blur();},180);};
  useEffect(()=>()=>clearTimeout(timer.current),[]);
- return <Popover open={open} onOpenChange={value=>{setOpen(value);if(!value){setPinned(false);suppressFocus.current=true;}}}><PopoverTrigger asChild><button ref={trigger} type="button" className="sm-role-help" aria-label={`${roleNames[role]}层说明`} onMouseEnter={show} onMouseLeave={leave} onFocus={()=>{if(suppressFocus.current){suppressFocus.current=false;return;}show();}} onBlur={leave} onClick={event=>{event.preventDefault();if(pinned){setPinned(false);setOpen(false);}else{setPinned(true);show();}}}>?</button></PopoverTrigger><PopoverContent className="sm-role-popover" align="start" side="bottom" collisionPadding={16} style={style} onOpenAutoFocus={event=>event.preventDefault()} onCloseAutoFocus={()=>{suppressFocus.current=true;}} onMouseEnter={()=>clearTimeout(timer.current)} onMouseLeave={leave}><strong>{roleNames[role]}层</strong><dl><dt>用途</dt><dd>{purposes[role]}</dd><dt>适合内容</dt><dd>{roleHelp[role]?.sources}</dd><dt>使用方式</dt><dd>{roleHelp[role]?.usage}</dd></dl><button type="button" className="sm-role-close" onClick={()=>{suppressFocus.current=true;setOpen(false);setPinned(false);}}>关闭说明</button></PopoverContent></Popover>;
+ return <Popover open={open} onOpenChange={value=>{setOpen(value);if(!value)trigger.current?.blur();}}><PopoverTrigger asChild><button ref={trigger} type="button" className="sm-role-help" aria-label={`${roleNames[role]}层说明`} onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={leave}>?</button></PopoverTrigger><PopoverContent className="sm-role-popover" align="start" side="bottom" collisionPadding={16} style={style} onOpenAutoFocus={event=>event.preventDefault()} onMouseEnter={()=>clearTimeout(timer.current)} onMouseLeave={leave}><strong>{roleNames[role]}层</strong><dl><dt>用途</dt><dd>{purposes[role]}</dd><dt>适合内容</dt><dd>{roleHelp[role]?.sources}</dd><dt>使用方式</dt><dd>{roleHelp[role]?.usage}</dd></dl></PopoverContent></Popover>;
 }
 export const itemObject = (item: Json): Record<string, Json> => item && typeof item === 'object' && !Array.isArray(item) ? item : {};
 export const candidateName = (candidate: Candidate) => display(candidate.attributes.source_name ?? candidate.attributes.name ?? candidate.resource_id);
@@ -84,10 +84,9 @@ export function RecommendationReason({candidate,result,onClose,returnFocus,resou
  </MediaDialog>;
 }
 
-export function MatrixRecommendation({result,highlightedPlan,highlightedCandidateIds=[],referenceCandidateIds=[],mediaFor,isSelected,issue,onToggle,onDetails,onMediaDetails,onLayer}: {result: MatrixResult;highlightedPlan: BudgetPlan | null;highlightedCandidateIds?:string[];referenceCandidateIds?:string[];mediaFor:(id:string|null)=>MediaResource|undefined;isSelected:(media:MediaResource)=>boolean;issue:(candidate:Candidate,media:MediaResource)=>string;onToggle:(id:string)=>void;onDetails:(candidate:Candidate)=>void;onMediaDetails:(media:MediaResource)=>void;onLayer:(candidates:Candidate[])=>void}) {
+export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,isSelected,issue,onToggle,onDetails,onMediaDetails,onLayer}: {result: MatrixResult;highlightedPlan?: BudgetPlan | null;highlightedCandidateIds?:string[];referenceCandidateIds?:string[];mediaFor:(id:string|null)=>MediaResource|undefined;isSelected:(media:MediaResource)=>boolean;issue:(candidate:Candidate,media:MediaResource)=>string;onToggle:(id:string)=>void;onDetails:(candidate:Candidate)=>void;onMediaDetails:(media:MediaResource)=>void;onLayer:(candidates:Candidate[])=>void}) {
  const [expanded,setExpanded]=useState<string[]>([]);
  useEffect(()=>setExpanded([]),[result.matrix_version]);
- const highlighted=new Set([...(highlightedPlan?.items.map(item=>candidateForItem(item,result.matrix.candidates)?.candidate_id).filter(Boolean)??[]),...highlightedCandidateIds]);
  const referenceOnly=new Set(referenceCandidateIds);
  const groups=matrixCandidateGroups(result.matrix);
  const readiness=matrixReadiness(result.matrix);
@@ -97,7 +96,7 @@ export function MatrixRecommendation({result,highlightedPlan,highlightedCandidat
   let domain=typeof source==='string'?source:'';try{if(domain.includes('://'))domain=new URL(domain).hostname;}catch{domain='';}
   return <article key={candidate.candidate_id} className={'sm-candidate'+(media&&isSelected(media)?' is-highlighted':'')} data-source-id={candidate.candidate_id}>
    <header><h4>{media?.name??candidateName(candidate)}</h4><span className="sm-card-links">{media&&<button className="link small" onClick={()=>onMediaDetails(media)}>媒体资料</button>}<button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button></span></header>
-   {(domain||highlighted.has(candidate.candidate_id))&&<span className="sm-candidate-domain">{domain}{highlighted.has(candidate.candidate_id)&&<span className="sm-member">{domain?' · ':''}当前组合</span>}</span>}
+   {domain&&<span className="sm-candidate-domain">{domain}</span>}
    <p className="sm-media-intro">{firstSentence(directSummary(candidate.media_intro||candidate.reason_summary||'',candidateName(candidate)))||'查看媒体资料了解发布要求。'}</p>
    <div className="sm-candidate-foot"><strong className="sm-candidate-price">{referenceOnly.has(candidate.candidate_id)?'参考阅读':candidate.offers.length?quote(candidate):media&&/^\d+$/.test(media.priceTenThousandths)&&BigInt(media.priceTenThousandths)>0n?`${formatPublishingMoney(media.priceTenThousandths)} · 目录价`:'待询价'}</strong><div className="actions">{media?<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+media.name+' '+media.platform} checked={isSelected(media)} disabled={!!blocked} onChange={()=>onToggle(candidate.candidate_id)}/>{isSelected(media)?'已加入':'加入购物车'}</label>:<span className="small muted">仅供研究</span>}</div></div>
    {media&&blocked&&<small className="sm-candidate-issue">{blocked}</small>}

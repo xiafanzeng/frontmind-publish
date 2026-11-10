@@ -644,8 +644,8 @@ it('shows the actual saved sample without configured services and never writes a
  expect(screen.queryByRole('button',{name:'加入本组合'})).toBeNull();
  expect(screen.queryByRole('checkbox',{name:/^选择 /})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:/^组合 2/}));
- // 用户反馈：蓝色仅表示已加入购物车；组合成员改用「当前组合」文字标记（demo 不可加入购物车）
- expect([...document.querySelectorAll('.sm-candidate .sm-member')].map(node=>node.closest('.sm-candidate')?.getAttribute('data-source-id')??'').sort()).toEqual([...matrixDemo.research_combinations[1]!.candidate_ids].sort());
+ // 用户反馈：组合成员不再有「当前组合」视觉标记（蓝色仅表示已加入购物车；demo 不可加入购物车）
+ expect(document.querySelectorAll('.sm-candidate .sm-member')).toHaveLength(0);
  expect(document.querySelectorAll('.sm-candidate.is-highlighted')).toHaveLength(0);
  expect(mediaGateway.createDraft).not.toHaveBeenCalled();expect(mediaGateway.updateDraftMedia).not.toHaveBeenCalled();
  expect(fetcher.mock.calls.some(call=>String(call[0]).includes('/matrix/generate'))).toBe(false);

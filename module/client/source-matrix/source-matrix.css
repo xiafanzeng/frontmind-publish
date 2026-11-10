@@ -241,3 +241,8 @@
 .fm-media .sm-history-when{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;white-space:nowrap}
 .fm-media .sm-history-meta{flex:1;min-width:220px;font-size:13px;color:var(--ink)}
 .fm-media .sm-history-meta small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+
+/* 2026-11-10 反馈：卡片第二行媒体资料靠左、查看推荐理由靠右；
+   问号说明仅键盘聚焦显示焦点框，鼠标悬停/点击不残留蓝框。 */
+.fm-media .sm-card-links{justify-content:space-between}
+.fm-media .sm-role-help:focus:not(:focus-visible){outline:none}
