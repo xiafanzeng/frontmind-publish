@@ -1,5 +1,4 @@
-﻿import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '@frontmind/module-ui/components/ui/popover';
+﻿import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MediaDialog } from './MediaMarket';
 import { display, label, quote, roleNames,industryContextSnapshot,referencedIndustryAggregates } from './SourceMatrixPresentation';
 import { formatPublishingMoney, type MediaResource } from '../types';
@@ -21,25 +20,10 @@ export function firstSentence(text:string):string {
 }
 const purposes: Record<string, string> = {authority:'提供可信参考与背景',industry:'覆盖目标行业的核心问题',regional:'补充目标地区的信息覆盖',supplement:'补足核心层之外的触达',exploration:'小范围验证尚待确认的机会'};
 const roleHelp:Record<string,{sources:string;usage:string}>={authority:{sources:'行业背景、技术概念、研究资料、标准解释等有来源的内容。',usage:'先建立事实背景，再衔接核心层的选型内容。参考阅读来源不等于可购买发布位。'},industry:{sources:'与目标行业和当前问题直接相关的专业介绍、选型问答、技术文章。',usage:'解释需求、比较条件、实施方法和交付内容，构成整套方案的主线。'},regional:{sources:'与目标地区场景相关、实际覆盖范围有依据的媒体或栏目。',usage:'说明本地服务和采购情境；没有匹配依据时保留空层，不按名称推断地域覆盖。'},supplement:{sources:'能补充核心问题或阅读场景的问答、比较图文、流程内容。',usage:'先明确补充哪一项，再安排内容分工，避免重复核心层的相同内容。'},exploration:{sources:'有明确假设、待验证的新表达方式、受众或查询场景。',usage:'限定验证内容、观察方式和停止条件；探索预算包含在总预算之内。'}};
-/* 纯悬停/聚焦说明：离开即隐藏并释放按钮焦点，避免残留焦点框；不再提供固定与关闭按钮。 */
+/* 纯 CSS 悬停说明：:hover 显示、移开即隐藏且无焦点残留；键盘用 focus-visible 打开。
+   不再使用 Radix 受控弹层（合成移动下事件链不可靠，曾出现移开后不关闭）。 */
 function LayerHelp({role}:{role:string}) {
- const [open,setOpen]=useState(false),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),trigger=useRef<HTMLButtonElement>(null);
- const [style,setStyle]=useState<CSSProperties>();
- const show=()=>{clearTimeout(timer.current);const node=trigger.current;if(node){const css=getComputedStyle(node);setStyle({fontFamily:css.fontFamily,'--sm-help-ink':css.getPropertyValue('--ink'),'--sm-help-line':css.getPropertyValue('--line'),'--sm-help-surface':css.getPropertyValue('--surface')} as CSSProperties);}setOpen(true);};
- const leave=()=>{timer.current=setTimeout(()=>{setOpen(false);trigger.current?.blur();},180);};
- useEffect(()=>()=>clearTimeout(timer.current),[]);
- // 兜底：任何 mouseover 落在问号或说明框之外即关闭（mouseleave 链在合成移动下不可靠）。
- useEffect(()=>{
-  if(!open)return;
-  const dismiss=(event:MouseEvent)=>{
-   const content=document.querySelector('.sm-role-popover[data-slot="popover-content"]');
-   if(event.target instanceof Node&&(trigger.current?.contains(event.target)||content?.contains(event.target)))return;
-   clearTimeout(timer.current);setOpen(false);trigger.current?.blur();
-  };
-  document.addEventListener('mouseover',dismiss);
-  return()=>document.removeEventListener('mouseover',dismiss);
- },[open]);
- return <Popover open={open} onOpenChange={value=>{setOpen(value);if(!value)trigger.current?.blur();}}><PopoverTrigger asChild><button ref={trigger} type="button" className="sm-role-help" aria-label={`${roleNames[role]}层说明`} onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={leave}>?</button></PopoverTrigger><PopoverContent className="sm-role-popover" align="start" side="bottom" collisionPadding={16} style={style} onOpenAutoFocus={event=>event.preventDefault()} onMouseEnter={()=>clearTimeout(timer.current)} onMouseLeave={leave}><strong>{roleNames[role]}层</strong><dl><dt>用途</dt><dd>{purposes[role]}</dd><dt>适合内容</dt><dd>{roleHelp[role]?.sources}</dd><dt>使用方式</dt><dd>{roleHelp[role]?.usage}</dd></dl></PopoverContent></Popover>;
+ return <span className="sm-role-help-wrap" tabIndex={0} aria-label={`${roleNames[role]}层说明`}><span aria-hidden="true">?</span><span className="sm-role-popover-lite" role="tooltip"><strong>{roleNames[role]}层</strong><dl><dt>用途</dt><dd>{purposes[role]}</dd><dt>适合内容</dt><dd>{roleHelp[role]?.sources}</dd><dt>使用方式</dt><dd>{roleHelp[role]?.usage}</dd></dl></span></span>;
 }
 export const itemObject = (item: Json): Record<string, Json> => item && typeof item === 'object' && !Array.isArray(item) ? item : {};
 export const candidateName = (candidate: Candidate) => display(candidate.attributes.source_name ?? candidate.attributes.name ?? candidate.resource_id);
