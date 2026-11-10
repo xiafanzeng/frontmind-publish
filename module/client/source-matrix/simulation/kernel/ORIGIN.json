@@ -39,8 +39,8 @@
     {
       "source": "module/server/source-matrix/planner.ts",
       "browser": "module/client/source-matrix/simulation/kernel/planner.ts",
-      "source_sha256": "319aa903d1063acf6dd9dec15f4af44f5c93cb05298decb625dfbc93c47725fe",
-      "browser_sha256": "319aa903d1063acf6dd9dec15f4af44f5c93cb05298decb625dfbc93c47725fe",
+      "source_sha256": "3792aefae50a0e0eef7680921bec39dde6cdd1ea932de6dc2eb2c9c91f593cab",
+      "browser_sha256": "3792aefae50a0e0eef7680921bec39dde6cdd1ea932de6dc2eb2c9c91f593cab",
       "adaptation": "none"
     },
     {
@@ -96,7 +96,7 @@
   "hash_source": "module/server/domain/hash.ts",
   "hash_source_sha256": "ec2df827c90f6b60da0fdcd19e79e88ffcd951f54d5152b854080449cc2daea6",
   "hash_adaptation": "stableJson unchanged; synchronous browser SHA-256 replaces node:crypto",
-  "sync_note": "2026-11-10 source-only sync for the 2026.11.10-web.1 suggestion contract (≤20 dedup outlets + industry top-20 pool): matrix/content-plans/planner refreshed, industry-ranking-match added. Existing browser shared-import and hash adaptations retained. All listed hashes reflect delivered bytes. No runtime verification performed; these historical simulation helpers are not the live service adapter or the current sample-page data source.",
+  "sync_note": "2026-11-10 source-only sync for the 2026.11.10-web.2 concurrent batch review (planner version bump only); matrix/content-plans refreshed at web.1. All listed hashes reflect delivered bytes. No runtime verification performed.",
   "hash_browser": "module/client/source-matrix/simulation/kernel/hash.ts",
   "hash_browser_sha256": "05d716406cdb1aae2dfccf867d4939d6273ffdb4d69fb1114852243f248bfeb5"
 }

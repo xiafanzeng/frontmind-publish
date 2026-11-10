@@ -77,16 +77,52 @@ it('never treats partial new review metadata as a completed matrix or an empty s
  expect(result.matrix.candidates.filter((candidate:Row)=>candidate.semantic_decision_validated)).toHaveLength(1);
  expect(result.limitations).toContain('model_classification_partial');
 });
-it('retains the previous successful batch count after a later provider failure',async()=>{
+it('recovers sibling batches and retries the failed one when a provider failure lands mid-wave',async()=>{
  const input=matrixInput(30);let calls=0;
  const decision=await createDecisionAdapter(async messages=>{if(++calls===2)throw new Error('provider_timeout');return batchDecisions(JSON.parse(messages[1]!.content));}).matrix(input);
  const result=runPlanner(input.request,decision,'matrix',undefined,now);
- /* A transient provider failure is retried once for the failed batch only;
-  * successful batches are never re-run and never lost. */
- const reviewed=PROMPT_CANDIDATE_BATCH_SIZE*2;
- expect(result.matrix.status).toBe('partial');
- expect(result.matrix.coverage.model).toMatchObject({status:'partial',reviewed_candidates:reviewed,classified_candidates:reviewed,unprocessed_candidates:30-reviewed,reason:'provider_timeout'});
- expect(result.matrix.candidates.filter((candidate:Row)=>candidate.semantic_decision_validated)).toHaveLength(reviewed);
+ /* Concurrent waves: the failed batch no longer cancels siblings dispatched in
+  * the same wave, and the bounded retry pass recovers it while time remains.
+  * The mid-run timeout stays recorded as the coverage reason. */
+ expect(result.matrix.status).toBe('complete');
+ expect(result.matrix.coverage.model).toMatchObject({status:'complete',reviewed_candidates:30,classified_candidates:30,unprocessed_candidates:0,reason:'provider_timeout'});
+ expect(result.matrix.candidates.filter((candidate:Row)=>candidate.semantic_decision_validated)).toHaveLength(30);
+});
+it('reviews batches concurrently and degrades to serial dispatch after a transport failure',async()=>{
+ const input=matrixInput(60);let calls=0,inflight=0,maxInflight=0;
+ const decisions=await createDecisionAdapter(async messages=>{
+   const payload=JSON.parse(messages[1]!.content);calls++;inflight++;maxInflight=Math.max(maxInflight,inflight);
+   try{
+     /* A real suspension window: concurrent dispatches overlap inside it. */
+     await new Promise(resolve=>setTimeout(resolve,5));
+     if(calls===2)throw new Error('llm_http_429');
+     return batchDecisions(payload);
+   }finally{inflight--;}
+ },{batchConcurrency:3}).matrix(input);
+ const result=runPlanner(input.request,decisions,'matrix',undefined,now);
+ expect(maxInflight).toBe(3);
+ /* The rate-limited batch failed, degraded the run to serial, and the bounded
+  * retry pass recovered it: every candidate ends reviewed and classified. */
+ expect(result.matrix.status).toBe('complete');
+ expect(result.matrix.coverage.model).toMatchObject({status:'complete',reviewed_candidates:60,classified_candidates:60,unprocessed_candidates:0,reason:null});
+ expect(result.matrix.suggestions.selected_candidate_ids).toHaveLength(20);
+});
+it('keeps the recorded outcome deterministic regardless of batch completion order',async()=>{
+ const input=matrixInput(36);
+ const flip=async()=>{
+   let call=0;
+   return createDecisionAdapter(async messages=>{
+     const payload=JSON.parse(messages[1]!.content);call++;
+     /* Odd batches resolve late so wave completion order differs from pool order. */
+     if(call%2===0)await new Promise(resolve=>setTimeout(resolve,15));
+     return batchDecisions(payload);
+   },{batchConcurrency:3}).matrix(input);
+ };
+ const first=runPlanner(input.request,await flip(),'matrix',undefined,now);
+ const second=runPlanner(input.request,await flip(),'matrix',undefined,now);
+ expect(first.matrix_version).toBe(second.matrix_version);
+ expect(first.matrix.suggestions.selected_candidate_ids).toEqual(second.matrix.suggestions.selected_candidate_ids);
+ expect(first.matrix.candidates.map((candidate:Row)=>candidate.candidate_id)).toEqual(second.matrix.candidates.map((candidate:Row)=>candidate.candidate_id));
 });
 
 it('bounds budget context but retains explicit candidates beyond the ranked top slots and exact prices',async()=>{

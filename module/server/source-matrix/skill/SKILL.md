@@ -5,7 +5,9 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
-## 网站集成扩展 2026.11.10-web.1
+## 网站集成扩展 2026.11.10-web.2
+
+2026.11.10-web.2 起矩阵批次默认并发 3 路审阅（FRONTMIND_SOURCE_MATRIX_BATCH_CONCURRENCY 可配 1–4）；任一传输类失败即降级串行并记录 source_matrix_batch_review_degraded_to_serial，候选隔离/断点续跑语义不变；结果合并按批次顺序确定性进行。
 
 2026.11.10-web.1 起网站两环节改为：第一环节不再生成五层推荐矩阵，而是从全部候选中产出**最多20个去重后的媒体获取渠道建议**（matrix_decisions={items,selected_media,excluded_candidates}）。每个候选带 outlet_key（同平台别名/多账号共用同一载体标识）、topic_fit/form_fit/audience_fit 三项适配判断及 reason_summary；入选项必须写 selection_reason（相较其余候选的实际推荐依据）。selected_media 按推荐顺序、经 outlet_key 去重、上限20个；不足20按实数，不用弱相关或身份未明来源凑数。内核校验入选资格、去重与依据；排序、去重与连续编号由服务端程序完成。结果携带 matrix.suggestions（目标20、按序 selected_candidate_ids）、候选清单（已判断未入选候选）与未匹配目录资源的行业排名名称（仅供参考）。模型整体不可用时按目录行业相关属性规则生成带"规则生成"标注的推荐，不发明语义适配标签。
 

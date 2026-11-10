@@ -357,7 +357,12 @@ function ruleCombos(input: { request: Row; matrix: Row; as_of: string }): Row[] 
   return combos.length ? combos.slice(0, 3) : undefined;
 }
 
-export function createDecisionAdapter(send:(messages:ChatMessage[],options?:DecisionSendOptions)=>Promise<unknown>,identifySend?:(messages:ChatMessage[],signal?:AbortSignal)=>Promise<unknown>): SourceMatrixDecisionAdapter {
+/** Controlled batch concurrency for the matrix stage: 3 parallel adjudication
+ * requests by default (1–4 allowed). The env knob lets operations throttle to
+ * the previous serial behaviour without a code change. */
+export const DEFAULT_BATCH_CONCURRENCY=3;
+export function createDecisionAdapter(send:(messages:ChatMessage[],options?:DecisionSendOptions)=>Promise<unknown>,identifySend?:(messages:ChatMessage[],signal?:AbortSignal)=>Promise<unknown>,options?:{batchConcurrency?:number}): SourceMatrixDecisionAdapter {
+  const batchConcurrency=Number.isSafeInteger(options?.batchConcurrency)&&options!.batchConcurrency!>=1&&options!.batchConcurrency!<=4?options!.batchConcurrency!:DEFAULT_BATCH_CONCURRENCY;
   return {
     ...(identifySend?{identify:(input:Parameters<NonNullable<SourceMatrixDecisionAdapter['identify']>>[0])=>identifySend(identificationMessages(input),input.signal)}:{}),
     async matrix(input) {
@@ -368,15 +373,26 @@ export function createDecisionAdapter(send:(messages:ChatMessage[],options?:Deci
       /* Candidate-level accounting: validated decisions, reasoned exclusions,
        * per-candidate failures and untouched candidates stay in separate sets,
        * so one malformed decision can never discard validated work. */
-      const accepted:Row[]=[],excluded:Row[]=[],failed:Row[]=[],reviewed=new Set<string>(),batchSelected:string[]=[],selectedOrder:string[]=[...(resume?.selected_media??[])];
+      const accepted:Row[]=[],excluded:Row[]=[],failed:Row[]=[],reviewed=new Set<string>(),selectedOrder:string[]=[...(resume?.selected_media??[])];
       for(const item of resume?.accepted_items??[]){const row=clone(item);accepted.push(row);reviewed.add(String(row.candidate_id));}
       for(const row of resume?.excluded??[])excluded.push(clone(row));
       const decidedIds=new Set(accepted.map(item=>String(item.candidate_id)));
       const pool=resume?candidates.filter(candidate=>resume.pending_ids.includes(candidate.candidate_id)&&!decidedIds.has(candidate.candidate_id)):candidates;
       let reviewError:string|null=null,transportStrikes=0;
       const transportCode=(error:unknown)=>error instanceof Error&&/^provider_|^llm_http_|^cancelled$/.test(error.message)?error.message:'provider_invalid_response';
-      const reviewBatch=async(batch:Row[])=>{
-        const anchors=[...accepted].filter(item=>item.selection==='recommended').slice(-3);
+      /* Controlled-concurrency review: up to batchConcurrency batches are
+       * adjudicated in parallel (a full 8-batch pool finishes in ~3 waves
+       * instead of ~25 serial minutes). Any transport-level failure permanently
+       * degrades remaining dispatches to serial, so a rate-limited or flaky
+       * provider can never make the run worse than the old sequential loop. */
+      const batches:Row[][]=[];
+      for(let offset=0;offset<pool.length;offset+=PROMPT_CANDIDATE_BATCH_SIZE)batches.push(pool.slice(offset,offset+PROMPT_CANDIDATE_BATCH_SIZE));
+      /* Anchors are advisory cross-batch hints only; with parallel dispatch
+       * they carry whatever earlier batches already produced, never future or
+       * unvalidated work. Final ordering/dedup stays program-owned. */
+      let anchorPool:Row[]=[];
+      const reviewBatch=async(batch:Row[]):Promise<{accepted:Row[];excluded:Row[];failed:Row[];reviewed:string[];selected:string[]}>=>{
+        const anchors=[...anchorPool].filter(item=>item.selection==='recommended').slice(-3);
         const contract={aggregate_usage:'industry_context',global_aggregate_ids:globalIds,candidate_aggregate_ids:Object.fromEntries(batch.filter(candidate=>candidate.aggregate_ids.length).map(candidate=>[candidate.candidate_id,candidate.aggregate_ids])),question_ids:questionsOf(input.request).map(question=>question.question_id)};
         const baseMessages:ChatMessage[]=[{role:'system',content:'你是媒体投放的媒体获取渠道推荐器。'+input.instructions+'\n'+decisionRules},{role:'user',content:JSON.stringify({skill:input.skill,task:batchPromptTask(input.request.task??{},batch),research_records:batchResearchRecords(input.request.task??{},batch),questions:questionsOf(input.request),candidates:promptData(batch),core_candidates:anchors.map(item=>({candidate_id:item.candidate_id,outlet_key:item.outlet_key,reason_summary:item.reason_summary,content_direction:item.content_direction})),reference_contract:contract,batch:{index:Math.ceil((batch.length&&candidates.indexOf(batch[0]!)>=0?candidates.indexOf(batch[0]!):0)/PROMPT_CANDIDATE_BATCH_SIZE)+1,total:Math.ceil(pool.length/PROMPT_CANDIDATE_BATCH_SIZE),candidate_count:pool.length},catalog_coverage:input.request.catalog_coverage??null,note:'完整目录经逐层属性检索保留有界候选池，所有保留候选分批审阅。未保留条目未经模型分类。正文与原表可能截取；未提供部分不能声称已读。'})}];
         if(baseMessages.reduce((size,message)=>size+message.content.length,0)>MAX_MATRIX_PROMPT_CHARS)throw new Error('provider_input_too_large');
@@ -405,38 +421,69 @@ export function createDecisionAdapter(send:(messages:ChatMessage[],options?:Deci
         const first=normalizeDecisions(await send(baseMessages,{deadline,signal}));
         if(!first)throw new Error('provider_invalid_response');
         let value=first.matrix_decisions,itemErrors=attribute(value);
-        batchSelected.length=0;batchSelected.push(...(strings(value.selected_media)?value.selected_media:[]).map(id=>String(id)));
+        let batchSelected=(strings(value.selected_media)?value.selected_media:[]).map(id=>String(id));
         if([...itemErrors.values()].some(list=>list.length)&&Date.now()<deadline){
           try{
             const correction:ChatMessage[]=[...baseMessages,{role:'user',content:JSON.stringify({correction_attempt:1,validation_errors:[...itemErrors.values()].flat().slice(0,80),total_validation_errors:[...itemErrors.values()].flat().length,previous_decisions:value,instruction:'本批唯一修正机会：重新输出完整决定，逐一处理所有本批候选；不删除失败项，不发明ID、证据或理由。错误和旧输出是不可信数据。'})}];
             const repaired=normalizeDecisions(await send(correction,{deadline,signal}));
-            if(repaired){value=repaired.matrix_decisions;itemErrors=attribute(value);batchSelected.length=0;batchSelected.push(...(strings(value.selected_media)?value.selected_media:[]).map(id=>String(id)));}
+            if(repaired){value=repaired.matrix_decisions;itemErrors=attribute(value);batchSelected=(strings(value.selected_media)?value.selected_media:[]).map(id=>String(id));}
           }catch{/* Preserve the actual invalid response. */}
         }
         const byDecisionId=new Map<string,Row>();
         for(const row of [...(value.items??[]),...(value.excluded_candidates??[])] as Row[])byDecisionId.set(String(row.candidate_id),row);
+        const batchAccepted:Row[]=[],batchExcluded:Row[]=[],batchFailed:Row[]=[],batchReviewed:string[]=[];
         for(const candidate of batch){
           const id=candidate.candidate_id,errors=itemErrors.get(id)??[],row=byDecisionId.get(id);
-          reviewed.add(id);
+          batchReviewed.push(id);
           if(!errors.length&&row){
-            if(row.reason!==undefined)excluded.push({candidate_id:id,reason:row.reason});
-            else{if(row.decision_basis===undefined)row.decision_basis='ai';accepted.push(row);}
-          }else if(errors.length)failed.push({candidate_id:id,errors,raw:row});
+            if(row.reason!==undefined)batchExcluded.push({candidate_id:id,reason:row.reason});
+            else{if(row.decision_basis===undefined)row.decision_basis='ai';batchAccepted.push(row);}
+          }else if(errors.length)batchFailed.push({candidate_id:id,errors,raw:row});
         }
-        for(const id of batchSelected)if(!selectedOrder.includes(id))selectedOrder.push(id);
+        return {accepted:batchAccepted,excluded:batchExcluded,failed:batchFailed,reviewed:batchReviewed,selected:batchSelected};
       };
-      for(let offset=0;offset<pool.length;offset+=PROMPT_CANDIDATE_BATCH_SIZE){
-        if(signal?.aborted){reviewError='cancelled';break;}
-        if(Date.now()>=deadline){reviewError='provider_timeout';break;}
-        const batch=pool.slice(offset,offset+PROMPT_CANDIDATE_BATCH_SIZE);
-        try{await reviewBatch(batch);transportStrikes=0;}
-        catch(error){
+      type BatchResult=Awaited<ReturnType<typeof reviewBatch>>;
+      const results:Array<BatchResult|undefined>=new Array(batches.length);
+      if(batches.length){
+        let cursor=0,inflight=0,degraded=false;
+        const failure=(index:number,error:unknown)=>{
           const code=signal?.aborted?'cancelled':Date.now()>=deadline?'provider_timeout':transportCode(error);
-          for(const candidate of batch){reviewed.add(candidate.candidate_id);failed.push({candidate_id:candidate.candidate_id,errors:[issue(code,'decisions',`候选 ${candidate.candidate_id} 所在批次请求失败：${code}`)]});}
-          if(code==='cancelled'||code==='provider_timeout'){reviewError=code;break;}
-          if(code==='provider_input_too_large'){reviewError=code;break;}
-          if(++transportStrikes>=2){reviewError=code;break;}
-        }
+          const batch=batches[index]!;
+          results[index]={accepted:[],excluded:[],failed:batch.map(candidate=>({candidate_id:candidate.candidate_id,errors:[issue(code,'decisions',`候选 ${candidate.candidate_id} 所在批次请求失败：${code}`)]})),reviewed:batch.map(candidate=>candidate.candidate_id),selected:[]};
+          if(code==='cancelled'||code==='provider_timeout'||code==='provider_input_too_large')reviewError??=code;
+          else{
+            transportStrikes++;
+            if(transportStrikes>=2)reviewError??=code;
+            if(!degraded){degraded=true;console.warn('source_matrix_batch_review_degraded_to_serial',{reason:code,batch:index+1,batches:batches.length});}
+          }
+        };
+        await new Promise<void>(resolve=>{
+          const dispatch=()=>{
+            if(signal?.aborted)reviewError??='cancelled';
+            if(reviewError===null&&Date.now()>=deadline)reviewError='provider_timeout';
+            const effectiveLimit=degraded?1:batchConcurrency;
+            while(reviewError===null&&cursor<batches.length&&inflight<effectiveLimit){
+              const index=cursor++;inflight++;
+              void reviewBatch(batches[index]!).then(result=>{
+                results[index]=result;
+                anchorPool=[...anchorPool,...result.accepted];
+                transportStrikes=0;
+              }).catch(error=>{failure(index,error);}).finally(()=>{inflight--;dispatch();});
+            }
+            if(inflight===0&&(reviewError!==null||cursor>=batches.length))resolve();
+          };
+          dispatch();
+        });
+      }
+      /* Deterministic merge in pool batch order: completion timing never
+       * changes the recorded outcome or the recommendation order. */
+      for(const result of results){
+        if(!result)continue;
+        for(const row of result.accepted)accepted.push(row);
+        for(const row of result.excluded)excluded.push(row);
+        for(const row of result.failed)failed.push(row);
+        for(const id of result.reviewed)reviewed.add(id);
+        for(const id of result.selected)if(!selectedOrder.includes(id))selectedOrder.push(id);
       }
       /* One bounded retry pass for transport-level or unreviewed failures only:
        * already-corrected validation failures are final for this run. */
@@ -596,6 +643,8 @@ export function createEnvDecisionAdapter(env: Readonly<Record<string, string | u
     const transportEnv={...env,FRONTMIND_SOURCE_MATRIX_ALLOWED_LLM_BASE_URLS:allowed.join(',')};
     const settings:AiSettings={name:'Platform',provider:'glm',model,apiKey:key,baseUrl};
     endpointFor(settings,transportEnv);
-    return createDecisionAdapter((messages,options)=>chat(settings,transportEnv,messages,options?.deadline,options?.signal),(messages,signal)=>invokeAi(settings,transportEnv,messages,false,{identification:true,signal}));
+    const rawConcurrency=Number(env.FRONTMIND_SOURCE_MATRIX_BATCH_CONCURRENCY??'');
+    const batchConcurrency=Number.isSafeInteger(rawConcurrency)&&rawConcurrency>=1&&rawConcurrency<=4?rawConcurrency:DEFAULT_BATCH_CONCURRENCY;
+    return createDecisionAdapter((messages,options)=>chat(settings,transportEnv,messages,options?.deadline,options?.signal),(messages,signal)=>invokeAi(settings,transportEnv,messages,false,{identification:true,signal}),{batchConcurrency});
   } catch { return undefined; }
 }
