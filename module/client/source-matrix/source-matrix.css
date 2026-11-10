@@ -249,3 +249,13 @@
 /* 修正：footer 必须由 margin-top:auto 贴卡底（同层卡片目录价/加入购物车同一水平线）；
    此前的 margin-top:5px 覆盖了贴底机制，介绍行数不同时错位。最小间距由介绍的下外边距保证。 */
 .fm-media .sm-candidate-foot{margin-top:auto;padding-top:5px}
+/* 纯 CSS 层说明（替代 Radix 受控弹层）：:hover/:focus-visible 显示，移开即隐藏；
+   悬停期间解除层表格的横向滚动裁剪，保证说明框完整可见。 */
+.fm-media .sm-role-help-wrap{position:relative;display:inline-grid;place-items:center;flex-shrink:0;width:22px;height:22px;border:1px solid var(--line);border-radius:50%;color:var(--muted);background:var(--surface);font-size:12px;cursor:pointer;padding:0}
+.fm-media .sm-role-help-wrap:hover,.fm-media .sm-role-help-wrap:focus-visible{border-color:var(--brand);color:var(--brand);background:var(--selected)}
+.fm-media .sm-role-help-wrap:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.fm-media .sm-role-help-wrap:focus:not(:focus-visible){outline:none}
+.fm-media .sm-role-popover-lite{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:80;width:min(340px,calc(100vw - 32px));max-height:min(420px,60vh);overflow:auto;font-size:13px;line-height:1.7;color:var(--ink);border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.12);text-align:left}
+.fm-media .sm-role-help-wrap:hover .sm-role-popover-lite,.fm-media .sm-role-help-wrap:focus-visible .sm-role-popover-lite{display:block}
+.fm-media .sm-role-popover-lite dl{margin:10px 0}.fm-media .sm-role-popover-lite dt{font-weight:600;margin-top:8px}.fm-media .sm-role-popover-lite dd{margin:2px 0}
+.fm-media .sm-layer-table-wrap:has(.sm-role-help-wrap:hover),.fm-media .sm-layer-table-wrap:has(.sm-role-help-wrap:focus-visible){overflow:visible}
