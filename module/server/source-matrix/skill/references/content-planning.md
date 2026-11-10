@@ -1,6 +1,6 @@
 # 网站 recommendation/1.0 单层组合契约
 
-网站运行入口为 `instructions.ts + decisions.ts → planner.ts → content-plans.ts / recommendation-pricing.ts`。版本 `2026.11.09-web.1`。预算阶段新 decisions 只提交 `recommendations` 数组，最多三套有实际资源或篇数差异的组合；不再生成正式/内容两类数组。兼容旧记录时读取旧 content_plans、budget_plans，不批量改写历史记录。输出的旧数组可保留为空以兼容消费者；正式发布内部核验仍可显式调用原 budget_plans / verifyPlan。
+网站运行入口为 `instructions.ts + decisions.ts → planner.ts → content-plans.ts / recommendation-pricing.ts`。版本 `2026.11.10-web.1`：组合候选池=已推荐渠道（≤20）∪行业排名前20且已映射真实目录资源的媒体（同一媒体去重后最多40个）；旧五层任务在重新生成前沿用按层 top3+3 的旧范围。预算阶段新 decisions 只提交 `recommendations` 数组，最多三套有实际资源或篇数差异的组合；不再生成正式/内容两类数组。兼容旧记录时读取旧 content_plans、budget_plans，不批量改写历史记录。输出的旧数组可保留为空以兼容消费者；正式发布内部核验仍可显式调用原 budget_plans / verifyPlan。
 
 每套仅 `strategy, reason_summary, items, explanation`。每项仅 `candidate_id, resource_id, offer_id, publication_spec, quantity, quantity_mode, content_tasks, purpose, quantity_reason`。quantity 为 1 至 100 正整数；quantity_mode 沿用可信请求的 new_articles / repeat_article，表示计划意图，不表示稿件已经创建、不同内容已经完成或冻结版本已经绑定。content_tasks 为当前文章标题、正文、目标和对应媒体要求的简短修改建议，不要求条数等于 quantity。数量调整不会触发新的改稿、保存、冻结或真实订单。
 

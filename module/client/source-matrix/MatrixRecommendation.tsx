@@ -4,7 +4,7 @@ import { display, label, quote, roleNames,industryContextSnapshot,referencedIndu
 import { formatPublishingMoney, type MediaResource } from '../types';
 import type { BudgetPlan, Candidate, Json, MatrixResult,ResourceSelection } from './types';
 import {PlanExplanation,formalItemDetail,planMoney,plainValue,planQuantity,mandatoryFeeText,pricingReason,PlanUnknowns,samePublicationSpec,directSummary} from './PlanningDetails';
-import {matrixCandidateGroups,matrixReadiness} from './matrix-readiness';
+import {hasSuggestions,matrixCandidateGroups,matrixReadiness,suggestionGroups} from './matrix-readiness';
 
 export {matrixRoles} from './matrix-readiness';
 /** 卡片只放一句完整介绍；更长内容留在推荐理由弹窗里。 */
@@ -53,6 +53,11 @@ export function CatalogResourceChoice({candidate,value,onChange,disabled}:{candi
  return <section className="sm-resource-choice"><h3>对应可售资源与报价</h3>{choices.length?<label>资源 / 账号 / 报价<select value={selected<0?'':String(selected)} disabled={disabled} onChange={event=>onChange(event.target.value===''?null:choices[Number(event.target.value)]?.value??null)}><option value="">未选择，请核对账号和发布规格</option>{choices.map(({match,offer},index)=><option key={`${match.resource_id}:${offer.offer_id}:${index}`} value={index}>{match.source_name} · {match.account_id||match.channel_id||'账号待核验'} · {plainValue(offer.publication_spec)} · {offer.pricing?.amount!=null?planMoney(String(offer.pricing.amount),offer.pricing.currency):'报价待确认'}</option>)}</select></label>:null}{selected>=0&&<p className="small">{choices[selected]?.match.identity_relation==='confirmed'?'已提供可信资源映射':'研究来源与所选资源仍需核验具体身份'} · {choices[selected]?.offer.pricing_status==='terms_provided'?'报价条款已提供，采用前复核有效性':'报价条款尚待补齐'}</p>}</section>;
 }
 
+export const topicFitLabels:Record<string,string>={direct:'主题直接相关',related:'主题相邻相关',weak:'弱相关'};
+export const formFitLabels:Record<string,string>={same:'同类载体可直接承接',adaptable:'现有素材可改编',rebuild:'需补充关键素材'};
+export const audienceFitLabels:Record<string,string>={direct:'受众一致',adjacent:'相邻受众',unclear:'受众待核实'};
+const fitLabel=(map:Record<string,string>,value:string|undefined,fallback:string):string=>typeof value==='string'&&value?(map[value]??value):fallback;
+
 export function RecommendationReason({candidate,result,onClose,returnFocus,resourceSelection,onResourceSelection,disabled}: {candidate: Candidate | null;result: MatrixResult | null;onClose:()=>void;returnFocus?:HTMLElement|null;resourceSelection?:ResourceSelection;onResourceSelection?:(value:ResourceSelection|null)=>void;disabled?:boolean}) {
  useEffect(()=>{if(!candidate)return;const trigger=returnFocus;return()=>{trigger?.focus();};},[candidate,returnFocus]);
  if(!candidate)return null;
@@ -60,13 +65,19 @@ export function RecommendationReason({candidate,result,onClose,returnFocus,resou
  const globalIds=new Set([...(candidate.industry_aggregate_ids??[]),...(Array.isArray(industryContext.aggregates)?industryContext.aggregates.flatMap(entry=>{const row=itemObject(entry);return typeof row.aggregate_id==='string'?[row.aggregate_id]:[];}):[])]);
  const otherReferences=candidate.references?.filter(reference=>{const row=itemObject(reference);return row.type!=='aggregate'||typeof row.aggregate_id!=='string'||!globalIds.has(row.aggregate_id);});
  const cited=result?.source_analysis.detail_citations.filter(detail=>detail.evidence_ids.some(id=>candidate.evidence_ids.includes(id)))??[];
+ const suggestionMode=Array.isArray(result?.matrix.suggestions?.selected_candidate_ids);
  return <MediaDialog open title={'推荐理由 · '+candidateName(candidate)} confirmLabel="关闭" onCancel={onClose} onConfirm={onClose} footer={<button className="button primary" onClick={onClose}>关闭</button>}>
-  <div className="sm-reason"><p>{candidate.reason_summary||'推荐理由待确认'}</p><dl><div><dt>主层与辅助角色</dt><dd>{candidate.primary_role?roleNames[candidate.primary_role]??candidate.primary_role:'尚未分层'}{candidate.auxiliary_roles.length?'；辅助：'+candidate.auxiliary_roles.map(role=>roleNames[role]??role).join('、'):''}</dd></div><div><dt>匹配目标问题</dt><dd>{candidate.matched_questions.length?candidate.matched_questions.map(id=>{const questions=result?.scope.task.questions;const question=Array.isArray(questions)?questions.find(item=>item&&typeof item==='object'&&!Array.isArray(item)&&item.question_id===id):null;return question&&typeof question==='object'&&!Array.isArray(question)?display(question.text):id;}).join('；'):'未提供逐问题匹配'}</dd></div><div><dt>证据与身份</dt><dd>{label(candidate.evidence_relation||'none')} · {label(candidate.channel_status)} · {label(candidate.manuscript_status)}</dd></div></dl>
+  <div className="sm-reason"><p>{candidate.reason_summary||'推荐理由待确认'}</p><dl>
+  {suggestionMode?<div><dt>适配判断</dt><dd>{candidate.topic_fit?`${fitLabel(topicFitLabels,candidate.topic_fit,'主题待判断')} · ${fitLabel(formFitLabels,candidate.form_fit,'载体待判断')} · ${fitLabel(audienceFitLabels,candidate.audience_fit,'受众待判断')}`:'适配标签待生成（规则推荐未做语义核验）'}{candidate.industry_rank?`；行业引用排名第 ${candidate.industry_rank.rank} 位（观察值，不代表可售或收录）`:''}</dd></div>
+  :<div><dt>主层与辅助角色</dt><dd>{candidate.primary_role?roleNames[candidate.primary_role]??candidate.primary_role:'尚未分层'}{candidate.auxiliary_roles.length?'；辅助：'+candidate.auxiliary_roles.map(role=>roleNames[role]??role).join('、'):''}</dd></div>}
+  <div><dt>匹配目标问题</dt><dd>{candidate.matched_questions.length?candidate.matched_questions.map(id=>{const questions=result?.scope.task.questions;const question=Array.isArray(questions)?questions.find(item=>item&&typeof item==='object'&&!Array.isArray(item)&&item.question_id===id):null;return question&&typeof question==='object'&&!Array.isArray(question)?display(question.text):id;}).join('；'):'未提供逐问题匹配'}</dd></div><div><dt>证据与身份</dt><dd>{label(candidate.evidence_relation||'none')} · {label(candidate.channel_status)} · {label(candidate.manuscript_status)}</dd></div></dl>
+  {candidate.selection_reason&&<><h3>入选依据</h3><p className="sm-paragraphs">{candidate.selection_reason}</p></>}
   <h3>媒体介绍</h3><p className="sm-paragraphs">{candidate.media_intro||'此历史结果未提供独立媒体介绍，请结合来源详情核验。'}</p>
   <h3>内容方向</h3><p className="sm-paragraphs">{candidate.content_direction||'此结果尚未提供具体内容方向。'}</p>
-  <h3>本层排序依据</h3><p>{candidate.layer_rank?`本层第 ${candidate.layer_rank} 位。`:'沿用本次矩阵的适配顺序。'}{candidate.ranking_reason||'历史结果没有独立排序理由；不会按报价或引用次数重新排序。'}</p>
+  {suggestionMode?<h3>推荐排序</h3>:<h3>本层排序依据</h3>}
+  <p>{suggestionMode?(candidate.selection_reason?'按本次推荐顺序排列；依据见上方入选依据。':'按服务端程序排序；规则推荐未提供语义排序理由。'):<>{candidate.layer_rank?`本层第 ${candidate.layer_rank} 位。`:'沿用本次矩阵的适配顺序。'}{candidate.ranking_reason||'历史结果没有独立排序理由；不会按报价或引用次数重新排序。'}</>}</p>
   {onResourceSelection&&<CatalogResourceChoice candidate={candidate} value={resourceSelection} onChange={onResourceSelection} disabled={disabled}/>}
-  <h3>角色理由与覆盖价值</h3>{candidate.reason_details?.length?<ul>{candidate.reason_details.map((reason,index)=><li key={index}>{reason}</li>)}</ul>:<p>尚未提供更详细的角色理由。</p>}
+  <h3>详细理由与覆盖价值</h3>{candidate.reason_details?.length?<ul>{candidate.reason_details.map((reason,index)=><li key={index}>{reason}</li>)}</ul>:<p>尚未提供更详细的推荐理由。</p>}
   <h3>依据来源与范围</h3><p>实际引用证据 {candidate.evidence_ids.length} 项 · 媒体关联行业依据 {candidate.aggregate_ids.length} 项 · 实际引用行业整体分布 {industryAggregates.length} 项。平台关联、行业推荐和供应商声明不等于该可售账号被引用。</p>
   {cited.map((detail,index)=><section className="sm-evidence-record" key={index}><EvidenceValue value={detail.scope}/><EvidenceValue value={detail.record}/>{safeUrl(detail.normalized_url)&&<a className="link" href={safeUrl(detail.normalized_url)} target="_blank" rel="noopener noreferrer">查看被引用内容 ↗</a>}</section>)}
   {result?.source_analysis.external_aggregates.filter(entry=>{const row=itemObject(entry);return typeof row.aggregate_id==='string'&&candidate.aggregate_ids.includes(row.aggregate_id);}).map((entry,index)=><section className="sm-evidence-record" key={'aggregate-'+index}><h4>行业汇总依据 · 不代表逐条引用</h4><EvidenceValue value={entry}/></section>)}
@@ -78,6 +89,14 @@ export function RecommendationReason({candidate,result,onClose,returnFocus,resou
   </div>
  </MediaDialog>;
 }
+
+const candidateMediaType=(candidate:Candidate):string=>{
+ const kind=candidate.attributes.media_kind??candidate.attributes.media_type??candidate.attributes.platform;
+ const taxonomy=candidate.attributes.taxonomy;
+ const kindText=typeof kind==='string'&&kind.trim()?kind.trim():'';
+ const taxText=typeof taxonomy==='string'&&taxonomy.trim()?taxonomy.trim():'';
+ return kindText||taxText||'媒体渠道';
+};
 
 export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,isSelected,issue,onToggle,onDetails,onMediaDetails,onLayer}: {result: MatrixResult;highlightedPlan?: BudgetPlan | null;highlightedCandidateIds?:string[];referenceCandidateIds?:string[];mediaFor:(id:string|null)=>MediaResource|undefined;isSelected:(media:MediaResource)=>boolean;issue:(candidate:Candidate,media:MediaResource)=>string;onToggle:(id:string)=>void;onDetails:(candidate:Candidate)=>void;onMediaDetails:(media:MediaResource)=>void;onLayer:(candidates:Candidate[])=>void}) {
  const [expanded,setExpanded]=useState<string[]>([]);
@@ -97,7 +116,28 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
    {media&&blocked&&<small className="sm-candidate-issue">{blocked}</small>}
   </article>;
  };
- if(!readiness.complete)return <div className="x-empty" role="status"><strong>{readiness.message}</strong></div>;
+ if(!readiness.complete&&!readiness.partial)return <div className="x-empty" role="status"><strong>{readiness.message}</strong></div>;
+ /* 2026.11.10-web.1 deliverable: the ≤20 deduplicated media acquisition
+  * outlets with per-item adoption basis, the remaining candidate list and the
+  * reference-only supplier ranking names. */
+ if(hasSuggestions(result.matrix)){
+  const suggestion=suggestionGroups(result.matrix);
+  const addable=suggestion.selected.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!isSelected(media)&&!issue(candidate,media);});
+  return <div className="sm-suggest">
+   <div className="sm-suggest-head"><strong>媒体获取渠道建议（目标 {suggestion.target} 个，按推荐顺序）</strong>{suggestion.selected.length<suggestion.target&&<span className="small muted">本次实际推荐 {suggestion.selected.length} 个；合格独立载体不足或部分候选未完成时按实数推荐。</span>}{addable.length>0&&<button className="link small" onClick={()=>onLayer(suggestion.selected)}>多选推荐渠道可投媒体</button>}</div>
+   <div className="table-wrap"><table className="sm-suggest-table"><caption className="sr-only">媒体获取渠道建议：每行一个推荐渠道及推荐依据</caption><thead><tr><th scope="col">媒体</th><th scope="col">类型</th><th scope="col">推荐依据</th><th scope="col">操作</th></tr></thead><tbody>
+   {suggestion.selected.map((candidate,index)=>{
+    const media=mediaFor(candidate.resource_id),blocked=referenceOnly.has(candidate.candidate_id)?'参考阅读，非购买发布位':media?issue(candidate,media):'尚未映射可售资源，仅供研究';
+    const basis=candidate.selection_reason||candidate.reason_summary||'推荐依据待补充（可重试未完成项）';
+    return <tr key={candidate.candidate_id} className={media&&isSelected(media)?'is-highlighted':''}><th scope="row"><span className="sm-suggest-name">{index+1}. {media?.name??candidateName(candidate)}</span>{candidate.industry_rank&&<span className="sm-suggest-rank">行业引用第 {candidate.industry_rank.rank} 位</span>}</th><td>{candidateMediaType(candidate)}</td><td className="sm-suggest-basis">{basis}{candidate.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button>{media&&<button className="link small" onClick={()=>onMediaDetails(media)}>媒体资料</button>}{media&&!blocked&&<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+(media.name??candidateName(candidate))+' '+(media.platform??'')} checked={isSelected(media)} disabled={!!blocked} onChange={()=>onToggle(candidate.candidate_id)}/>{isSelected(media)?'已加入':'加入购物车'}</label>}{!media&&<span className="small muted">仅供研究</span>}{blocked&&media&&<small className="sm-candidate-issue">{blocked}</small>}</div></td></tr>;
+   })}
+   {!suggestion.selected.length&&<tr><td colSpan={4}><p className="sm-layer-gap">本轮没有得到可展示的推荐渠道，请重试或重新生成。</p></td></tr>}
+   </tbody></table></div>
+   {suggestion.others.length>0&&<><button className="link small sm-more-candidates" aria-expanded={expanded.includes('others')} aria-controls="sm-suggest-others" onClick={()=>setExpanded(current=>current.includes('others')?current.filter(value=>value!=='others'):[...current,'others'])}>{expanded.includes('others')?'收起候选清单':`候选清单（未入选 ${suggestion.others.length}）`}</button>{expanded.includes('others')&&<div className="sm-layer-candidates" id="sm-suggest-others" aria-label="未入选候选清单">{suggestion.others.map(card)}</div>}</>}
+   {suggestion.unmatched.length>0&&<details className="sm-suggest-ranking"><summary>行业排名前20中未匹配目录资源的媒体（{suggestion.unmatched.length}，仅供参考）</summary><ul>{suggestion.unmatched.map(item=><li key={item.rank+'-'+item.name}><span>第 {item.rank} 位 · {item.name}</span>{item.citation_count&&<span className="small muted">引用 {item.citation_count} 次（观察值）</span>}</li>)}</ul><p className="small muted">以上名称来自供应商行业媒体引用排名，未在当前媒体目录中找到对应可售资源；仅作信源参考，不能作为报价或发布依据。</p></details>}
+   {suggestion.rankingStatus&&suggestion.rankingStatus!=='ok'&&suggestion.rankingMessage&&<p className="small muted" role="status">{suggestion.rankingMessage}</p>}
+  </div>;
+ }
  return <div className="table-wrap sm-layer-table-wrap"><table className="sm-layer-table"><caption className="sr-only">信源矩阵推荐：每层一行，层内为候选列表</caption><tbody>{groups.map(({role,items,gap,state})=><tr className="sm-layer-tr" key={role}><th scope="row" className="sm-layer-label"><div className="sm-layer-title"><h3>{roleNames[role]}层</h3><LayerHelp role={role}/></div><span>{state==='loading'?'候选读取中':state==='failed'?'候选读取失败':state==='incomplete'?`${items.length} 个已知候选 · 尚未完整`:state==='not_applicable'?'当前不适用':`${items.length} 个候选`}</span>{items.some(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!isSelected(media)&&!issue(candidate,media);})&&<button className="link sm-layer-multi" onClick={()=>onLayer(items)}>多选本层可投媒体</button>}</th><td className="sm-layer-cell"><div className="sm-layer-candidates" id={'sm-layer-'+role} aria-label={roleNames[role]+'层候选'}>{items.length?(expanded.includes(role)?items:items.slice(0,3)).map(card):<p className="sm-layer-gap">{gap}</p>}</div>{items.length>0&&state!=='complete'&&<p className="small muted" role="status">{gap}</p>}{items.length>3&&<button className="link small sm-more-candidates" aria-expanded={expanded.includes(role)} aria-controls={'sm-layer-'+role} onClick={()=>setExpanded(current=>current.includes(role)?current.filter(value=>value!==role):[...current,role])}>{expanded.includes(role)?'收起候选':`更多候选（${items.length-3}）`}</button>}</td></tr>)}</tbody></table></div>;
 }
 

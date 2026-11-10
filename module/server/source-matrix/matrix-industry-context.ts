@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import type { IndustryCommonQuery, IndustryDistributions, IndustryFilters, IndustryResponse, IndustryScopeNode } from '../../contracts/industry-source.js';
+import { createHash, randomUUID } from 'node:crypto';
+import type { IndustryCommonQuery, IndustryDistributions, IndustryFilters, IndustryMedia, IndustryPage, IndustryResponse, IndustryScopeNode } from '../../contracts/industry-source.js';
 import { stableJson, type Row } from './common.js';
 import { decodeIndustryData } from './industry-codec.js';
 import { IndustrySourceProvider } from './industry-provider.js';
@@ -19,7 +19,8 @@ const provider = new IndustrySourceProvider();
 const SOURCE = 'molizhishu-public-industry';
 const SOURCE_ID = SOURCE + ':distributions';
 const LIMITATIONS = [
-  '仅使用供应商免费 filters/distributions 分类统计，未查询媒体排名或内容列表，不能作为完整媒体证据。',
+  'filters/distributions 为免费分类统计；媒体排名（media-ranking）为供应商计费查询，仅取当前行业前20名作组合候选池参考，不构成完整媒体证据。',
+  '行业排名反映观察期内媒体被引用情况，不等于可售账号、报价或本次投放收录保证；组合报价仍以真实目录为准。',
   '行业统计不代表当前品牌、稿件或单一媒体的表现，不构成可采购资源或报价。',
   '信源类型按 citationCount（引用次数）统计；发布时间按 contentCount（内容数量）统计，两套分母独立，未计算百分比。',
 ];
@@ -84,12 +85,17 @@ function selectedQuery(input: MatrixIndustryContextInput, filters: IndustryFilte
 }
 
 /** Freeze only free, industry-wide observations; browser selections are conditions, never evidence. */
+function tokenOf(input: MatrixIndustryContextInput): string {
+  return (input.environment.FRONTMIND_SOURCE_MATRIX_MOLIZHISHU_API_TOKEN ?? '').trim();
+}
+
 export async function loadMatrixIndustryContext(input: MatrixIndustryContextInput, source: Pick<IndustrySourceProvider, 'query'> = provider): Promise<Row> {
   const snapshot: Row = {
     status: 'configuration_required', message: failureMessages.configuration_required,
     source: SOURCE, industry_id: input.industryId, industry_name: input.industryName,
     query: null, fetched_at: null, data_version: null, aggregates: [], limitations: [...LIMITATIONS],
     source_type_distribution: null, publish_time_distribution: null,
+    media_ranking: { status: 'not_queried', message: '本次未读取行业媒体排名。', query: null, fetched_at: null, data_version: null, items: [] },
   };
   const stop = (status: string, message: string, stage?: string): Row => {
     snapshot.status = status; snapshot.message = message;
@@ -160,7 +166,41 @@ export async function loadMatrixIndustryContext(input: MatrixIndustryContextInpu
   ];
   const missing = [!distributions.sourceTypeDistribution.length ? '信源类型分布' : '', !distributions.publishTimeDistribution.length ? '发布时间分布' : ''].filter(Boolean);
   if (missing.length === 2) return stop('empty', '供应商成功返回当前范围，但两个分类统计均无数据；不能据此推断引用或内容数量为零。');
+
+  /* The combination pool needs the supplier's real per-industry media ranking.
+   * It is a billed list query: one page of 20, retried only by an explicit new
+   * generate. A ranking failure never blocks the free distribution snapshot. */
+  await loadMediaRanking(snapshot, query, params, source, input, hash, stop);
+
   if (missing.length) return stop('partial', '供应商当前范围缺少' + missing.join('、') + '，仅保留已返回维度，未将缺失统计补为零。');
-  snapshot.status = 'ok'; snapshot.message = '已读取当前行业真实分类统计，供行业背景参考。';
+  snapshot.status = 'ok'; snapshot.message = '已读取当前行业真实分类统计' + (snapshot.media_ranking?.status === 'ok' ? '与行业媒体排名前20' : '') + '，供行业背景参考。';
   return snapshot;
+}
+
+async function loadMediaRanking(snapshot: Row, query: IndustryCommonQuery, params: URLSearchParams, source: Pick<IndustrySourceProvider, 'query'>, input: MatrixIndustryContextInput, hash: (value: unknown) => string, stop: (status: string, message: string, stage?: string) => Row): Promise<void> {
+  const ranking: Row = snapshot.media_ranking as Row;
+  ranking.query = { ...query, pageSize: 20 };
+  let rankingParams: URLSearchParams;
+  try {
+    rankingParams = validateIndustryQuery('media-ranking', new URLSearchParams(Object.entries({ ...query, pageSize: String(20), requestId: randomUUID().replace(/-/g, '') })));
+  } catch { ranking.status = 'invalid_selection'; ranking.message = '行业排名查询参数未通过校验，未读取媒体排名。'; snapshot.limitations.push(ranking.message as string); return; }
+  let response: IndustryResponse<unknown>;
+  try { response = await source.query('media-ranking', rankingParams, input.identity, tokenOf(input)); }
+  catch { ranking.status = 'upstream_error'; ranking.message = '行业媒体排名读取失败，本次组合仅使用推荐渠道。'; snapshot.limitations.push(ranking.message as string); return; }
+  if (response.status !== 'ok') {
+    ranking.status = Object.hasOwn(failureMessages, response.status) ? response.status : 'upstream_error';
+    ranking.message = '行业媒体排名不可用（' + ranking.status + '），本次组合仅使用推荐渠道。';
+    snapshot.limitations.push(ranking.message as string);
+    return;
+  }
+  let page: IndustryPage<IndustryMedia>;
+  try { page = decodeIndustryData('media-ranking', response.data) as IndustryPage<IndustryMedia>; }
+  catch { ranking.status = 'invalid_response'; ranking.message = '行业媒体排名返回数据异常，未采用。'; snapshot.limitations.push(ranking.message as string); return; }
+  ranking.fetched_at = response.fetchedAt;
+  ranking.expires_at = String(page.expiresAt);
+  ranking.data_version = 'industry-ranking-' + hash({ source: SOURCE, query, ranking: page.items.map(item => [item.code, item.name, item.citationCount]) });
+  ranking.items = page.items.map((item, index) => ({ rank: index + 1, code: item.code, name: item.name, citation_count: item.citationCount }));
+  ranking.status = 'ok';
+  ranking.message = '已读取当前行业媒体排名前' + ranking.items.length + '（引用次数为观察值，不代表可售或收录）。';
+  if (!page.items.length) { ranking.status = 'empty'; ranking.message = '供应商当前范围媒体排名为空，未推断为无媒体。'; snapshot.limitations.push(ranking.message as string); }
 }

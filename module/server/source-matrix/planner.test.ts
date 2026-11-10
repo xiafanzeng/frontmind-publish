@@ -8,8 +8,9 @@ const catalog={resource_id:'r',offer_id:'o',source_name:'测试媒体',industry:
 const request=()=>({tenant_id:'t',task_id:'task',brand_id:'b',publication_intent:'repeat_existing_article',task:{industry:'测试行业',questions:[{question_id:'q',text:'测试问题'}],manuscripts:[{article_id:'a',version:'v'}]},catalog:[structuredClone(catalog)]});
 const md={items:[{candidate_id:'resource:r',primary_role:'industry',auxiliary_roles:[],matched_questions:['q'],references:[{type:'attribute',path:'catalog[0].industry'}],reason_summary:'适配所声明行业',reason_details:[],unconfirmed_items:[],selection:'recommended'}],fit_order:['resource:r']};
 const plans=[{strategy:'显式投放',reason_summary:'支持任务问题',items:[item]}];
-it('does not invent model decisions and keeps five possibly empty layers',()=>{
- const out=runPlanner(request(),undefined,'matrix',undefined,now);expect(out.status).toBe('needs_ai_decisions');expect(out.matrix.fit_order).toEqual([]);expect(out.matrix.layers).toHaveLength(5);
+it('does not invent model decisions and keeps an empty suggestion selection',()=>{
+ const out=runPlanner(request(),undefined,'matrix',undefined,now);expect(out.status).toBe('needs_ai_decisions');expect(out.matrix.fit_order).toEqual([]);expect(out.matrix.layers).toEqual([]);
+ expect(out.matrix.suggestions).toMatchObject({target_count:20,dedup:'outlet_key',basis:'derived',selected_candidate_ids:[]});
 });
 it('rejects model facts, wrong evidence scopes and unsupported roles',()=>{
  const d=structuredClone(md);Object.assign(d.items[0]!,{price:'0'});expect(runPlanner(request(),{matrix_decisions:d},'matrix',undefined,now).status).toBe('invalid_decisions');
@@ -87,11 +88,19 @@ it('enforces trusted offer purpose restrictions and preserves omitted locks',()=
  const first=runPlanner(r,{matrix_decisions:md},'matrix',undefined,now),out=runPlanner(r,{budget_plans:[{...plans[0],items:[]}]},'budget',first,now).budget_plans[0];
  expect(out.items[0].locked).toBe(true);expect(out.errors.map((e:any)=>e.code)).toContain('locked_selection_removed');expect(out.unknown_items[0].reasons).toContain('purpose_not_allowed');
 });
-it('validates evidence questions and exploration roles without guessing',()=>{
+it('validates evidence questions and selected-media contracts without guessing',()=>{
  const r:any=request();r.catalog[0].domain='example.org';r.citations=[{data_kind:'detail',evidence_id:'e',tenant_id:'t',question_id:'other',platform:'p',model:'m',model_version:'v',period:{end:'2026-10-01'},answer_record_id:'answer',citation_url:'https://example.org/a',source_name:'测试媒体'}];
  const d=structuredClone(md);d.items[0]!.references=[{type:'evidence',evidence_id:'e'} as any];
  expect(runPlanner(r,{matrix_decisions:d},'matrix',undefined,now).errors.map((e:any)=>e.code)).toContain('invalid_evidence_reference');
- d.items[0]!.primary_role='exploration';expect(runPlanner(r,{matrix_decisions:d},'matrix',undefined,now).errors.map((e:any)=>e.code)).toEqual(expect.arrayContaining(['missing_hypothesis','missing_verification']));
+ // A selected entry must be recommended, carry an adoption basis and respect the outlet dedup.
+ const selected=structuredClone(md);selected.selected_media=['resource:r'];selected.fit_order=['resource:r'];
+ expect(runPlanner(r,{matrix_decisions:selected},'matrix',undefined,now).errors.map((e:any)=>e.code)).toContain('missing_selection_reason');
+ const dupSource={...structuredClone(catalog),offer_id:'o2'},duplicate=structuredClone(md);
+ duplicate.items.push({...structuredClone(dupSource),candidate_id:'resource:r2',primary_role:'industry',references:[{type:'attribute',path:'catalog[0].industry'}],outlet_key:'测试媒体'});
+ duplicate.fit_order=[...duplicate.fit_order,'resource:r2'];
+ duplicate.items[1]!.outlet_key='测试媒体';duplicate.selected_media=['resource:r','resource:r2'];
+ const dupRun=runPlanner({...r,catalog:[structuredClone(catalog),dupSource]},{matrix_decisions:duplicate},'matrix',undefined,now);
+ expect(dupRun.errors.map((e:any)=>e.code)).toContain('duplicate_selected_outlet');
 });
 it('does not let an undecided resource or a supplied readiness field become execution advice',()=>{
  const other={...structuredClone(catalog),resource_id:'r2',offer_id:'o2'},r={...request(),catalog:[catalog,other],budget:{currency:'CNY',total_cap:'1000'}};
@@ -117,18 +126,16 @@ it('includes the independent target in semantic scope and invalidates old budget
 it('matches both sides of pure province aliases without broadening city restrictions',()=>{
  for(const [goal,coverage] of [['广东','广东省'],['广东省','广东']]){
   const base=request(),r={...base,task:{...base.task,regions:[goal]},catalog:[{...base.catalog[0]!,restricted_regions:[coverage],region_coverage:[coverage]}]};
-  const regional=structuredClone(md);regional.items[0]!.primary_role='regional';
-  const out=runPlanner(r,{matrix_decisions:regional},'matrix',undefined,now);
+  const out=runPlanner(r,{matrix_decisions:structuredClone(md)},'matrix',undefined,now);
   expect(out.matrix.candidates[0].hard_failures).not.toContain('region_not_allowed');
-  expect(out.errors.map((error:any)=>error.code)).not.toContain('regional_coverage_unconfirmed');
   expect(out.matrix.candidates[0].attributes.region_coverage).toEqual([coverage]);
  }
+ /* Channel hard rules still catch city-only coverage under a province goal;
+  * the five-role layer checks are gone with the 2026.11.10-web.1 contract. */
  for(const city of ['广州市','广东省 广州市','深圳']){
   const base=request(),r={...base,task:{...base.task,regions:['广东']},catalog:[{...base.catalog[0]!,restricted_regions:[city],region_coverage:[city]}]};
-  const regional=structuredClone(md);regional.items[0]!.primary_role='regional';
-  const out=runPlanner(r,{matrix_decisions:regional},'matrix',undefined,now);
+  const out=runPlanner(r,{matrix_decisions:structuredClone(md)},'matrix',undefined,now);
   expect(out.matrix.candidates[0].hard_failures).toContain('region_not_allowed');
-  expect(out.errors.map((error:any)=>error.code)).toContain('regional_coverage_unconfirmed');
  }
 });
 

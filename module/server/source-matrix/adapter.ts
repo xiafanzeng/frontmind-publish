@@ -15,7 +15,9 @@ export interface SourceMatrixDecisionAdapter {
   * Replace the host adapter when configuration changes; honor signal where possible. */
  identify?(input:ArticleIdentificationInput):Promise<unknown>;
  /** Resume continues a persisted partial matrix: only pending candidates are
-  * reviewed and the seeded decisions are merged verbatim by the adapter. */
- matrix(input:{request:Readonly<Row>;prepared:Readonly<Row>;as_of:string;skill:string;instructions:string;signal?:AbortSignal;resume?:{pending_ids:readonly string[];accepted_items:readonly Row[];excluded:readonly Row[]}}):Promise<{matrix_decisions:Row}|undefined>;
+  * reviewed and the seeded decisions are merged verbatim by the adapter.
+  * selected_media seeds the saved recommendation order so the final ≤20 list
+  * keeps its original ranking across the resume. */
+ matrix(input:{request:Readonly<Row>;prepared:Readonly<Row>;as_of:string;skill:string;instructions:string;signal?:AbortSignal;resume?:{pending_ids:readonly string[];accepted_items:readonly Row[];excluded:readonly Row[];selected_media?:readonly string[]}}):Promise<{matrix_decisions:Row}|undefined>;
  budget(input:{request:Readonly<Row>;matrix:Readonly<Row>;as_of:string;skill:string;instructions:string}):Promise<{recommendations?:Row[];budget_plans?:Row[];content_plans?:Row[]}|undefined>;
 }

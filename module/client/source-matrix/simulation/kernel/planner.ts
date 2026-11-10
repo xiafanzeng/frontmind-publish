@@ -80,7 +80,7 @@ export function runPlanner(request:Row,decisions:Row|undefined,stage:'matrix'|'b
     out.warnings=r.budget?.exploration_enabled===true&&!('exploration_cap' in r.budget)?[issue('exploration_cap_required','budget.exploration_cap','探索投放需要显式正子额度；普通方案仍可校验')]:[];
     out.minimum_known_cost=minimum(r,out);
     out.plan_id='plan-'+digest(r.task_id?binding(r):{...binding(r),task:semantic(r.task)});
-    out.skill_version='source-matrix-planner/2026.11.09-web.3';
+    out.skill_version='source-matrix-planner/2026.11.10-web.1';
     out.resource_selections=clone(r.resource_selections??[]);
     out.quantity_mode=r.publication_intent==='repeat_existing_article'?'repeat_article':'new_articles';
     out.research_observation=clone(r.research_observation??null);

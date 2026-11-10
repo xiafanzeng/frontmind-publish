@@ -6,12 +6,13 @@ export interface AttributeReference {type:'attribute';path:string}
 export interface EvidenceReference {type:'evidence';evidence_id:string}
 export interface AggregateReference {type:'aggregate';aggregate_id:string;usage:'industry_context'}
 export interface MatrixDecision {
-  candidate_id:string;primary_role:'authority'|'industry'|'regional'|'supplement'|'exploration';auxiliary_roles:string[];
+  candidate_id:string;outlet_key:string;
+  topic_fit:'direct'|'related'|'weak';form_fit:'same'|'adaptable'|'rebuild';audience_fit:'direct'|'adjacent'|'unclear';
   matched_questions:string[];references:Array<AttributeReference|EvidenceReference|AggregateReference>;
   reason_summary:string;reason_details:string[];unconfirmed_items:string[];selection:'recommended'|'alternative';
-  supplemental_value?:string;supplemental_to?:string[];exploration_hypothesis?:string;verification_items?:string[];
+  selection_reason?:string;
 }
-export interface MatrixDecisions {items:MatrixDecision[];fit_order:string[]}
+export interface MatrixDecisions {items:MatrixDecision[];fit_order:string[];selected_media:string[]}
 export interface PublicationItem {
   article_id:string;version:string;resource_id:string;offer_id:string;
   publication_spec:string;quantity:number;purpose:'standard'|'exploration';
@@ -45,24 +46,35 @@ export function simulatedMatrixDecisions(request:Row,prepared:Row):MatrixDecisio
     }
     for(const id of c.aggregate_ids)refs.push({type:'aggregate',aggregate_id:id,usage:'industry_context'});
     const aligned=sameIndustry(c,request),edge=c.attributes.simulation_edge;
-    let role:MatrixDecision['primary_role']='industry';
-    if(c.candidate_id===base?.candidate_id)role='industry';
-    else if(edge==='identity_conflict'||edge==='unknown'||!c.resource_id)role='exploration';
-    else if(regional&&regions.some(x=>(c.attributes.regions??[]).includes(x)))role='regional';
-    else if(aligned&&evidenceCount(c)>=3&&c.attributes.verified===true)role='authority';
-    else if(!aligned)role=base?'supplement':'exploration';
+    const identityUnclear=edge==='identity_conflict'||edge==='unknown'||!c.resource_id;
+    /* 2026.11.10-web.1 suggestion contract: every candidate gets outlet identity
+     * plus topic/form/audience fits; the ordered ≤20 selection is deduplicated
+     * by outlet and only direct/related outlets join. */
+    const outlet=String(c.attributes.domain??c.attributes.source_name??c.candidate_id);
+    const topic_fit:MatrixDecision['topic_fit']=aligned?'direct':evidenceCount(c)>0?'related':'weak';
+    const form_fit:MatrixDecision['form_fit']=identityUnclear?'rebuild':evidenceCount(c)>0?'same':'adaptable';
+    const audience_fit:MatrixDecision['audience_fit']=aligned?'direct':evidenceCount(c)>0?'adjacent':'unclear';
     const decision:MatrixDecision={
-      candidate_id:c.candidate_id,primary_role:role,auxiliary_roles:[],matched_questions:questions,references:refs,
-      selection:aligned?'recommended':'alternative',
+      candidate_id:c.candidate_id,outlet_key:outlet,
+      topic_fit,form_fit,audience_fit,
+      matched_questions:questions,references:refs,
+      selection:topic_fit==='weak'?'alternative':'recommended',
       reason_summary:`模拟启发式：${aligned?'匹配目标行业':'跨行业备选'}；身份明确的明细证据 ${evidenceCount(c)} 条；${c.aggregate_ids.length} 条行业汇总依据。`,
-      reason_details:[`内容适配分 ${contentScore(c,request)}（行业匹配、明细依据、模拟认证属性）`,'金额不参与内容矩阵排序；行业汇总仅用于行业语境，供应商声明不充当明细证据。'],
+      reason_details:[`内容适配分 ${contentScore(c,request)}（行业匹配、明细依据、模拟认证属性）`,'金额不参与媒体渠道推荐排序；行业汇总仅用于行业语境，供应商声明不充当明细证据。'],
       unconfirmed_items:[...c.pending_conditions,...(c.evidence_relation!=='exact'?['证据身份关系仍需核实']:[])],
     };
-    if(role==='supplement') {decision.supplemental_value='提供跨行业应用场景对照，不能替代目标行业依据';decision.supplemental_to=[base.candidate_id];}
-    if(role==='exploration') {decision.exploration_hypothesis='小范围验证该来源与目标问题是否相关';decision.verification_items=['核实来源账号身份','确认实际稿件、报价和引用范围'];}
     return decision;
   });
-  return {items,fit_order:items.map(x=>x.candidate_id)};
+  /* Selection walks the ranked list in order, keeps one candidate per distinct
+   * normalized outlet and stops at the 20-slot target. */
+  const outletSeen=new Set<string>();
+  const selected_media=ranked.filter(c=>items.find(x=>x.candidate_id===c.candidate_id)).map(c=>items.find(x=>x.candidate_id===c.candidate_id)!)
+    .filter(item=>item.selection==='recommended'&&item.topic_fit!=='weak')
+    .filter(item=>{const key=String(item.outlet_key).trim().toLowerCase();if(outletSeen.has(key))return false;outletSeen.add(key);return true;})
+    .slice(0,20);
+  const scoreOf=new Map(ranked.map(c=>[c.candidate_id,contentScore(c,request)]));
+  for(const item of items)if(selected_media.some(x=>x.candidate_id===item.candidate_id))item.selection_reason=`模拟依据：适配分 ${scoreOf.get(item.candidate_id)??0}，与目标行业及稿件主题相符，相较其余候选优先采用。`;
+  return {items,fit_order:items.map(x=>x.candidate_id),selected_media:selected_media.map(x=>x.candidate_id)};
 }
 function itemsFor(c:Row,purpose:PublicationItem['purpose'],request:Row):PublicationItem[] {
   const offers:Row[]=c.offers;
@@ -74,7 +86,11 @@ function itemsFor(c:Row,purpose:PublicationItem['purpose'],request:Row):Publicat
 /** Heuristics propose items. Kernel pricing and verification decide every amount/status. */
 export function simulatedBudgetPlans(request:Row,matrix:Row,asOf:string,selectedIds:string[]):BudgetDecision[] {
   const candidates:Row[]=matrix.matrix.candidates.filter((c:Row)=>c.resource_id&&c.offers.length);
-  const measured=candidates.map(c=>({c,items:itemsFor(c,c.primary_role==='exploration'?'exploration':'standard',request)})).map(x=>({...x,price:priceItems(x.items,request.catalog,asOf)}));
+  /* Exploration stays a budget purpose (sub-capped): the simulation marks the
+ * identity-unclear outlets as exploratory, mirroring the model's freedom to
+ * label a purpose without any role layer. */
+const exploratory=(c:Row)=>['identity_conflict','unknown'].includes(String(c.attributes.simulation_edge))||!c.resource_id;
+const measured=candidates.map(c=>({c,items:itemsFor(c,exploratory(c)?'exploration':'standard',request)})).map(x=>({...x,price:priceItems(x.items,request.catalog,asOf)}));
   const known=measured.filter(x=>x.c.channel_status==='eligible'&&x.price.complete&&x.price.currency===request.budget.currency&&sameIndustry(x.c,request));
   const cost=(x:typeof measured[number]):bigint=>BigInt(x.price.total_cost_minor??'0');
   const cap=BigInt(matrixBudgetMinor(request.budget.total_cap,request.budget.currency));

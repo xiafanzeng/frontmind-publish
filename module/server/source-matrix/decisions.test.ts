@@ -289,7 +289,7 @@ it('falls back to labelled rule decisions with recorded evidence when the model 
   const rule=result.matrix.candidates.filter((candidate:any)=>candidate.decision_basis==='rule');
   expect(rule.length).toBeGreaterThan(0);
   expect(result.matrix.coverage.model.rule_classified_candidates).toBe(rule.length);
-  expect(rule[0].reason_summary as string).toContain('规则判定');
+  expect(rule[0].reason_summary as string).toContain('规则生成');
   expect((decisions?.matrix_decisions as any).review_error).toBe('provider_refused');
 });
 

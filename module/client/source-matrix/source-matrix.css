@@ -259,3 +259,22 @@
 .fm-media .sm-role-help-wrap:hover .sm-role-popover-lite,.fm-media .sm-role-help-wrap:focus-visible .sm-role-popover-lite{display:block}
 .fm-media .sm-role-popover-lite dl{margin:10px 0}.fm-media .sm-role-popover-lite dt{font-weight:600;margin-top:8px}.fm-media .sm-role-popover-lite dd{margin:2px 0}
 .fm-media .sm-layer-table-wrap:has(.sm-role-help-wrap:hover),.fm-media .sm-layer-table-wrap:has(.sm-role-help-wrap:focus-visible){overflow:visible}
+
+/* 2026.11.10-web.1 媒体获取渠道建议表：≤20 行，每行写明推荐依据 */
+.fm-media .sm-suggest{display:flex;flex-direction:column;gap:10px}
+.fm-media .sm-suggest-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.fm-media .sm-suggest-head strong{font-size:14px}
+.fm-media .sm-suggest-table{width:100%;border-collapse:collapse;font-size:13px}
+.fm-media .sm-suggest-table th,.fm-media .sm-suggest-table td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.6}
+.fm-media .sm-suggest-table thead th{background:var(--canvas);font-size:12px;color:var(--muted)}
+.fm-media .sm-suggest-table tr.is-highlighted th,.fm-media .sm-suggest-table tr.is-highlighted td{background:var(--selected)}
+.fm-media .sm-suggest-name{font-weight:600;color:var(--ink);display:block}
+.fm-media .sm-suggest-rank{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.fm-media .sm-suggest-basis{min-width:240px;color:var(--ink)}
+.fm-media .sm-suggest-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-start;white-space:nowrap}
+.fm-media .sm-suggest-ranking{border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.fm-media .sm-suggest-ranking summary{cursor:pointer;font-size:13px;color:var(--ink)}
+.fm-media .sm-suggest-ranking ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.fm-media .sm-suggest-ranking li{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--ink)}
+.fm-media .sm-suggest-ranking p{margin:8px 0 0}
+@media (max-width:900px){.fm-media .sm-suggest-table{table-layout:fixed}.fm-media .sm-suggest-basis{min-width:0}}

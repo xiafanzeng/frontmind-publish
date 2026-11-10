@@ -19,7 +19,8 @@ import { mapLegacyIndustries } from '../../shared/industry-catalog.js';
 import { BindingStore,bindingManuscripts,bindingSelectedItems,publicationSnapshot,resolvePlanItems,type TrustedArticleBinding } from './binding.js';
 import { BRAND_DATA_BATCHES,brandCitationRecords,brandExportBatch } from './brand-data.js';
 import { prepareExportResearch,researchCatalog } from './export-research.js';
-import { loadPlannerCatalog,reloadPlannerCatalog } from '../publisher-source-matrix-catalog.js';
+import { loadPlannerCatalog,lookupPlannerCatalogResourcesByName,reloadPlannerCatalog } from '../publisher-source-matrix-catalog.js';
+import { industryRankingItems,rankingNamesMissingFromCatalog } from './industry-ranking-match.js';
 import { publisherImageCompatibilityBlocker } from '../publisher-capability.js';
 import { mediaRulesImageBlocker } from '../providers/kol/media-rules.js';
 import { mountArticleIdentificationRoutes } from './article-identification-http.js';
@@ -79,6 +80,22 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
    return {catalog:await reloadPlannerCatalog(db,owner,project,ids),...(previousInput.catalog_coverage?{coverage:clone(previousInput.catalog_coverage)}:{})};
   }
   return loadPlannerCatalog(db,owner,project,{task});
+ }
+ /** Industry top-20 media the bounded reservoir cut still join the candidate
+  * pool: ranking names missing from the retained catalogue are pinned as real
+  * shared-catalogue rows. A name matching nothing stays a reference entry. */
+ async function mergedIndustryDirectory(core:ModuleHttpCore,req:Request,task:Row,dir:{catalog:Row[];coverage?:Row}):Promise<{catalog:Row[];coverage?:Row}>{
+  const items=industryRankingItems(task.industry_context?.media_ranking);
+  if(!items.length)return dir;
+  const missing=rankingNamesMissingFromCatalog(items.map(item=>item.name),dir.catalog);
+  if(!missing.length)return dir;
+  const c=core.context(req),db=await core.database();
+  let extra:Row[]=[];
+  try{extra=await lookupPlannerCatalogResourcesByName(db,String(c.businessOwnerId??''),String(c.enterpriseProjectId??''),missing);}catch{return dir;}
+  const existing=new Set(dir.catalog.map(row=>String(row.resource_id??'')));
+  const pinned=extra.filter(row=>row.resource_id&&!existing.has(String(row.resource_id)));
+  if(!pinned.length)return dir;
+  return {catalog:[...dir.catalog,...pinned],...(dir.coverage?{coverage:{...dir.coverage,pinned_by_industry_ranking:pinned.length}}:{})};
  }
  router.use((req,res,next)=>{
   res.setHeader('Cache-Control','private, no-store');
@@ -167,7 +184,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   // context to it so snapshot consistency validation holds.
   task.industry_context=loadedContext&&typeof loadedContext==='object'?{...loadedContext,industry_id:canonical.id,industry_name:canonical.name}:loadedContext;
   task.industry_assignment={kind:'user_confirmed',industry_id:canonical.id,article_version_id:binding?.articleVersionId??null,content_hash:binding?.contentHash??null};
-  const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await directory(req,task)),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
+  const request=datasetRequest(industry.dataset,task,repo.tenantId,taskId,industry.brandId,binding,brandCitations,await mergedIndustryDirectory(core,req,task,await directory(req,task))),prepared=runPlanner(request,undefined,'matrix',undefined,body.as_of);
   if(prepared.status==='invalid_input'){res.status(400).json(prepared);return;}
   await repo.create(taskId,industry.industryId,industry.brandId,task);
   res.status(202).json({task_id:taskId,state:'running',progress:'analyzing',result:prepared});
@@ -369,6 +386,8 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   const md=previous.snapshot.matrix_decisions;
   const pending=[...new Set([...(strings(md.unprocessed_candidate_ids)?md.unprocessed_candidate_ids:[]),...(rows(md.failed_candidates)?md.failed_candidates.map((entry:Row)=>String(entry.candidate_id)):[])])];
   if(!pending.length){res.status(409).json({status:'needs_matrix',message:'当前矩阵没有未完成候选，可直接生成组合'});return;}
+  // Seed the saved recommendation order so the resumed ≤20 list keeps its rank.
+  const resumeSelection=(strings(md.selected_media)?md.selected_media:(previous.matrix?.suggestions?.selected_candidate_ids??[]).map((id:unknown)=>String(id))).map(String);
   const decision=await resolvePlatformDecisionAdapter(core,req);
   if(!decision.adapter){res.status(503).json({status:'platform_unavailable',message:'推荐服务暂不可用，请稍后重试或联系运营'});return;}
   if(!await repo.begin(task.taskId,previous.plan_version)){res.status(409).json({status:'task_busy_or_cancelled',message:'任务版本已更新、正在处理或已取消'});return;}
@@ -377,7 +396,7 @@ export function createSourceMatrixRouter(core:ModuleHttpCore):Router {
   void (async()=>{
   const run=beginRun(task.taskId);
   let result=previous;
-  try{const d=await decision.adapter!.matrix({request:clone(previous.scope!.input_snapshot!),prepared:clone(previous),as_of:parsed.data.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS,signal:run.signal,resume:{pending_ids:pending,accepted_items:md.items??[],excluded:md.excluded_candidates??[]}});await repo.progress(task.taskId,'validating');if(d)result=runPlanner(previous.scope!.input_snapshot!,d,'matrix',undefined,parsed.data.as_of);}
+  try{const d=await decision.adapter!.matrix({request:clone(previous.scope!.input_snapshot!),prepared:clone(previous),as_of:parsed.data.as_of,skill:SOURCE_MATRIX_SKILL,instructions:SOURCE_MATRIX_INSTRUCTIONS,signal:run.signal,resume:{pending_ids:pending,accepted_items:md.items??[],excluded:md.excluded_candidates??[],selected_media:resumeSelection}});await repo.progress(task.taskId,'validating');if(d)result=runPlanner(previous.scope!.input_snapshot!,d,'matrix',undefined,parsed.data.as_of);}
   catch(reason){result={...previous,limitations:[...previous.limitations,'decision_adapter_unavailable']};}
   finally{endRun(task.taskId,run);}
   if(result.report)result.report.limitations=clone(result.limitations);

@@ -12,7 +12,7 @@ const result={matrix_version:'matrix-1',matrix:{status:'complete',candidates:[ca
 it('does not present an invalid candidate pool as five empty recommendation layers',()=>{
  const invalid={...result,matrix:{...result.matrix,status:'invalid_decisions'}};
  render(<MatrixRecommendation result={invalid} highlightedPlan={null} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
- expect(screen.getByText('推荐分层未通过校验，请重新生成矩阵。')).toBeTruthy();
+ expect(screen.getByText('媒体渠道推荐未通过校验，请重新生成矩阵。')).toBeTruthy();
  expect(screen.queryByRole('table')).toBeNull();expect(screen.queryByText('0 个候选')).toBeNull();
  expect(screen.queryByRole('checkbox')).toBeNull();
 });

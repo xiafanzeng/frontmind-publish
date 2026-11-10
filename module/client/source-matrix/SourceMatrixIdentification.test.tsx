@@ -114,7 +114,7 @@ it('shows the verified route article and carries it downstream when identificati
   expect(api.createDraft).not.toHaveBeenCalled();
   fireEvent.change(field('目标行业 *'), { target: { value: '102' } });
   fireEvent.change(field('目标问题 / 内容需求 *'), { target: { value: 'Manual question after metadata failure' } });
-  fireEvent.click(screen.getByRole('button', { name: '生成推荐矩阵' }));
+  fireEvent.click(screen.getByRole('button', { name: '生成媒体渠道推荐' }));
   expect(screen.getAllByText('稿件信息读取失败，请重试；已保留手动填写内容。')).toHaveLength(2);
   expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/matrix/generate'))).toBe(false);
 });
@@ -336,7 +336,7 @@ it('waits for verified article context after adopting a new task before comparin
  open('tab=matrix&articleVersion=version-a');
  await waitFor(()=>expect(field('品牌 / 产品').value).toBe('识别品牌'));
  fireEvent.change(field('总预算（CNY）'),{target:{value:''}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(contexts).toBeGreaterThan(1));
  await waitFor(()=>expect(fetcher.mock.calls.some(([url])=>String(url).includes('/classify/task-a'))).toBe(true));
  expect(screen.queryByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeNull();

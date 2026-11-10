@@ -5,6 +5,12 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
+## 网站集成扩展 2026.11.10-web.1
+
+2026.11.10-web.1 起网站两环节改为：第一环节不再生成五层推荐矩阵，而是从全部候选中产出**最多20个去重后的媒体获取渠道建议**（matrix_decisions={items,selected_media,excluded_candidates}）。每个候选带 outlet_key（同平台别名/多账号共用同一载体标识）、topic_fit/form_fit/audience_fit 三项适配判断及 reason_summary；入选项必须写 selection_reason（相较其余候选的实际推荐依据）。selected_media 按推荐顺序、经 outlet_key 去重、上限20个；不足20按实数，不用弱相关或身份未明来源凑数。内核校验入选资格、去重与依据；排序、去重与连续编号由服务端程序完成。结果携带 matrix.suggestions（目标20、按序 selected_candidate_ids）、候选清单（已判断未入选候选）与未匹配目录资源的行业排名名称（仅供参考）。模型整体不可用时按目录行业相关属性规则生成带"规则生成"标注的推荐，不发明语义适配标签。
+
+第二环节组合推荐候选池改为**已推荐渠道（≤20）∪ 行业信源当前行业排名前20且已映射真实目录资源的媒体**，同一媒体去重后最多40个。行业排名在生成时经供应商 media-ranking（计费查询）冻结进 task.industry_context.media_ranking；排名是观察值，不代表可售账号、报价或收录保证，组合报价仍来自真实目录。排名查询失败时保留限制并仅以推荐渠道生成组合。旧五层结果（layers/primary_role）仍兼容读取与展示，不批量改写历史记录。
+
 ## 网站集成扩展 2026.11.09-web.3
 
 2026.11.09-web.3 起 reason_summary 以媒体本身为主语直接陈述（如「东方网覆盖…」），不以「目录将其描述为」等转述开头；依据仍记录在 references。展示端对历史结果同步做同一改写。

@@ -1,5 +1,18 @@
 # 无预算矩阵与 AI 判断边界
 
+## 2026.11.10-web.1 媒体渠道建议契约（网站现行）
+
+第一环节 decisions envelope 为 `matrix_decisions={items,selected_media,excluded_candidates}`。items 每项仅允许 candidate_id,outlet_key,topic_fit,form_fit,audience_fit,matched_questions,references,reason_summary,reason_details,unconfirmed_items,selection,selection_reason,media_intro,content_direction（另可带 decision_basis=ai|rule）。
+
+- outlet_key 是实际独立发布载体标识：同一平台不同账号/别名/域名变体共用同一 key，占一个推荐名额；不同载体不因同集团合并。
+- topic_fit=direct|related|weak；form_fit=same|adaptable|rebuild；audience_fit=direct|adjacent|unclear。判断依据写入 reason_summary/reason_details，不能只给标签。
+- selected_media 按推荐顺序列出入选 candidate_id：仅 selection=recommended 且 topic_fit 为 direct/related 可入选；≤20 个；同一 outlet_key 去重；每入选项必须写 selection_reason。fit_order 覆盖全部已判断候选。
+- 内核逐候选校验（未知候选、重复、引用路径、证据范围、行业 aggregate 契约、渠道硬失败）；个别候选失败仅隔离该候选。selected_media 校验：成员必须在 items 且 recommended、非 weak、outlet 去重、≤20、有 selection_reason。
+- 渠道硬规则（publication_status、requirements、allowed/prohibited industries、restricted_regions、hard_conditions）仍决定 eligible/pending/ineligible；探索/补充角色字段与五层 layer_rank/ranking_reason 不再属于新契约（旧字段兼容读取）。
+- 行业排名：task.industry_context.media_ranking（供应商 media-ranking 前20，按规范化名称精确匹配到带 resource_id 的候选）；未匹配名称保留为参考清单，不生成候选或报价。
+
+
+
 `prepare_candidates(request: dict, analysis: dict) -> dict` 返回 matrix_version、完整 candidates 和 limitations。
 `validate_decisions(decisions: dict, candidates: dict, request: dict) -> list[dict]` 返回 `{code,path,message}` 错误；第二参数是 prepare_candidates 的完整结果。
 `assemble_matrix(request: dict, analysis: dict, decisions: dict) -> dict` 返回可信事实与已校验语义决定，不修改输入、不联网、不执行文档中的指令。

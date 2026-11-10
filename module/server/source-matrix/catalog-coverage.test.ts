@@ -50,17 +50,21 @@ function matrixInput(count:number){
  return {request,prepared:runPlanner(request,undefined,'matrix',undefined,now),as_of:now,skill:'test',instructions:''};
 }
 function batchDecisions(payload:Row):Row{
- const items=payload.candidates.map((candidate:Row,index:number)=>({candidate_id:candidate.candidate_id,primary_role:'industry',auxiliary_roles:[],matched_questions:['q'],selection:'recommended',reason_summary:'真实行业字段与当前芯片稿件相符',reason_details:[],unconfirmed_items:[],references:[{type:'attribute',path:candidate.attribute_paths[0]+'.industry'}],layer_rank:index+1,ranking_reason:'按真实行业和稿件主题比较'}));
- return {matrix_decisions:{items,fit_order:items.map((item:Row)=>item.candidate_id),excluded_candidates:[]}};
+ const items=payload.candidates.map((candidate:Row)=>({candidate_id:candidate.candidate_id,outlet_key:'芯片渠道-'+candidate.candidate_id,topic_fit:'direct',form_fit:'same',audience_fit:'direct',matched_questions:['q'],selection:'recommended',selection_reason:'真实行业字段与当前芯片稿件相符，优先于其余候选',reason_summary:'真实行业字段与当前芯片稿件相符',reason_details:[],unconfirmed_items:[],references:[{type:'attribute',path:candidate.attribute_paths[0]+'.industry'}]}));
+ return {matrix_decisions:{items,fit_order:items.map((item:Row)=>item.candidate_id),selected_media:items.slice(0,20).map((item:Row)=>item.candidate_id),excluded_candidates:[]}};
 }
-it('reviews every retained candidate beyond120 in bounded batches and merges continuous per-layer ranks',async()=>{
+it('reviews every retained candidate beyond120 in bounded batches and keeps the ordered ≤20 selection',async()=>{
  const input=matrixInput(145),sizes:number[]=[];
  const decisions=await createDecisionAdapter(async messages=>{const payload=JSON.parse(messages[1]!.content);sizes.push(payload.candidates.length);return batchDecisions(payload);}).matrix(input);
  const result=runPlanner(input.request,decisions,'matrix',undefined,now);
  expect(sizes.every(size=>size<=PROMPT_CANDIDATE_BATCH_SIZE)).toBe(true);expect(sizes.reduce((sum,size)=>sum+size,0)).toBe(145);
- expect(result.matrix.coverage.model).toMatchObject({status:'complete',reviewed_candidates:145,classified_candidates:145,unprocessed_candidates:0});
- expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').candidate_ids).toHaveLength(145);
- expect(result.matrix.candidates.map((candidate:Row)=>candidate.layer_rank)).toEqual(Array.from({length:145},(_,index)=>index+1));
+ expect(result.matrix.coverage.model).toMatchObject({status:'complete',reviewed_candidates:145,classified_candidates:145,selected_candidates:20,unprocessed_candidates:0});
+ expect(result.matrix.layers).toEqual([]);
+ expect(result.matrix.suggestions).toMatchObject({target_count:20,basis:'semantic'});
+ expect(result.matrix.suggestions.selected_candidate_ids).toHaveLength(20);
+ expect(new Set(result.matrix.suggestions.selected_candidate_ids).size).toBe(20);
+ expect(result.matrix.candidates.slice(0,20).map((candidate:Row)=>candidate.candidate_id)).toEqual(result.matrix.suggestions.selected_candidate_ids);
+ expect(result.matrix.candidates.every((candidate:Row)=>candidate.outlet_key)).toBe(true);
 });
 it('never treats partial new review metadata as a completed matrix or an empty suitable pool',()=>{
  const input=matrixInput(2),payload={candidates:[{candidate_id:'resource:r0',attribute_paths:['catalog[0]']}]},decision=batchDecisions(payload);
@@ -70,8 +74,7 @@ it('never treats partial new review metadata as a completed matrix or an empty s
   * unreviewed sibling is explicitly unprocessed — never complete, never empty. */
  expect(result.matrix.status).toBe('partial');
  expect(result.matrix.coverage.model).toMatchObject({status:'partial',classified_candidates:1,unprocessed_candidates:1});
- expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').status).toBe('populated');
- expect(result.matrix.layers.find((layer:Row)=>layer.role==='industry').classified_count).toBe(1);
+ expect(result.matrix.candidates.filter((candidate:Row)=>candidate.semantic_decision_validated)).toHaveLength(1);
  expect(result.limitations).toContain('model_classification_partial');
 });
 it('retains the previous successful batch count after a later provider failure',async()=>{
@@ -138,13 +141,21 @@ it('allows exact complete official-domain observation evidence without inventing
   expect(runPlanner(input.request,input.decision,'matrix',undefined,now).matrix.status).toBe('complete');
  }
 });
-it('rejects name-only, different-question and non-exact observed authority claims',()=>{
- for(const input of [observedAuthority('ordinary.example'),observedAuthority('agency.gov.cn','other')]){
-  const result=runPlanner(input.request,input.decision,'matrix',undefined,now);expect(result.errors.some((error:Row)=>error.code==='authority_evidence_unconfirmed')).toBe(true);
+it('keeps authority assertions out of the contract: ordinary or cross-question observations validate as plain outlets',()=>{
+ /* The five-role contract is retired (2026.11.10-web.1): an observed source is
+  * recommended as a media outlet with real evidence, and no authority layer is
+  * claimed. Evidence-scope validation still rejects non-exact identity use. */
+ for(const [host,question,expectEvidenceError] of [['ordinary.example','q',false],['agency.gov.cn','other',true]] as const){
+  const result=runPlanner(observedAuthority(host,question).request,observedAuthority(host,question).decision,'matrix',undefined,now);
+  expect(result.errors.some((error:Row)=>error.code==='authority_evidence_unconfirmed')).toBe(false);
+  expect(result.errors.some((error:Row)=>error.code==='invalid_evidence_reference')).toBe(expectEvidenceError);
  }
- const incomplete=observedAuthority();delete incomplete.request.citations[0].answer_record_id;expect(runPlanner(incomplete.request,incomplete.decision,'matrix',undefined,now).errors.some((error:Row)=>error.code==='authority_evidence_unconfirmed')).toBe(true);
+ const incomplete=observedAuthority();delete incomplete.request.citations[0].answer_record_id;
+ expect(runPlanner(incomplete.request,incomplete.decision,'matrix',undefined,now).errors.some((error:Row)=>error.code==='authority_evidence_unconfirmed')).toBe(false);
  const input=observedAuthority(),candidate=structuredClone(input.prepared.matrix.candidates[0]);candidate.identity_matches[0].relation='platform_related';candidate.evidence_relation='platform_related';
- expect(validateDecisions(input.decision.matrix_decisions,{candidates:[candidate],industry_aggregate_ids:[],require_role_evidence:true},input.request).some(error=>error.code==='authority_evidence_unconfirmed')).toBe(true);
+ /* A platform-related identity keeps its real evidence reference and the honest
+  * relation label; only the retired authority layer needed exact confirmation. */
+ expect(validateDecisions(input.decision.matrix_decisions,{candidates:[candidate],industry_aggregate_ids:[],require_role_evidence:true},input.request).some(error=>error.code==='invalid_evidence_reference')).toBe(false);
 });
 
 it('retains a lower-ranked candidate explicitly added in the matrix through selection_preferences alone',async()=>{

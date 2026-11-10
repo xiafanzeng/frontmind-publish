@@ -145,6 +145,21 @@ async function boundedCatalogQuery<T>(query:()=>Promise<T>,deadline:number,signa
   });
   try{return await Promise.race([query(),interrupted]);}finally{if(timer)clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }
+/** Exact-name lookup for supplier industry-ranking media that the bounded
+ * reservoir did not retain: the ranking only supplies display names, so the
+ * pinned rows are still real shared-catalogue resources with their own offers.
+ * A name that matches nothing stays a reference entry, never a candidate. */
+export async function lookupPlannerCatalogResourcesByName(db:MySql2Database<any>,ownerId:string,enterpriseProjectId:string,names:readonly string[]):Promise<Row[]> {
+  if(!ownerId||!enterpriseProjectId)return [];
+  const list=[...new Set(names.map(name=>String(name??'').trim()).filter(Boolean))].slice(0,20);
+  if(!list.length)return [];
+  const deadline=Date.now()+10_000;
+  try{
+    const result=await boundedCatalogQuery(()=>db.execute(sql`select r.id,r.name,r.external_resource_id,cast(r.price_ten_thousandths as char) as price,r.catalog_revision,r.raw_payload,r.media_kind,r.platform,r.description,r.area,r.taxonomy,r.media_type,c.image_support from publisher_media_resources r left join publisher_media_capabilities c on c.media_resource_id=r.id where r.is_active=1 and r.media_kind is not null and r.name in (${sql.join(list.map(name=>sql`${name}`),sql`,`)}) order by r.id`),deadline);
+    return resultRows(result).flatMap(catalogResourceRows);
+  }catch{return [];}
+}
+
 /** Quantity edits refresh the exact saved candidate identities; they do not run
  * another complete catalogue scan or replace the matrix with a new shortlist. */
 export async function reloadPlannerCatalog(db:MySql2Database<any>,ownerId:string,enterpriseProjectId:string,resourceIds:readonly string[]):Promise<Row[]> {

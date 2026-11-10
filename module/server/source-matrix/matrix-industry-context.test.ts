@@ -6,12 +6,17 @@ import { loadMatrixIndustryContext, type MatrixIndustryContextInput } from './ma
 const node = (scopeId = '9007199254740993', label = '汽车') => ({ id: 'node-' + scopeId, scopeId, label, scopeType: 'CATEGORY', children: [] });
 const filters = () => ({ models: [{ value: 'real-model', label: '供应商模型' }], minDate: '2026-10-15', maxDate: '2026-11-06', industryTree: [node()], sourceTypes: ['新闻资讯'] });
 const data = () => ({ sourceTypeDistribution: [{ code: 'news', name: '新闻资讯', citationCount: '9007199254740993' }], publishTimeDistribution: [{ code: 'recent', name: '近期', contentCount: '7' }] });
+const ranking = () => ({ items: [{ code: 'm1', name: '汽车资讯站', citationCount: '9007199254740991' }, { code: 'm2', name: '行业观察网', citationCount: '90' }, { code: 'm3', name: '区域车友台', citationCount: '60' }], pageSize: 20, total: '3', totalCitations: '9007199254740992', snapshotToken: 'snap-1', nextCursor: null, expiresAt: '9007199254740993' });
 const input = (): MatrixIndustryContextInput => ({ industryId: 'industry-auto', industryName: '汽车', identity: 'authenticated-owner-project-actor', environment: { FRONTMIND_SOURCE_MATRIX_MOLIZHISHU_API_TOKEN: 'test-server-only-token' } });
 const selection = (patch: Partial<IndustryCommonQuery> = {}): IndustryCommonQuery => ({ periodType: 'DAY', date: '2026-11-06', scopeType: 'CATEGORY', scopeId: '9007199254740993', modelCode: 'real-model', ...patch });
-function fixture(options: { filters?: unknown; data?: unknown; failure?: { endpoint: IndustryEndpoint; status: IndustryErrorStatus }; fetchedAt?: string } = {}) {
+function fixture(options: { filters?: unknown; data?: unknown; ranking?: unknown; rankingFailure?: IndustryErrorStatus; failure?: { endpoint: IndustryEndpoint; status: IndustryErrorStatus }; fetchedAt?: string } = {}) {
   const query = vi.fn(async (endpoint: IndustryEndpoint, _query: URLSearchParams, _identity: string, _token: string): Promise<IndustryResponse<unknown>> => {
     if (options.failure?.endpoint === endpoint) return { status: options.failure.status, message: 'private-upstream-message-test-secret', httpStatus: 502, retryable: false };
-    if (endpoint !== 'filters' && endpoint !== 'distributions') throw new Error('Billed endpoints are forbidden in this bridge');
+    if (endpoint === 'media-ranking') {
+      if (options.rankingFailure) return { status: options.rankingFailure, message: 'private-upstream-message-test-secret', httpStatus: 403, retryable: false };
+      return { status: 'ok', source: 'molizhishu-public-industry', fetchedAt: options.fetchedAt ?? '2026-11-07T01:00:00.000Z', data: options.ranking ?? ranking() };
+    }
+    if (endpoint !== 'filters' && endpoint !== 'distributions') throw new Error('Unexpected endpoint in this bridge: ' + endpoint);
     return { status: 'ok', source: 'molizhishu-public-industry', fetchedAt: options.fetchedAt ?? '2026-11-07T01:00:00.000Z', data: endpoint === 'filters' ? options.filters ?? filters() : options.data ?? data() };
   });
   return { query };
@@ -22,7 +27,7 @@ describe('matrix free industry context', () => {
     const provider = fixture(), request = input();
     const result = await loadMatrixIndustryContext(request, provider);
     expect(result.status).toBe('ok');
-    expect(provider.query.mock.calls.map(call => call[0])).toEqual(['filters', 'distributions']);
+    expect(provider.query.mock.calls.map(call => call[0])).toEqual(['filters', 'distributions', 'media-ranking']);
     expect(provider.query.mock.calls[0]![1].toString()).toBe('');
     expect(Object.fromEntries(provider.query.mock.calls[1]![1])).toEqual(selection({periodType:'MONTH',date:'2026-11-01'}));
     expect(provider.query.mock.calls[1]!.slice(2)).toEqual([request.identity, request.environment.FRONTMIND_SOURCE_MATRIX_MOLIZHISHU_API_TOKEN]);
@@ -41,8 +46,11 @@ describe('matrix free industry context', () => {
     const result=await loadMatrixIndustryContext({...input(),industryId:'201',configuredScopeId:'202'},provider);
     expect(result.status).toBe('ok');expect(result.query.scopeId).toBe('201');
     expect(result.provenance.scope.mapping).toBe('canonical_scope');
-    expect(provider.query.mock.calls.map(call=>call[0])).toEqual(['filters','distributions']);
+    expect(provider.query.mock.calls.map(call=>call[0])).toEqual(['filters','distributions','media-ranking']);
     expect(provider.query.mock.calls[1]![1].get('scopeId')).toBe('201');
+    expect(provider.query.mock.calls[2]![1].get('scopeId')).toBe('201');
+    expect(provider.query.mock.calls[2]![1].get('pageSize')).toBe('20');
+    expect(provider.query.mock.calls[2]![1].get('requestId')).toMatch(/^[a-zA-Z0-9-]{16,64}$/);
   });
   it('never moves a missing canonical scope to a similarly named category', async () => {
     const provider=fixture({filters:{...filters(),industryTree:[node('202')]}});
@@ -61,7 +69,26 @@ describe('matrix free industry context', () => {
       expect(row.data_version).toBe(result.data_version);
       for (const key of ['source_name', 'domain', 'account_id', 'channel_id', 'source_identity', 'resource_id', 'offer_id', 'ratio', 'percentage', 'brand']) expect(row).not.toHaveProperty(key);
     }
-    expect(result.limitations.join(' ')).toContain('未查询媒体排名');
+    expect(result.media_ranking.status).toBe('ok');
+    expect(result.media_ranking.items[0]).toEqual({ rank: 1, code: 'm1', name: '汽车资讯站', citation_count: '9007199254740991' });
+    expect(result.media_ranking.items).toHaveLength(3);
+    expect(result.media_ranking.expires_at).toBe('9007199254740993');
+    for (const item of result.media_ranking.items) for (const key of ['source_name', 'domain', 'resource_id', 'offer_id', 'account_id']) expect(item).not.toHaveProperty(key);
+    expect(result.limitations.join(' ')).toContain('不构成完整媒体证据');
+  });
+  it('keeps the free distribution snapshot when the billed media ranking fails', async () => {
+    const provider = fixture({ rankingFailure: 'entitlement_required' });
+    const result = await loadMatrixIndustryContext(input(), provider);
+    expect(result.status).toBe('ok');
+    expect(result.media_ranking.status).toBe('entitlement_required');
+    expect(result.media_ranking.items).toEqual([]);
+    expect(result.limitations.join(' ')).toContain('行业媒体排名不可用');
+    expect(JSON.stringify(result)).not.toContain('private-upstream-message-test-secret');
+  });
+  it('marks an empty supplier ranking page as empty instead of zero media', async () => {
+    const result = await loadMatrixIndustryContext(input(), fixture({ ranking: { ...ranking(), items: [], total: '0' } }));
+    expect(result.media_ranking.status).toBe('empty');
+    expect(result.limitations.join(' ')).toContain('未推断为无媒体');
   });
   it('does not fetch when supplier configuration or authenticated identity is absent', async () => {
     const provider = fixture();

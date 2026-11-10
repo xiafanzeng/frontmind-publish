@@ -618,7 +618,7 @@ it('one click generates an independent target platform task and automatically co
  fireEvent.change(await screen.findByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
  fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'DeepSeek'}});
  fireEvent.change(screen.getByLabelText('总预算（CNY）'),{target:{value:'3000'}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  // 一次点击后自动串联：预算请求以同一矩阵快照和用户明确填写的预算 3000 发出。
  // 任务轮询要等稿件授权状态就绪（2 秒周期），断言需覆盖至少一个轮询周期。
  await waitFor(()=>expect(budgetBodies.length).toBeGreaterThanOrEqual(1),{timeout:30000});
@@ -736,7 +736,7 @@ it('does not send the automatic budget stage to another task after leaving a run
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:matrixDemo.form.industry});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'901'}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('task-A'));
  await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-B');window.dispatchEvent(new PopStateEvent('popstate'));});
  await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('已有任务B'));
@@ -766,7 +766,7 @@ it('sends the selected CATEGORY range with lossless scope identity and no person
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'9007199254740993'}});
  expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(bodies).toHaveLength(1));
  expect(bodies[0]).toMatchObject({industry_query:{scopeType:'CATEGORY',scopeId:'9007199254740993',periodType:'MONTH',date:'2026-10-01',modelCode:'public-model'}});
  expect(bodies[0]).not.toHaveProperty('connection_mode');expect(bodies[0]).not.toHaveProperty('connection_revision');
@@ -777,7 +777,7 @@ it('leaves an unscoped query to the server industry mapping instead of sending A
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).not.toHaveProperty('industry_query');
 });
 it('keeps industry evidence in reports and still invalidates a changed range',async()=>{
  const query={scopeType:'CATEGORY',scopeId:'industry-live',periodType:'DAY',date:'2026-10-28',modelCode:'public-model'};
@@ -799,7 +799,7 @@ it('requires historical personal-model tasks to regenerate without offering conn
 it('keeps the previous matrix and cart when a replacement generation fails',async()=>{
  const fetcher=platformFixture(platformTask(),()=>{throw new Error('Synthetic platform failure');});openMatrix('');
  await waitFor(()=>expect((screen.getByLabelText('目标行业 *') as HTMLSelectElement).value).toBe('industry-live'));
- fireEvent.click(screen.getByRole('button',{name:'重新生成矩阵并组合'}));
+ fireEvent.click(screen.getByRole('button',{name:'重新生成推荐并组合'}));
  expect(await screen.findByText(/Synthetic platform failure/)).toBeTruthy();
  expect(screen.getByText(/下面保留上次有效矩阵/)).toBeTruthy();expect(screen.getByRole('heading',{name:'可投媒体'})).toBeTruthy();
  expect(screen.getByRole('button',{name:/配置标题/})).toBeTruthy();
@@ -819,7 +819,7 @@ it('ignores a delayed generation poll after the industry query has changed',asyn
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));await waitFor(()=>expect(polling).toBe(true));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));await waitFor(()=>expect(polling).toBe(true));
  await act(async()=>{window.history.pushState({},'',window.location.pathname+window.location.search.replace('siDate=2026-10-28','siDate=2026-10-27'));window.dispatchEvent(new PopStateEvent('popstate'));});
  await act(async()=>finish({state:'complete',task_id:'new-task',result:platformTask()}));
  expect(await screen.findByText(/行业范围或稿件已变化，先前生成结果未应用/)).toBeTruthy();
@@ -842,7 +842,7 @@ it('adopts only the verified first workbench assignment after generation and sti
  await screen.findByRole('option',{name:'软件测试'});await screen.findByRole('button',{name:'重新检查配置'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
  fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'软件测试公司怎么选'}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(new URLSearchParams(window.location.search).get('task')).toBe('generated-task'));
  const checkbox=await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'},{timeout:4000});
  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));fireEvent.click(checkbox);
@@ -865,7 +865,7 @@ it('ignores a generation response after the independent target platform changes'
  await screen.findByRole('option',{name:'真实行业'});
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
  fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'DeepSeek'}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/matrix/generate'))).toBe(true));
  fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'Kimi'}});
  await act(async()=>finish({task_id:'late-target-task',state:'complete',result:platformTask({target_platforms:['DeepSeek']})}));
@@ -887,7 +887,7 @@ it('adopts the latest verified research draft when identity arrives before a pen
  fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});
  fireEvent.change(screen.getByLabelText('目标平台'),{target:{value:'Kimi'}});
  fireEvent.change(screen.getByLabelText('期望发布时效'),{target:{value:'12'}});
- fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(submitted.target_platforms).toEqual(['Kimi']));
  await act(async()=>scopeReady({scopeKey:'a'.repeat(64)}));
  await waitFor(()=>expect(sessionStorage.length).toBeGreaterThan(0));
@@ -933,7 +933,7 @@ it('generates a valid canonical industry without legacy mappings and corrects st
  const base=fetcher.getMockImplementation()!;fetcher.mockImplementation(async(input:RequestInfo|URL,init?:RequestInit)=>String(input).endsWith('/industries')?{ok:true,json:async()=>({...canonicalCatalog([{id:'industry-live',name:'真实行业'}]),legacyMappings:[]})}:base(input,init));
  window.history.replaceState({},'', '/publishing/source-matrix?tab=matrix&siScope=42&siPeriod=DAY&siDate=2026-10-28&siModel=all');
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);await screen.findByRole('option',{name:'真实行业'});
- fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.click(screen.getByRole('button',{name:'生成推荐矩阵'}));
+ fireEvent.change(screen.getByLabelText('目标行业 *'),{target:{value:'industry-live'}});fireEvent.click(screen.getByRole('button',{name:'生成媒体渠道推荐'}));
  await waitFor(()=>expect(bodies).toHaveLength(1));expect(bodies[0]).toMatchObject({industry_id:'industry-live'});expect(bodies[0]).toMatchObject({industry_query:{scopeId:'industry-live',scopeType:'CATEGORY',periodType:'DAY',date:'2026-10-28',modelCode:'all'}});expect(screen.queryByText(/推荐数据尚未接入/)).toBeNull();
 });
 
@@ -994,7 +994,7 @@ it('uses compact server readiness for a restored task without copying the indust
 it('shows a failed semantic pool honestly and retains the matrix regenerate action',async()=>{
  const invalid={...platformTask(),status:'invalid_decisions',matrix:{...matrix.matrix,status:'invalid_decisions',candidates:matrix.matrix.candidates.map(row=>({...row,primary_role:null})),layers:[],fit_order:[]},errors:[{code:'invalid_aggregate_reference',path:'matrix_decisions.items[0]',message:'invalid reference'}]};
  platformFixture(invalid);openMatrix('');
- await screen.findAllByText('推荐分层未通过校验，请重新生成矩阵。');
+ await screen.findAllByText('媒体渠道推荐未通过校验，请重新生成矩阵。');
  expect(screen.getByText(/候选池 1 · 已分层 —/)).toBeTruthy();
  expect(screen.queryByText('0 个候选')).toBeNull();
  expect(screen.getByRole('button',{name:'重新生成矩阵'})).toBeTruthy();

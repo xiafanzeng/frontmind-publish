@@ -70,7 +70,13 @@ export function verifyRecommendations(submitted:unknown,matrix:Row,request:Row,a
  // when an intentional quantity edit makes two configurations temporarily equal.
  const edit=request.quantity_edits,editItems=object(edit)&&Number.isSafeInteger(edit.plan_index)&&edit.plan_index>=0?submitted[edit.plan_index]?.items:undefined;
  const preserveEditSlots=object(edit)&&['recommendation','content'].includes(edit.plan_kind)&&rows(editItems)&&rows(edit.items)&&edit.items.length>0&&edit.items.every(change=>Number.isSafeInteger(change.item_index)&&change.item_index>=0&&Number.isSafeInteger(change.quantity)&&change.quantity>=1&&change.quantity<=100&&editItems[change.item_index]?.candidate_id===change.candidate_id&&editItems[change.item_index]?.quantity===change.quantity);
- const candidates:Row[]=matrix.matrix?.candidates??[],selectable=candidates.filter(c=>c.semantic_decision_validated&&['recommended','alternative'].includes(c.selection)),all=selectable.map(c=>c.candidate_id),errors:Row[]=[],warnings:Row[]=[],plans:Row[]=[],seen=new Set<string>();
+ const candidates:Row[]=matrix.matrix?.candidates??[],
+ /* The combination pool is the stage-1 recommendation union industry top-20:
+  * a supplier-ranked real catalogue resource joins even when the model did not
+  * select it (or was still unprocessed), but channel-ineligible resources
+  * stay out — their items would never pass pricing checks. */
+ selectable=candidates.filter(c=>(c.semantic_decision_validated&&['recommended','alternative'].includes(c.selection))||(c.industry_rank&&c.resource_id&&c.channel_status!=='ineligible'&&!c.hard_failures?.length)),
+ all=selectable.map(c=>c.candidate_id),errors:Row[]=[],warnings:Row[]=[],plans:Row[]=[],seen=new Set<string>();
  const droppedNotes:Row[]=[];
  for(const [index,plan] of submitted.entries()){
   const planErrors:Row[]=[],path=`recommendations[${index}]`;
