@@ -142,6 +142,24 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
   const others=suggestion.others.filter(candidate=>{const key=familyKey(candidate);return key?!familyNames.has(key):true;});
   const renderedFamilies=new Set<string>();
   const memberPlatform=(member:Candidate)=>{const media=mediaFor(member.resource_id);const platform=media?.platform??member.attributes.platform;return typeof platform==='string'&&platform.trim()?platform.trim():'同名账号';};
+  /* Family basis = the advantages shared by every same-named account: clauses
+   * present in all members' bases are the model's own common ground. When the
+   * members diverge, the representative's channel-level basis carries the
+   * family (web.4 prompts write channel advantages there) and the
+   * representative's own member row falls back to its account-level summary so
+   * the family text never appears twice. */
+  const basisClauses=(text:string)=>text.split(/[。；;]/).map(part=>part.trim()).filter(part=>part.length>=6);
+  const familyBasisOf=(family:Candidate[])=>{
+   const head=String(family[0]?.selection_reason??family[0]?.reason_summary??'');
+   const headBasis=head||'推荐依据待补充（可重试未完成项）';
+   /* Intersection runs over the members that carry a comparative
+    * selection_reason; account-only summaries stay neutral, and a clause
+    * shared by every reasoned member (at least two) is the channel's common
+    * ground. */
+   const reasoned=family.map(member=>String(member.selection_reason??'')).filter(Boolean);
+   const common=reasoned.length>=2?basisClauses(headBasis).filter(clause=>reasoned.slice(1).every(other=>basisClauses(other).includes(clause))):[];
+   return common.length?common.join('；')+'；各平台账号的差异化侧重见展开行。':headBasis;
+  };
   const familyType=(family:Candidate[])=>[...new Set(family.map(member=>candidateMediaType(member,mediaFor(member.resource_id))))].join('/');
   const familyPrice=(family:Candidate[])=>{
    const prices=family.map(member=>mediaFor(member.resource_id)).filter((media):media is MediaResource=>!!media&&/^\d+$/.test(media.priceTenThousandths)&&BigInt(media.priceTenThousandths)>0n).map(media=>BigInt(media.priceTenThousandths));
@@ -165,10 +183,10 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
     const open=expanded.includes('family:'+candidate.candidate_id);
     const highlighted=family.some(member=>{const memberMedia=mediaFor(member.resource_id);return memberMedia&&isSelected(memberMedia);});
     return <Fragment key={candidate.candidate_id}>
-     <tr className={highlighted?'is-highlighted sm-suggest-family':'sm-suggest-family'}><th scope="row"><span className="sm-suggest-name">{index+1}. {media?.name??candidateName(candidate)}</span>{candidate.industry_rank&&<span className="sm-suggest-rank">行业引用第 {candidate.industry_rank.rank} 位</span>}</th><td>{familyType(family)}</td><td className="sm-suggest-price">{familyPrice(family)}</td><td className="sm-suggest-basis">{basis}{candidate.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button><button className="link small" aria-expanded={open} onClick={()=>setExpanded(current=>current.includes('family:'+candidate.candidate_id)?current.filter(value=>value!=='family:'+candidate.candidate_id):[...current,'family:'+candidate.candidate_id])}>{open?'收起同名账号':`展开 ${family.length-1} 个同名平台账号`}</button></div></td></tr>
+     <tr className={highlighted?'is-highlighted sm-suggest-family':'sm-suggest-family'}><th scope="row"><span className="sm-suggest-name">{index+1}. {media?.name??candidateName(candidate)}</span>{candidate.industry_rank&&<span className="sm-suggest-rank">行业引用第 {candidate.industry_rank.rank} 位</span>}</th><td>{familyType(family)}</td><td className="sm-suggest-price">{familyPrice(family)}</td><td className="sm-suggest-basis">{familyBasisOf(family)}{candidate.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(candidate)}>查看推荐理由</button><button className="link small" aria-expanded={open} onClick={()=>setExpanded(current=>current.includes('family:'+candidate.candidate_id)?current.filter(value=>value!=='family:'+candidate.candidate_id):[...current,'family:'+candidate.candidate_id])}>{open?'收起同名账号':`展开 ${family.length} 个同名平台账号`}</button></div></td></tr>
      {open&&family.map(member=>{
       const memberMedia=mediaFor(member.resource_id),memberBlocked=referenceOnly.has(member.candidate_id)?'参考阅读，非购买发布位':memberMedia?issue(member,memberMedia):'尚未映射可售资源，仅供研究';
-      const memberBasis=member.selection_reason||member.reason_summary||'该账号的单独推荐依据待补充（可重试未完成项）。';
+      const memberBasis=member.candidate_id===candidate.candidate_id?(member.reason_summary||member.selection_reason||'该账号的单独推荐依据待补充（可重试未完成项）。'):(member.selection_reason||member.reason_summary||'该账号的单独推荐依据待补充（可重试未完成项）。');
       return <tr key={'member-'+member.candidate_id} className="sm-suggest-member"><th scope="row"><span className="sm-suggest-name">{memberPlatform(member)}</span></th><td>{candidateMediaType(member,memberMedia)}</td><td className="sm-suggest-price">{catalogPriceOf(memberMedia)}</td><td className="sm-suggest-basis">{memberBasis}{member.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(member)}>查看推荐理由</button>{memberMedia&&!memberBlocked&&<label className={'sm-add'+(memberBlocked?' is-disabled':'')} title={memberBlocked||undefined}><input type="checkbox" aria-label={'选择 '+(memberMedia.name??candidateName(member))+' '+(memberMedia.platform??'')} checked={isSelected(memberMedia)} disabled={!!memberBlocked} onChange={()=>onToggle(member.candidate_id)}/>{isSelected(memberMedia)?'已加入':'加入购物车'}</label>}{!memberMedia&&<span className="small muted">仅供研究</span>}{memberBlocked&&memberMedia&&<small className="sm-candidate-issue">{memberBlocked}</small>}</div></td></tr>;
      })}
     </Fragment>;

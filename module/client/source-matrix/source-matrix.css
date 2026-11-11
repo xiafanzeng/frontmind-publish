@@ -267,6 +267,7 @@
 .fm-media .sm-suggest-table{width:100%;border-collapse:collapse;font-size:13px}
 .fm-media .sm-suggest-table th,.fm-media .sm-suggest-table td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.6}
 .fm-media .sm-suggest-table thead th{background:var(--canvas);font-size:12px;color:var(--muted)}
+.fm-media .sm-suggest-table td:nth-of-type(1){white-space:nowrap}
 .fm-media .sm-suggest-table tr.is-highlighted th,.fm-media .sm-suggest-table tr.is-highlighted td{background:var(--selected)}
 .fm-media .sm-suggest-name{font-weight:600;color:var(--ink);display:block}
 .fm-media .sm-suggest-rank{display:block;font-size:11px;color:var(--muted);margin-top:2px}
