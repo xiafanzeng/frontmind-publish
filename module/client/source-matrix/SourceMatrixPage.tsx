@@ -377,7 +377,13 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   }catch(e){if(!abort.signal.aborted&&seq===sequence.current){if(stage==='matrix')followUpBudget.current=false;setFailedOperation(stage);setError(new Error(serviceMessage(e instanceof Error?e.message:String(e))));setBusy(false);setBudgetPending(false);pendingBudget.current=null;}}finally{if(seq===sequence.current)submissionLock.current=false;}
  }
  async function cancel(){
-  if(!taskId||cancelRequest.current&&!cancelRequest.current.signal.aborted)return;
+  if(!taskId){
+   // 生成请求仍在途（服务端尚未返回任务号）：直接中止本次请求并复位界面。
+   request.current?.abort();pollRequest.current?.abort();submissionLock.current=false;sequence.current++;
+   setBusy(false);setBudgetPending(false);pendingBudget.current=null;setGenerationPhase('');setNotice('已取消本次生成请求。');
+   return;
+  }
+  if(cancelRequest.current&&!cancelRequest.current.signal.aborted)return;
   followUpBudget.current=false;
   const abort=new AbortController(),context=latestRecommendationContext.current,seq=sequence.current;cancelRequest.current=abort;
   const current=()=>mounted.current&&!abort.signal.aborted&&context===latestRecommendationContext.current&&seq===sequence.current;
@@ -770,7 +776,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
       <label className="sm-demand-questions">目标问题 / 内容需求 *<textarea className="field" aria-label="目标问题 / 内容需求 *" disabled={identificationLoading} aria-required="true" aria-invalid={!!fieldError&&errorStage==='matrix'&&!questions.trim()} aria-describedby={fieldError&&errorStage==='matrix'?'sm-demand-error':undefined} value={questions} placeholder="输入目标问题" onChange={e=>setQuestions(e.target.value)}/>{hasArticleContext&&<ArticleIdentificationFieldInfo fieldKey="questions" identification={identification}/>}</label></div>
      {savedIndustryResolution?.reason&&savedIndustryResolution.reason!=='missing'&&<p className="small" role="status">原任务行业尚未对应到当前目录，请核对行业后重新生成矩阵。</p>}
      {researchFormScope.error&&<p className="small" role="status">{researchFormScope.error}<button type="button" className="link small" onClick={researchFormScope.retry}>重试保存草稿</button></p>}
-     <div className="sm-demand-actions"><div>{industryUnavailable&&!hasArticleContext&&<p className="small" role="status">{industryCatalog.error?.status==='configuration_required'?'行业目录暂不可用，请稍后重试或联系运营。':serviceMessage(industryCatalog.error?.message||'行业目录暂不可用，请重试。')}<button type="button" className="link small" disabled={loading} onClick={industryCatalog.retry}>重试读取行业</button></p>}{busy&&!budgetPending&&<p className="small muted" role="status">矩阵生成预计需要约 5–10 分钟（候选越多耗时越长），期间可离开本页，稍后点击“刷新结果”查看进度。</p>}</div><div className="actions">{busy&&taskId&&<button type="button" className="button secondary" onClick={()=>void cancel()}>取消生成</button>}<button className="button primary" disabled={busy||loading} type="submit">{busy&&!budgetPending?generationPhase||'正在生成…':result?'重新生成推荐并组合':'生成媒体渠道推荐'}</button></div></div>
+     <div className="sm-demand-actions"><div>{industryUnavailable&&!hasArticleContext&&<p className="small" role="status">{industryCatalog.error?.status==='configuration_required'?'行业目录暂不可用，请稍后重试或联系运营。':serviceMessage(industryCatalog.error?.message||'行业目录暂不可用，请重试。')}<button type="button" className="link small" disabled={loading} onClick={industryCatalog.retry}>重试读取行业</button></p>}{busy&&!budgetPending&&<p className="small muted" role="status">矩阵生成预计需要约 5–10 分钟（候选越多耗时越长），期间可离开本页，稍后点击“刷新结果”查看进度。</p>}</div><div className="actions">{busy&&<button type="button" className="button secondary" onClick={()=>void cancel()}>取消生成</button>}<button className="button primary" disabled={busy||loading} type="submit">{busy&&!budgetPending?generationPhase||'正在生成…':result?'重新生成推荐并组合':'生成媒体渠道推荐'}</button></div></div>
      
      {(brandData||connectionError||!connectionState?.available)&&<div className="sm-input-status" aria-live="polite">{brandData&&<span>历史任务样本：{brandBatches.find(batch=>batch.id===brandData)?.label??'原品牌样本'}{samplePlatform?` · 样本平台：${samplePlatform}`:''}<button type="button" className="link small" disabled={busy} onClick={()=>{formDraft.setField('brandData','');formDraft.setField('samplePlatform','');}}>取消选用历史样本</button></span>}{(connectionError||!connectionState?.available)&&<span>{connectionError||(connectionState?connectionState.message||'推荐服务暂不可用，请稍后重试或联系运营。':'正在读取推荐服务状态…')}{(connectionError||connectionState&&!connectionState.available)&&<button type="button" className="link small" onClick={()=>{setConnectionState(null);setConnectionEpoch(value=>value+1);}}>重试读取服务状态</button>}</span>}</div>}
      {errorStage==='matrix'&&fieldError&&<p id="sm-demand-error" className="block-error" role="alert">{fieldError}</p>}
