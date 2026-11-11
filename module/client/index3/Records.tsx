@@ -130,7 +130,7 @@ export default function Index3Records() {
                       <td><Badge tone={badge.tone}>{badge.label}</Badge></td>
                       <td className="small muted numeric">{publishingDateTime(batch.createdAt)}</td>
                       <td className="right">
-                        <button type="button" className="link" onClick={() => openDetail(batch.id)}>查看详情</button>
+                        <button type="button" className="btn small primary compact" onClick={() => openDetail(batch.id)}>查看详情</button>
                       </td>
                     </tr>
                   );
