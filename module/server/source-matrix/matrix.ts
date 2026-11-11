@@ -17,6 +17,28 @@ export function outletKeyOf(candidate:Row):string {
   const attributes=candidate.attributes??{};
   return normalizeMediaName(attributes.domain??attributes.source_name??attributes.name??candidate.resource_id??candidate.candidate_id);
 }
+/** A selected channel is the name the buyer sees. The catalog media name and the
+ * model-declared outlet_key are two partial views of the same identity: the
+ * name catches same-named catalog rows the model relabelled (e.g. per-platform
+ * suffixes), the declared key catches differently-named rows of one account.
+ * A duplicate under either view occupies two of the ≤20 slots. */
+export interface OutletIdentity{name:string;key:string}
+export function outletIdentity(candidate:Row):OutletIdentity {
+  const attributes=candidate.attributes??{};
+  const decided=typeof candidate.outlet_key==='string'&&candidate.outlet_key.trim()?candidate.outlet_key.trim():'';
+  /* The declared-key fallback keeps the original outletKeyOf chain, so a
+   * legacy item without outlet_key still identifies by its catalog media name
+   * and intersects with a sibling that declares that name as its key. */
+  return {name:normalizeMediaName(attributes.source_name??attributes.name??''),key:decided?normalizeMediaName(decided)||decided.toLowerCase():outletKeyOf(candidate)};
+}
+export interface OutletSeen{names:Set<string>;keys:Set<string>}
+export const createOutletSeen=():OutletSeen=>({names:new Set<string>(),keys:new Set<string>()});
+export function outletDuplicate(seen:OutletSeen,identity:OutletIdentity):boolean {
+  const duplicate=(identity.name!==''&&seen.names.has(identity.name))||(identity.key!==''&&seen.keys.has(identity.key));
+  if(identity.name!=='')seen.names.add(identity.name);
+  if(identity.key!=='')seen.keys.add(identity.key);
+  return duplicate;
+}
 function manuscriptChecks(manuscripts:Row[],catalog:Row[]):Row {
   const checks=manuscripts.map(m=>{
     const matches=catalog.flatMap(r=>r.manuscript_checks??[]).filter(c=>m.article_id&&m.version&&c.article_id===m.article_id&&c.version===m.version);
@@ -145,7 +167,7 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
    * outlets. Membership/eligibility is kernel-checked; ordering is the model's. */
   if(d.selected_media!==undefined){
     const chosen=strings(d.selected_media)?d.selected_media:[];
-    const outletSeen=new Set<string>();
+    const outletSeen=createOutletSeen();
     if(unique(chosen).length!==chosen.length)err('duplicate_selected_media','decisions.selected_media');
     if(chosen.length>SUGGESTION_TARGET_COUNT)err('too_many_selected_media','decisions.selected_media',`最多推荐${SUGGESTION_TARGET_COUNT}个媒体渠道`);
     chosen.forEach((id,i)=>{
@@ -153,9 +175,7 @@ export function validateDecisions(d:Row,p:Row,r:Row):Issue[] {
       if(!item){err('unknown_selected_media',`decisions.selected_media[${i}]`);return;}
       if(item.selection!=='recommended')err('selected_media_not_recommended',`decisions.selected_media[${i}]`);
       if(String(item.topic_fit)==='weak')err('selected_media_weak_topic',`decisions.selected_media[${i}]`,'弱相关渠道不能凑数入选');
-      const outlet=outletKeyOf({...item,attributes:byId.get(id)?.attributes??{}});
-      if(outletSeen.has(outlet))err('duplicate_selected_outlet',`decisions.selected_media[${i}]`,'同一实际媒体载体不能重复占推荐名额');
-      outletSeen.add(outlet);
+      if(outletDuplicate(outletSeen,outletIdentity({...item,attributes:byId.get(id)?.attributes??{}})))err('duplicate_selected_outlet',`decisions.selected_media[${i}]`,'同一实际媒体载体不能重复占推荐名额');
       if(!text(item.selection_reason))err('missing_selection_reason',`decisions.items[${items.indexOf(item)}]`,'入选媒体须写明相较其余候选的推荐依据');
     });
     if(!errors.some(error=>error.path.startsWith('decisions.selected_media'))){
@@ -249,15 +269,14 @@ export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {
   let selectionBasis=explicitSelection.length?'semantic':'derived';
   if(attach&&explicitSelection.length&&!selectedIds.length)selectionBasis='derived';
   if(!selectedIds.length&&attach){
-    const outletSeen=new Set<string>();
+    const outletSeen=createOutletSeen();
     selectedIds=[];
     for(const id of order){
       const candidate=decidedById.get(id);
       if(!candidate||candidate.selection!=='recommended')continue;
       if(String(candidate.topic_fit)==='weak')continue;
-      const outlet=String(candidate.outlet_key);
-      if(outletSeen.has(outlet))continue;
-      outletSeen.add(outlet);selectedIds.push(id);
+      if(outletDuplicate(outletSeen,outletIdentity(candidate)))continue;
+      selectedIds.push(id);
       if(selectedIds.length>=SUGGESTION_TARGET_COUNT)break;
     }
   }
@@ -267,9 +286,10 @@ export function assembleMatrix(r:Row,a:Row,d:Row={}):Row {
   const fitRank=new Map<string,number>(order.map((id,index)=>[id,index]));
   if(selectedIds.length)candidates.sort((a,b)=>{const sa=selectedSet.has(a.candidate_id)?selectedIds.indexOf(a.candidate_id):SUGGESTION_TARGET_COUNT+1,sb=selectedSet.has(b.candidate_id)?selectedIds.indexOf(b.candidate_id):SUGGESTION_TARGET_COUNT+1;return sa-sb||(fitRank.get(a.candidate_id)??order.length)-(fitRank.get(b.candidate_id)??order.length);});
   else if(order.length)candidates.sort((a,b)=>(fitRank.get(a.candidate_id)??order.length)-(fitRank.get(b.candidate_id)??order.length));
-  /* Program-owned dedup guard: a later duplicate outlet can never occupy two
-   * of the ≤20 recommendation slots even if envelope checks were bypassed. */
-  const dedupSeen=new Set<string>();selectedIds=selectedIds.filter(id=>{const outlet=String(decidedById.get(id)?.outlet_key??id);if(dedupSeen.has(outlet))return false;dedupSeen.add(outlet);return true;});
+  /* Program-owned dedup guard: a later duplicate channel — same catalog media
+   * name or same declared outlet key — can never occupy two of the ≤20
+   * recommendation slots even if envelope checks were bypassed. */
+  const dedupSeen=createOutletSeen();selectedIds=selectedIds.filter(id=>{const candidate=decidedById.get(id);if(candidate&&outletDuplicate(dedupSeen,outletIdentity(candidate)))return false;return true;});
   const suggestions={target_count:SUGGESTION_TARGET_COUNT,dedup:'outlet_key',basis:selectionBasis,selected_candidate_ids:selectedIds};
   const layers=Object.entries(roles).map(([role,display_name])=>{
     const members=candidates.filter(c=>c.primary_role===role).sort((a,b)=>(a.layer_rank??Infinity)-(b.layer_rank??Infinity)||(fitRank.get(a.candidate_id)??Infinity)-(fitRank.get(b.candidate_id)??Infinity));

@@ -141,6 +141,29 @@ it('deduplicates one outlet picked independently by several batches before the e
  expect(result.matrix.suggestions.selected_candidate_ids).toHaveLength(1);
  expect(result.errors.filter((error:Row)=>error.code==='duplicate_selected_outlet')).toEqual([]);
 });
+it('treats same-named catalog rows as one channel even when the model relabels each outlet_key',async()=>{
+ /* Live failure shape: one media name listed as three platform accounts, and
+  * the model wrote outlet_key="platform"+平台名 per row, so single-key dedup
+  * let the same visible channel occupy three of the ≤20 slots. The union
+  * identity (catalog name ∪ declared key) must keep one slot only. */
+ const request:Row={task,catalog:[['今日头条'],['百家号'],['抖音']].map(([platform],index)=>({resource_id:'r'+index,source_name:'冯浩洋升学规划',platform,industry:'教育',publication_status:'available'}))};
+ const input={request,prepared:runPlanner(request,undefined,'matrix',undefined,now),as_of:now,skill:'test',instructions:''};
+ const decisions=await createDecisionAdapter(async messages=>{
+   const payload=JSON.parse(messages[1]!.content);
+   const items=payload.candidates.map((candidate:Row)=>({candidate_id:candidate.candidate_id,outlet_key:'platform'+candidate.attributes.platform,topic_fit:'direct',form_fit:'same',audience_fit:'direct',matched_questions:['q'],selection:'recommended',selection_reason:'教育升学内容与目标受众相符，优先于其余候选',reason_summary:'同名渠道的教育账号',reason_details:[],unconfirmed_items:[],references:[{type:'attribute',path:candidate.attribute_paths[0]+'.industry'}]}));
+   return {matrix_decisions:{items,fit_order:items.map((item:Row)=>item.candidate_id),selected_media:items.map((item:Row)=>item.candidate_id),excluded_candidates:[]}};
+ }).matrix(input);
+ expect(decisions?.matrix_decisions.selected_media).toHaveLength(1);
+ const result=runPlanner(input.request,decisions,'matrix',undefined,now);
+ expect(result.matrix.status).toBe('complete');
+ expect(result.matrix.suggestions.selected_candidate_ids).toHaveLength(1);
+ expect(result.errors.filter((error:Row)=>error.code==='duplicate_selected_outlet')).toEqual([]);
+ /* The kernel check itself must flag a raw same-name envelope (this is what
+  * guards rule-derived orders and any path that bypasses the adapter merge). */
+ const items=(decisions!.matrix_decisions.items as Row[]);
+ const rawErrors=validateDecisions({items,fit_order:items.map(item=>item.candidate_id),selected_media:items.map(item=>item.candidate_id),excluded_candidates:[]} as Row,{candidates:input.prepared.matrix.candidates,industry_aggregate_ids:[],require_role_evidence:true} as Row,request);
+ expect(rawErrors.filter((error:Row)=>error.code==='duplicate_selected_outlet')).toHaveLength(2);
+});
 
 it('bounds budget context but retains explicit candidates beyond the ranked top slots and exact prices',async()=>{
  const input=matrixInput(90),catalog=input.request.catalog.map((row:Row,index:number)=>({...row,offer_id:null,publication_spec:null,pricing:{kind:'unit',amount:index+'.25',currency:'CNY',quoted_at:null,valid_until:null,mandatory_fees:null}}));

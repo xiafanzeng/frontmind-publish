@@ -25,6 +25,23 @@ it('shows all five layers and hides undecided candidates instead of a research l
  expect(screen.queryByText('待判断与研究候选')).toBeNull();
  expect(screen.queryByRole('checkbox')).toBeNull();expect(screen.getAllByRole('button',{name:'查看推荐理由'})).toHaveLength(2);
 });
+it('renders the media library catalog price per article column in the suggestion table',()=>{
+ const priced={...candidate('A',null),resource_id:'resource-a',semantic_decision_validated:true};
+ const unpriced={...candidate('B',null),resource_id:'resource-b',semantic_decision_validated:true};
+ const research={...candidate('research',null),semantic_decision_validated:true};
+ const suggestionResult={...result,matrix:{...result.matrix,candidates:[priced,unpriced,research],layers:[],suggestions:{target_count:20,dedup:'outlet_key',basis:'semantic',selected_candidate_ids:['A','B','research']}}} as unknown as MatrixResult;
+ const pricedMedia={id:'media-1',name:'测试门户',kind:'news',priceTenThousandths:'1990000'} as import('../types').MediaResource;
+ const freeMedia={id:'media-2',name:'待询价媒体',kind:'self_media',priceTenThousandths:'0'} as import('../types').MediaResource;
+ const mediaFor=(id:string|null)=>id==='resource-a'?pricedMedia:id==='resource-b'?freeMedia:undefined;
+ render(<MatrixRecommendation result={suggestionResult} highlightedPlan={null} mediaFor={mediaFor} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
+ expect(screen.getByRole('columnheader',{name:'目录价/篇'})).toBeTruthy();
+ // formatPublishingMoney renders 万分位 as CNY: 1990000 -> ¥199.00.
+ expect(screen.getByText('¥199.00')).toBeTruthy();
+ expect(screen.getByText('待询价')).toBeTruthy();
+ expect(screen.getByText('—')).toBeTruthy();
+ expect(screen.getByText('门户媒体')).toBeTruthy();
+ expect(screen.getByText('第三方自媒体')).toBeTruthy();
+});
 it('keeps quotation identity when comparing combinations and limits to three distinct combinations',()=>{
  const first=plan('A'),duplicate=structuredClone(first),anotherQuote=plan('A','quote-2'),second=plan('B'),fourth=plan('C');
  expect(differentPlans([first,duplicate,anotherQuote,second,fourth])).toEqual([first,anotherQuote,second]);

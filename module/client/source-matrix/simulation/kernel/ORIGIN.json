@@ -25,8 +25,8 @@
     {
       "source": "module/server/source-matrix/matrix.ts",
       "browser": "module/client/source-matrix/simulation/kernel/matrix.ts",
-      "source_sha256": "a46c8b238e281f90fffaa0d78ec4996ca7ab29fda50e4015a44d4cf5fced12d3",
-      "browser_sha256": "630b46fc953f293d014490df496b8578273dab927a4f7992254916abe54cd70f",
+      "source_sha256": "bda91fa9b3b8a240317bc1f27e848906dc300c2bcde75418404156429e6e99d1",
+      "browser_sha256": "5837940d6bce8f14521c7227f730746cfeef9cb58e8ca9c45d236171da1824ca",
       "adaptation": "shared import path ../../shared -> ../../../../shared"
     },
     {

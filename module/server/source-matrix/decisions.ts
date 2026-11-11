@@ -3,7 +3,7 @@ import type { SourceMatrixDecisionAdapter } from './adapter.js';
 import { identificationMessages } from './article-identification.js';
 import { endpointFor, invokeAi, type AiSettings } from './ai-connection-provider.js';
 import { industryContextAggregates } from './industry-context-evidence.js';
-import { outletKeyOf, validateDecisions } from './matrix.js';
+import { createOutletSeen, outletDuplicate, outletIdentity, validateDecisions } from './matrix.js';
 import { ruleExplanation } from './content-plans.js';
 import { minorAmount, priceRecommendationItems } from './recommendation-pricing.js';
 import { money } from './contracts.js';
@@ -273,7 +273,7 @@ function questionsOf(request: Row): Array<{ question_id: string; text: string }>
 
 const decisionRules = `只输出一个JSON对象：{"matrix_decisions":{"items":[],"selected_media":[],"excluded_candidates":[]}}。
 目标：从全部候选中按推荐顺序选出最多20个去重后的独立媒体获取渠道。每项字段candidate_id,outlet_key,topic_fit,form_fit,audience_fit,matched_questions,references,reason_summary,reason_details,unconfirmed_items,selection,selection_reason,media_intro,content_direction。
-outlet_key是该媒体实际独立发布载体标识：同一平台的不同账号、别名或域名变体共用同一key，不能占两个推荐名额；真正不同的载体不因同一集团合并。名称/域名相近不足以合并时按独立载体处理并在理由中说明。
+outlet_key是该媒体实际独立发布载体标识：直接使用该候选目录记录的媒体名称，不写平台名、编号或自造前后缀；同一平台的不同账号、别名或域名变体共用同一key，不能占两个推荐名额；同名媒体即使分布在不同平台账号也视为同一渠道，只占一个名额；真正不同的载体不因同一集团合并。名称/域名相近不足以合并时按独立载体处理并在理由中说明。
 topic_fit=direct|related|weak（与本任务主题/用途的关系）；form_fit=same|adaptable|rebuild（当前稿件或素材能否直接/改编后在该渠道发布）；audience_fit=direct|adjacent|unclear（与目标受众的关系）。三个判断的依据写进reason_summary/reason_details，不能只给标签或媒体名气。
 selection为recommended（适合推荐）或alternative（备选）。selected_media按推荐顺序列出入选candidate_id：只有selection=recommended且topic_fit为direct或related的候选可入选；最多20个；同一outlet_key只占一个名额；不足20给实数并说明缺口，不用弱相关、官网或身份未明来源凑数。每个入选候选必须写selection_reason：相较其余候选的实际推荐依据（已知属性→与本次投放的关联→承担的内容任务），不能按引用量或价格机械截取。
 逐一判断本批全部candidates：适合推荐写items，明确错配或身份不符写excluded_candidates(每项只有candidate_id,reason)，不得遗漏。core_candidates是前批已入选的推荐锚点，仅供衔接参考，不重新输出。
@@ -544,17 +544,22 @@ export function createDecisionAdapter(send:(messages:ChatMessage[],options?:Deci
       const transportFailure=[...failedById.values()].flatMap(entry=>entry.errors.filter((err:{code:string})=>/^llm_http_/.test(err.code)))[0]??[...failedById.values()].flatMap(entry=>entry.errors.filter((err:{code:string})=>err.code.startsWith('provider_')&&err.code!=='provider_timeout'))[0];
       const reviewSummary=reviewError??transportFailure?.code??(hadFailures?'matrix_batch_invalid':null);
       /* Cross-batch selection: the model's ordered picks, kept only when the
-       * candidate actually carries a validated decision, deduplicated per
-       * actual outlet and capped at the suggestion target. Batches review
-       * disjoint candidate sets, so two batches can independently pick two
-       * accounts of the same outlet; the merged envelope must not carry both,
-       * or the kernel's duplicate_selected_outlet diagnostic resurfaces at
-       * every budget replay. Rule fallbacks produce no explicit selection and
-       * let the kernel derive its labelled order instead. */
+       * candidate actually carries a validated decision, deduplicated per real
+       * channel and capped at the suggestion target. Batches review disjoint
+       * candidate sets, so two batches can independently pick two rows of the
+       * same channel; the merged envelope must not carry both, or the kernel's
+       * duplicate_selected_outlet diagnostic resurfaces at every budget replay.
+       * Identity is the union the kernel enforces: same catalog media name or
+       * same declared outlet key — the model sometimes relabels one channel
+       * with per-platform outlet_key values, and the name must still catch it. */
       const decidedItemIds=new Set(items.map(item=>String(item.candidate_id)));
-      const itemOutlet=new Map<string,string>(items.map(item=>{const server=serverCandidates.get(String(item.candidate_id));return [String(item.candidate_id),outletKeyOf({...item,attributes:server?.attributes??{}})] as [string,string];}));
-      const outletSeen=new Set<string>();
-      const selectedMedia=selectedOrder.filter(id=>{if(!decidedItemIds.has(id))return false;const outlet=itemOutlet.get(id)??id;if(outletSeen.has(outlet))return false;outletSeen.add(outlet);return true;}).slice(0,20);
+      const itemById=new Map(items.map(item=>[String(item.candidate_id),item]));
+      const outletSeen=createOutletSeen();
+      const selectedMedia=selectedOrder.filter(id=>{
+        if(!decidedItemIds.has(id))return false;
+        const item=itemById.get(id),server=serverCandidates.get(id);
+        return !outletDuplicate(outletSeen,outletIdentity({...item,attributes:server?.attributes??{}}));
+      }).slice(0,20);
       return {matrix_decisions:{items,fit_order:items.map(item=>String(item.candidate_id)),...(selectedMedia.length?{selected_media:selectedMedia}:{}),excluded_candidates:excluded,reviewed_candidate_ids:[...reviewed],...(finalFailed.length?{failed_candidates:finalFailed}:{}),...(pendingIds.length?{unprocessed_candidate_ids:pendingIds}:{}),...(reviewSummary?{review_error:reviewSummary}:{}),ranking_method:ruleItems.length?'suggestion_order':'task_attributes_then_batch_semantic_order'}};
     },
     async budget(input) {

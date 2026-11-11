@@ -5,6 +5,10 @@ description: Use when an agent receives 信源分析 Excel exports and 投放要
 
 # 发布信源矩阵
 
+## 网站集成扩展 2026.11.11-web.3
+
+2026.11.11-web.3 起渠道去重改为**并集身份**：同一目录媒体名称或同一 outlet_key 均视为同一实际载体（线上曾出现模型把同名三账号的 outlet_key 写成 platform+平台名绕过单键去重）。指令同步要求 outlet_key 直接使用候选目录记录的媒体名称；同名媒体即使分布在不同平台账号也只占一个推荐名额。budget 阶段结果不再继承矩阵阶段已裁定的诊断错误（重复载体在矩阵期已程序去重入 suggestions）。
+
 ## 网站集成扩展 2026.11.10-web.2
 
 2026.11.10-web.2 起矩阵批次默认并发 3 路审阅（FRONTMIND_SOURCE_MATRIX_BATCH_CONCURRENCY 可配 1–4）；任一传输类失败即降级串行并记录 source_matrix_batch_review_degraded_to_serial，候选隔离/断点续跑语义不变；结果合并按批次顺序确定性进行。
