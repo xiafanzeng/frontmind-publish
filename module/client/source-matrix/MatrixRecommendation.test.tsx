@@ -42,6 +42,32 @@ it('renders the media library catalog price per article column in the suggestion
  expect(screen.getByText('门户媒体')).toBeTruthy();
  expect(screen.getByText('第三方自媒体')).toBeTruthy();
 });
+it('folds same-named platform accounts into one channel row and unfolds their per-platform comparison',()=>{
+ /* One selected channel head plus two validated same-named siblings: the
+  * default row must present the channel (no specific account checkbox), and
+  * expanding shows every platform account with its own price and basis. */
+ const head={...candidate('head',null),resource_id:'resource-head',semantic_decision_validated:true,selection_reason:'升学规划受众高度重合，可作为核心投放渠道',attributes:{source_name:'冯浩洋升学规划',platform:'百家号',media_kind:'self_media'}};
+ const siblingB={...candidate('sib-b',null),resource_id:'resource-b',semantic_decision_validated:true,selection_reason:'抖音版本偏短视频讲解，适合落地适应话题',attributes:{source_name:'冯浩洋升学规划',platform:'抖音',media_kind:'self_media'}};
+ const siblingC={...candidate('sib-c',null),resource_id:'resource-c',semantic_decision_validated:true,reason_summary:'头条版本图文并茂，覆盖检索流量',attributes:{source_name:'冯浩洋升学规划',platform:'今日头条',media_kind:'self_media'}};
+ const unrelated={...candidate('other',null),resource_id:'resource-other',semantic_decision_validated:true,attributes:{source_name:'教育规划站',platform:'搜狐网'}};
+ const suggestionResult={...result,matrix:{...result.matrix,candidates:[head,siblingB,siblingC,unrelated],layers:[],suggestions:{target_count:20,dedup:'outlet_key',basis:'semantic',selected_candidate_ids:['head']}}} as unknown as MatrixResult;
+ const mediaOf=(id:string|null,name:string,platform:string,price:string)=>({id:'media-'+id,name,kind:'self_media',platform,priceTenThousandths:price} as import('../types').MediaResource);
+ const mediaMap:Record<string,import('../types').MediaResource>={'resource-head':mediaOf('head','冯浩洋升学规划','百家号','1200000'),'resource-b':mediaOf('b','冯浩洋升学规划','抖音','800000'),'resource-c':mediaOf('c','冯浩洋升学规划','今日头条','1500000'),'resource-other':mediaOf('other','教育规划站','搜狐网','500000')};
+ render(<MatrixRecommendation result={suggestionResult} highlightedPlan={null} mediaFor={id=>id?mediaMap[id]:undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
+ // Channel row: overall basis + price span across the three accounts, no account checkbox yet.
+ expect(screen.getByText('升学规划受众高度重合，可作为核心投放渠道')).toBeTruthy();
+ expect(screen.getByText('¥80.00–¥150.00')).toBeTruthy();
+ expect(screen.queryByRole('checkbox')).toBeNull();
+ // Siblings do not leak into the candidate list below the table.
+ expect(screen.getByText(/候选清单（未入选 1）/)).toBeTruthy();
+ const expander=screen.getByRole('button',{name:'展开 2 个同名平台账号'});
+ fireEvent.click(expander);
+ expect(screen.getByRole('button',{name:'收起同名账号'})).toBeTruthy();
+ expect(screen.getByText('抖音版本偏短视频讲解，适合落地适应话题')).toBeTruthy();
+ expect(screen.getByText('头条版本图文并茂，覆盖检索流量')).toBeTruthy();
+ expect(screen.getByText('¥80.00')).toBeTruthy();
+ expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+});
 it('keeps quotation identity when comparing combinations and limits to three distinct combinations',()=>{
  const first=plan('A'),duplicate=structuredClone(first),anotherQuote=plan('A','quote-2'),second=plan('B'),fourth=plan('C');
  expect(differentPlans([first,duplicate,anotherQuote,second,fourth])).toEqual([first,anotherQuote,second]);

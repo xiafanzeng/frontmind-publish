@@ -272,6 +272,10 @@
 .fm-media .sm-suggest-rank{display:block;font-size:11px;color:var(--muted);margin-top:2px}
 .fm-media .sm-suggest-basis{min-width:240px;color:var(--ink)}
 .fm-media .sm-suggest-price{white-space:nowrap}
+/* Same-name family: the channel row stays a normal row; unfolded platform
+ * accounts render as lighter sub-rows under it. */
+.fm-media tr.sm-suggest-member th,.fm-media tr.sm-suggest-member td{background:var(--canvas);border-top-style:dashed}
+.fm-media tr.sm-suggest-member .sm-suggest-name{font-weight:400;color:var(--muted)}
 .fm-media .sm-suggest-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-start;white-space:nowrap}
 /* The global .link carries padding:5px 0; zero it here so 查看推荐理由 sits on the
  * first text line of the 推荐依据 cell instead of one padding-step lower. */
