@@ -317,7 +317,7 @@ function UnifiedRowView({ row, tab, onDelete }: {
         <td className="right numeric">{row.wordCount.toLocaleString("zh-CN")}</td>
         <td><span className="badge solid-blue">编辑中</span></td>
         <td className="small muted numeric">{row.timeLabel}</td>
-        <td>
+        <td className="right">
           <div className="table-action">
             <Link className="btn small primary compact" href={row.href}>继续投放</Link>
             <button type="button" className="btn small danger-solid compact" onClick={onDelete}>删除稿件</button>
@@ -336,7 +336,10 @@ function UnifiedRowView({ row, tab, onDelete }: {
         </Link>
       </td>
       <td className="small numeric">v{row.version}</td>
-      <td className="right numeric">{money(row.amountTenThousandths)}</td>
+      {/* 金额列仅存在于发布成功/发布失败页签；全部稿件统一 6 列（金额去子分类看）。 */}
+      {tab === "failed" || tab === "succeeded" ? (
+        <td className="right numeric">{money(row.amountTenThousandths)}</td>
+      ) : null}
       <td className="right numeric">—</td>
       <td><span className={`badge ${statusClass}`}>{statusText}</span></td>
       <td className="small muted numeric">{row.timeLabel}</td>
