@@ -140,6 +140,7 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
   const familyOf=(head:Candidate):Candidate[]=>{const key=familyKey(head);const members=key?byChannel.get(key)??[]:[];return members.length>1&&members.some(member=>member.candidate_id===head.candidate_id)?members:[head];};
   const familyNames=new Set(suggestion.selected.map(familyOf).filter(family=>family.length>1).map(family=>familyKey(family[0]!)));
   const others=suggestion.others.filter(candidate=>{const key=familyKey(candidate);return key?!familyNames.has(key):true;});
+  const renderedFamilies=new Set<string>();
   const memberPlatform=(member:Candidate)=>{const media=mediaFor(member.resource_id);const platform=media?.platform??member.attributes.platform;return typeof platform==='string'&&platform.trim()?platform.trim():'同名账号';};
   const familyType=(family:Candidate[])=>[...new Set(family.map(member=>candidateMediaType(member,mediaFor(member.resource_id))))].join('/');
   const familyPrice=(family:Candidate[])=>{
@@ -151,6 +152,11 @@ export function MatrixRecommendation({result,referenceCandidateIds=[],mediaFor,i
   return <div className="sm-suggest">
    <div className="table-wrap"><table className="sm-suggest-table"><caption className="sr-only">媒体渠道推荐：每行一个推荐渠道、类型、目录价与推荐依据，按适配度顺序排列；同名多平台账号可在行内展开对比</caption><thead><tr><th scope="col">媒体</th><th scope="col">类型</th><th scope="col">目录价/篇</th><th scope="col">推荐依据</th><th scope="col">操作</th></tr></thead><tbody>
    {suggestion.selected.map((candidate,index)=>{
+    /* Legacy snapshots saved before the union dedup may still carry several
+     * same-named selected entries; the family renders once for the first. */
+    const renderedKey=familyKey(candidate);
+    if(renderedKey&&renderedFamilies.has(renderedKey))return null;
+    if(renderedKey)renderedFamilies.add(renderedKey);
     const media=mediaFor(candidate.resource_id),blocked=referenceOnly.has(candidate.candidate_id)?'参考阅读，非购买发布位':media?issue(candidate,media):'尚未映射可售资源，仅供研究';
     const basis=candidate.selection_reason||candidate.reason_summary||'推荐依据待补充（可重试未完成项）';
     const singleRow=(head:Candidate)=>{const headMedia=mediaFor(head.resource_id);return <tr key={head.candidate_id} className={headMedia&&isSelected(headMedia)?'is-highlighted':''}><th scope="row"><span className="sm-suggest-name">{index+1}. {headMedia?.name??candidateName(head)}</span>{head.industry_rank&&<span className="sm-suggest-rank">行业引用第 {head.industry_rank.rank} 位</span>}</th><td>{candidateMediaType(head,headMedia)}</td><td className="sm-suggest-price">{catalogPriceOf(headMedia)}</td><td className="sm-suggest-basis">{basis}{head.decision_basis==='rule'&&<span className="small muted">（规则生成，未做语义核验）</span>}</td><td><div className="sm-suggest-actions"><button className="link small" onClick={()=>onDetails(head)}>查看推荐理由</button>{headMedia&&!blocked&&<label className={'sm-add'+(blocked?' is-disabled':'')} title={blocked||undefined}><input type="checkbox" aria-label={'选择 '+(headMedia.name??candidateName(head))+' '+(headMedia.platform??'')} checked={isSelected(headMedia)} disabled={!!blocked} onChange={()=>onToggle(head.candidate_id)}/>{isSelected(headMedia)?'已加入':'加入购物车'}</label>}{!headMedia&&<span className="small muted">仅供研究</span>}{blocked&&headMedia&&<small className="sm-candidate-issue">{blocked}</small>}</div></td></tr>;};

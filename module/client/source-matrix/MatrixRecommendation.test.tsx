@@ -68,6 +68,24 @@ it('folds same-named platform accounts into one channel row and unfolds their pe
  expect(screen.getByText('¥80.00')).toBeTruthy();
  expect(screen.getAllByRole('checkbox')).toHaveLength(3);
 });
+it('renders one family row for legacy snapshots that saved several same-named selections',()=>{
+ /* Tasks saved before the union dedup carry all same-named entries inside
+  * selected_candidate_ids; they must still collapse to a single channel row. */
+ const head={...candidate('head',null),resource_id:'resource-head',semantic_decision_validated:true,selection_reason:'升学规划受众高度重合',attributes:{source_name:'冯浩洋升学规划',platform:'百家号',media_kind:'self_media'}};
+ const siblingB={...candidate('sib-b',null),resource_id:'resource-b',semantic_decision_validated:true,selection_reason:'抖音版本偏短视频',attributes:{source_name:'冯浩洋升学规划',platform:'抖音',media_kind:'self_media'}};
+ const siblingC={...candidate('sib-c',null),resource_id:'resource-c',semantic_decision_validated:true,selection_reason:'头条版本图文覆盖',attributes:{source_name:'冯浩洋升学规划',platform:'今日头条',media_kind:'self_media'}};
+ const legacy={...result,matrix:{...result.matrix,candidates:[head,siblingB,siblingC],layers:[],suggestions:{target_count:20,dedup:'outlet_key',basis:'semantic',selected_candidate_ids:['head','sib-b','sib-c']}}} as unknown as MatrixResult;
+ const mediaOf=(id:string,platform:string,price:string)=>({id:'media-'+id,name:'冯浩洋升学规划',kind:'self_media',platform,priceTenThousandths:price} as import('../types').MediaResource);
+ const mediaMap:Record<string,import('../types').MediaResource>={'resource-head':mediaOf('head','百家号','1200000'),'resource-b':mediaOf('b','抖音','800000'),'resource-c':mediaOf('c','今日头条','1500000')};
+ render(<MatrixRecommendation result={legacy} highlightedPlan={null} mediaFor={id=>id?mediaMap[id]:undefined} isSelected={()=>false} issue={()=>''} onToggle={vi.fn()} onDetails={vi.fn()} onMediaDetails={vi.fn()} onLayer={vi.fn()}/>);
+ expect(screen.getAllByText(/冯浩洋升学规划/)).toHaveLength(1);
+ expect(screen.getByRole('button',{name:'展开 2 个同名平台账号'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'展开 2 个同名平台账号'}));
+ expect(screen.getByText('百家号')).toBeTruthy();
+ expect(screen.getByText('抖音')).toBeTruthy();
+ expect(screen.getByText('今日头条')).toBeTruthy();
+ expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+});
 it('keeps quotation identity when comparing combinations and limits to three distinct combinations',()=>{
  const first=plan('A'),duplicate=structuredClone(first),anotherQuote=plan('A','quote-2'),second=plan('B'),fourth=plan('C');
  expect(differentPlans([first,duplicate,anotherQuote,second,fourth])).toEqual([first,anotherQuote,second]);
