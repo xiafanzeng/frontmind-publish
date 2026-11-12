@@ -5,11 +5,11 @@ import { matrixApi } from './api';
 import {matrixReadiness} from './matrix-readiness';
 import {useExactMediaMapping} from './useExactMediaMapping';
 import type { ApplyPlanDiff,BudgetPlan,MatrixResult,ServerBinding,TaskResponse,ResourceSelection } from './types';
-import { label,display,Report,BudgetConfirmDialog,MatrixDialog,downloadMatrixData } from './SourceMatrixPresentation';
+import { label,display,BudgetConfirmDialog,MatrixDialog,downloadMatrixData } from './SourceMatrixPresentation';
 import {MatrixRecommendation,RecommendationReason,candidateForItem,itemObject} from './MatrixRecommendation';
 import {LiveIndustryDistribution} from './industry/IndustryDistribution';
 import {matrixDemo,demoInitialForm,demoSemanticKey,demoBudgetMatches} from './demo';
-import {DemoBudgetRecommendations,DemoReport} from './DemoRecommendation';
+import {DemoBudgetRecommendations} from './DemoRecommendation';
 import {MediaShell,MediaCartFooter,MediaDetails,useMarketRules} from './MediaMarket';
 import {usePublisherGateway} from '../PublishingContext';
 import {publishingDraftRequestKey,usePublishingFlow,PublishingFlowContext} from '../PublishingFlowContext';
@@ -145,7 +145,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
  const setTargetPlatform=(value:string)=>formDraft.setField('targetPlatform',value);
  const setTotal=(value:string)=>formDraft.setField('total',value),setExploration=(value:string)=>formDraft.setField('exploration',value),setEnabled=(value:boolean)=>formDraft.setField('enabled',value),setMin=(value:string)=>formDraft.setField('min',value),setMax=(value:string)=>formDraft.setField('max',value);
  const [showDemo,setShowDemo]=useState(!taskId&&!hasArticleContext);
- const [confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[layerChecked,setLayerChecked]=useState<string[]>([]),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0),[showReport,setShowReport]=useState(false);
+ const [confirmBudget,setConfirmBudget]=useState<BudgetPlan|null>(null),[confirmLayer,setConfirmLayer]=useState<MatrixResult['matrix']['candidates']|null>(null),[layerChecked,setLayerChecked]=useState<string[]>([]),[reasonCandidate,setReasonCandidate]=useState<MatrixResult['matrix']['candidates'][number]|null>(null),[planIndex,setPlanIndex]=useState(0);
  const [importOpen,setImportOpen]=useState(false);
  const [historyOpen,setHistoryOpen]=useState(false),[historyItems,setHistoryItems]=useState<MatrixHistoryEntry[]|null>(null),[historyError,setHistoryError]=useState('');
  const [importedDataIds,setImportedDataIds]=useState<string[]>(params.getAll('researchDataset'));
@@ -254,7 +254,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   });
   if(changed){setServerStale(true);followUpBudget.current=false;setImportNotice('选用文件的版本已变化，请重新生成矩阵。');}
  },[historicalImportRefs,workspace,taskId,importMetadata,importMetadataOwner,importedDatasets]);
- useEffect(()=>{const created=submittedTask.current;if(!created||created.id!==taskId||created.workspace!==workspace){followUpBudget.current=false;setComparisonResult(null);setComparingPrevious(false);}setResult(null);setResultTask('');setTaskState('');setMatrixInput(null);setMatrixBinding(null);setServerStale(false);setBudgetNeedsRecompute(false);setSelected([]);setBusy(!!taskId);setError(null);setNotice('');setConfirmBudget(null);setConfirmLayer(null);setReasonCandidate(null);setShowReport(false);setBudgetPending(false);setResourceSelections([]);if(!created||created.id!==taskId||created.workspace!==workspace)setQuantityMode('new_articles');setQuantityEditing(false);submissionLock.current=false;pendingBudget.current=null;appliedBudget.current='';return()=>{request.current?.abort();cancelRequest.current?.abort();sequence.current++;};},[taskId,workspace]);
+ useEffect(()=>{const created=submittedTask.current;if(!created||created.id!==taskId||created.workspace!==workspace){followUpBudget.current=false;setComparisonResult(null);setComparingPrevious(false);}setResult(null);setResultTask('');setTaskState('');setMatrixInput(null);setMatrixBinding(null);setServerStale(false);setBudgetNeedsRecompute(false);setSelected([]);setBusy(!!taskId);setError(null);setNotice('');setConfirmBudget(null);setConfirmLayer(null);setReasonCandidate(null);setBudgetPending(false);setResourceSelections([]);if(!created||created.id!==taskId||created.workspace!==workspace)setQuantityMode('new_articles');setQuantityEditing(false);submissionLock.current=false;pendingBudget.current=null;appliedBudget.current='';return()=>{request.current?.abort();cancelRequest.current?.abort();sequence.current++;};},[taskId,workspace]);
  const serviceMessage=(value:string)=>/迁移|migration|ER_NO_SUCH_TABLE|凭据|PUBLISHER_/.test(value)?'推荐服务暂不可用，请稍后重试或联系运营。':value;
  const receiveTask=(response:TaskResponse)=>{
   setReceivedTaskDetails({owner:`${workspace}:${response.task_id??taskId}`,task:response.task});
@@ -271,7 +271,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
     // The server has persisted a new revision even though this request no
     // longer represents the current budget. Retain that authoritative version
     // for the next submission, but never display its obsolete combinations.
-    appliedBudget.current='';setBudgetNeedsRecompute(true);setShowReport(false);
+    appliedBudget.current='';setBudgetNeedsRecompute(true);
     if(next?.status==='stale_matrix'||next?.matrix&&next.matrix_version!==pending.matrix.matrix_version){setServerStale(true);setNotice('矩阵版本已变化，请重新更新矩阵。');}
     else if(next?.matrix&&next.plan_id&&next.plan_version){setResultTask(resultOwner);setResult({...next,matrix:refreshedMatrixQuotes(pending.matrix.matrix,next.matrix),source_analysis:pending.matrix.source_analysis,recommendations:[],budget_plans:[],content_plans:[]});setPlanIndex(0);setNotice('预算、需求或媒体选择已变化，先前组合未应用。请重新生成组合。');}
     else setNotice('预算、需求或媒体选择已变化，先前组合未应用。请刷新结果后重新生成组合。');
@@ -280,12 +280,12 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
    if(next?.status==='stale_matrix'){setServerStale(true);setNotice('任务数据已变化，请更新矩阵后再生成组合。');}
    else if(next?.matrix){
     if(next.matrix_version!==pending.matrix.matrix_version){setServerStale(true);setNotice('矩阵版本已变化，请重新更新矩阵。');}
-    else {const failed=next.retryable_budget===true||!!next.errors.length;setResultTask(resultOwner);setResult({...next,matrix:refreshedMatrixQuotes(pending.matrix.matrix,next.matrix),source_analysis:pending.matrix.source_analysis,...(failed?{recommendations:[],budget_plans:[],content_plans:[]}: {})});setPlanIndex(0);appliedBudget.current=failed?'':pending.key;setBudgetNeedsRecompute(failed);if(failed){setShowReport(false);setNotice('组合生成未通过复核，请调整条件后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else setNotice('');}
+    else {const failed=next.retryable_budget===true||!!next.errors.length;setResultTask(resultOwner);setResult({...next,matrix:refreshedMatrixQuotes(pending.matrix.matrix,next.matrix),source_analysis:pending.matrix.source_analysis,...(failed?{recommendations:[],budget_plans:[],content_plans:[]}: {})});setPlanIndex(0);appliedBudget.current=failed?'':pending.key;setBudgetNeedsRecompute(failed);if(failed){setNotice('组合生成未通过复核，请调整条件后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else setNotice('');}
    } else if(next)setNotice(serviceMessage(next.errors?.map(issue=>issue.message).join('；')||label(next.status)));
    if(response.state!=='running'){pendingBudget.current=null;setBudgetPending(false);}return;
   }
   if(response.state!=='running'&&(!next?.matrix||next.matrix.status!=='complete'||next.errors.length>0))followUpBudget.current=false;
-  if(next?.matrix){if(response.state!=='running'&&next.matrix.status==='complete'&&!next.errors.length)setComparingPrevious(false);setResultTask(resultOwner);setResult(next);if(next.retryable_budget){appliedBudget.current='';setBudgetNeedsRecompute(true);setShowReport(false);setNotice('组合生成未通过复核，可调整预算后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else if(response.state!=='running')setNotice('');}
+  if(next?.matrix){if(response.state!=='running'&&next.matrix.status==='complete'&&!next.errors.length)setComparingPrevious(false);setResultTask(resultOwner);setResult(next);if(next.retryable_budget){appliedBudget.current='';setBudgetNeedsRecompute(true);setNotice('组合生成未通过复核，可调整预算后重试：'+(next.errors.map(issue=>pricingReason(issue.message||issue.code)).join('；')||'尚未得到有效组合'));}else if(response.state!=='running')setNotice('');}
   else if(next){if(next.status==='stale_matrix')setServerStale(true);setNotice(serviceMessage(next.errors?.map(issue=>issue.message).join('；')||label(next.status)));}
  };
  useEffect(()=>{
@@ -358,7 +358,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   // quantity recalculation responses keep their existing editor owner.
   setRecommendationEditEpoch(value=>value+1);setQuantityEditing(false);
   if(stage==='budget'){pendingBudget.current={key:latestBudget.current,matrix:result!};setBudgetPending(true);appliedBudget.current='';}
-  else {if(result?.matrix.status==='complete'){setComparisonResult(result);setComparingPrevious(true);}pendingBudget.current=null;setBudgetPending(false);followUpBudget.current=true;setShowDemo(false);setShowReport(false);setReasonCandidate(null);setPlanIndex(0);}
+  else {if(result?.matrix.status==='complete'){setComparisonResult(result);setComparingPrevious(true);}pendingBudget.current=null;setBudgetPending(false);followUpBudget.current=true;setShowDemo(false);setReasonCandidate(null);setPlanIndex(0);}
   const submittedInput=inputKey,submittedContext=latestRecommendationContext.current;submissionLock.current=true;
   const abort=new AbortController(),seq=++sequence.current;request.current?.abort();pollRequest.current?.abort();request.current=abort;setBusy(true);setGenerationPhase('正在读取数据…');setError(null);setNotice('');
   try{
@@ -547,7 +547,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
   const timer=setTimeout(()=>{if(appliedBudget.current===''){appliedBudget.current=latestBudget.current;bumpBudgetBaseline(value=>value+1);}},1500);
   return()=>clearTimeout(timer);
  },[taskState,recommendations.length,budgetPending,budgetNeedsRecompute,matrixStale]);
- const reportReady=!!result&&!busy&&!quantityEditing&&!budgetStale&&result.matrix.status==='complete'&&['complete','needs_budget','needs_budget_plans'].includes(result.status)&&!result.errors.length&&!!result.plan_id&&!!result.plan_version;
+
  const highlightedContentIds=selectedRecommendation?.items.map(item=>item.candidate_id)??[];
  const candidateIssue=(candidate:typeof candidates[number],media:MediaResource)=>bindingIssue||(busy?'矩阵正在更新，请稍后再选。':cartBusy?'正在保存媒体选择…':'')
   ||(!cart.has(media.id)?(!(candidate.semantic_decision_validated??result?.matrix.status==='complete')?'该候选尚未完成分层校验，暂供研究。':!rules.ready?rules.error||'正在读取媒体规则…':!rules.rules[media.id]?'媒体要求暂不可用，请刷新后重试。':candidate.channel_status!=='eligible'?'此信源的可投条件尚未通过。':mediaSelectionBlocker(media,articleHasImages)|| (cart.size>=20?'一次最多选择 20 家媒体':'')):'');
@@ -785,7 +785,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
     {matrixStale&&result&&!showingPrevious&&<p className="block-error" role="status">需求已变化，当前矩阵按生成时的要求展示，媒体仍可选择；建议更新矩阵。</p>}
     {error&&<p className="block-error" role="alert">{error.message}<button className="link small" disabled={busy} onClick={e=>{if(failedOperation==='budget')void submit('budget',e);else if(failedOperation==='matrix'||!taskId)generate(e);else void refresh();}}>重试</button></p>}
     {notice&&<p className="notice" role="status">{notice}</p>}
-    <div className="sm-recommendation-layout"><section className="sm-matrix" aria-labelledby="sm-matrix-title"><header className="sm-matrix-heading"><div><h2 id="sm-matrix-title">{displayResult?.matrix.suggestions?'媒体渠道推荐（按适配度顺序）':'完整信源矩阵'}</h2></div>{taskId&&<div className="actions"><button className="link small" disabled={busy} onClick={()=>void refresh()}>刷新结果</button>{result&&!showingPrevious&&<button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起报告':'查看报告'}</button>}</div>}{demoActive&&<div className="actions"><button className="link small" onClick={()=>downloadMatrixData('一航软件-已生成研究样本.json',JSON.stringify(matrixDemo,null,2),'application/json')}>导出保存样本</button><button className="link small" onClick={()=>setShowReport(value=>!value)}>{showReport?'收起样本报告':'查看样本报告'}</button></div>}</header>
+    <div className="sm-recommendation-layout"><section className="sm-matrix" aria-labelledby="sm-matrix-title"><header className="sm-matrix-heading"><div><h2 id="sm-matrix-title">{displayResult?.matrix.suggestions?'媒体渠道推荐（按适配度顺序）':'完整信源矩阵'}</h2></div>{taskId&&<div className="actions"><button className="link small" disabled={busy} onClick={()=>void refresh()}>刷新结果</button></div>}{demoActive&&<div className="actions"><button className="link small" onClick={()=>downloadMatrixData('一航软件-已生成研究样本.json',JSON.stringify(matrixDemo,null,2),'application/json')}>导出保存样本</button></div>}</header>
      {!demoActive&&!showingPrevious&&mapping.error&&<p className="block-error" role="alert">{mapping.error}<button type="button" className="link" disabled={mapping.loading} onClick={mapping.retry}>重试读取媒体映射</button></p>}
      {!demoActive&&!showingPrevious&&mapping.loading&&<p className="small muted" role="status">正在匹配可投媒体…</p>}
      {!demoActive&&!showingPrevious&&matrixState&&!matrixState.complete&&<div className="x-empty" role="status"><strong>{matrixState.message}</strong>{matrixState.partial&&!busy&&<button type="button" className="link" onClick={()=>void retryMatrix()}>重试未完成项</button>}{!busy&&<button type="button" className="link" onClick={()=>void submit('matrix')}>重新生成矩阵</button>}</div>}
@@ -793,7 +793,7 @@ function LiveSourceMatrixPage({view='analysis'}:{view?:MatrixView}) {
      {!demoActive&&(rules.error||rules.ready&&mapped.some(media=>!rules.rules[media.id]))&&<p className="sm-selection-status" role="status">媒体要求暂不可用，暂不能新增选择。<button className="link" onClick={rules.reload}>重试读取媒体规则</button></p>}
      {demoActive?<><MatrixRecommendation result={matrixDemo.result} highlightedPlan={null} highlightedCandidateIds={selectedDemoCombination?.candidate_ids??[]} referenceCandidateIds={matrixDemo.research_combinations.flatMap(combination=>Object.entries(combination.usage_by_candidate).flatMap(([id,usage])=>usage==='reference'?[id]:[]))} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>'研究样本不可加入购物车'} onToggle={()=>{}} onDetails={openReason} onMediaDetails={()=>{}} onLayer={()=>{}}/></>:showingPrevious&&comparisonResult?<MatrixRecommendation result={comparisonResult} highlightedPlan={null} mediaFor={()=>undefined} isSelected={()=>false} issue={()=>'上次结果仅供对照，请重新生成'} onToggle={()=>{}} onDetails={openReason} onMediaDetails={()=>{}} onLayer={()=>{}}/>:result&&matrixState&&(matrixState.complete||matrixState.partial)?<><MatrixRecommendation result={result} highlightedPlan={null} highlightedCandidateIds={highlightedContentIds} mediaFor={mediaFor} isSelected={media=>cart.has(media.id)} issue={candidateIssue} onToggle={id=>void toggleCandidate(id)} onDetails={openReason} onMediaDetails={setDetailMedia} onLayer={items=>prepareLayer(items)}/></>:result?null:<div className="x-empty"><strong>{busy?'正在生成完整矩阵':'等待生成矩阵'}</strong></div>}
     </section>{demoActive?<DemoBudgetRecommendations demo={matrixDemo} selectedIndex={planIndex} onSelect={setPlanIndex} onDetails={openReason} stale={demoBudgetStale}>{budgetFields}</DemoBudgetRecommendations>:<ContentPlanRecommendations key={`${taskId}:${bindingKey}:${result?.plan_id??''}:${result?.matrix_version??''}:${recommendationEditEpoch}`} plans={recommendations} candidates={candidates} selectedIndex={planIndex} onSelect={setPlanIndex} onDetails={openReason} onUpdate={updateContentQuantities} onEditingChange={setQuantityEditing} disabled={busy||cartBusy} stale={budgetStale} limitations={result?.recommendation_limit_reason?[result.recommendation_limit_reason]:result?.recommendation_limitations} onAddMedia={index=>{const plan=recommendations[index];if(!plan)return;const list=plan.items.map(item=>candidates.find(candidate=>candidate.candidate_id===item.candidate_id)).filter((candidate):candidate is MatrixResult['matrix']['candidates'][number]=>!!candidate);if(!list.length){setNotice('该组合没有可映射到媒体目录的成员，无法加入购物车。');return;}const addable=list.filter(candidate=>{const media=mediaFor(candidate.resource_id);return media&&!cart.has(media.id)&&!candidateIssue(candidate,media);});if(!addable.length){setNotice('组合媒体均已在购物车或暂不可加入。');return;}prepareLayer(list);}} onApply={selectedRecommendation?.formal_plan?index=>{const formal=recommendations[index]?.formal_plan;if(formal)void openApplyPlan(formal);}:undefined} applicationIssue={selectedRecommendation?.formal_plan?(!selectedRecommendation.formal_plan.items.length||!selectedRecommendation.formal_plan.budget_feasible||selectedRecommendation.formal_plan.is_estimate||selectedRecommendation.formal_plan.unknown_items?.length||selectedRecommendation.formal_plan.errors?.length||selectedRecommendation.formal_plan.semantic_pending?.length?'当前发布条件尚未通过核验':selectedRecommendation.formal_plan.items.map(planItemIssue).find(Boolean)):undefined}>{budgetFields}</ContentPlanRecommendations>}</div>
-    {showReport&&displayResult&&<div className="sm-report"><div className="actions"><button className="button secondary" disabled={!demoActive&&!reportReady} onClick={()=>window.print()}>{demoActive?'打印保存样本报告':'打印报告'}</button></div>{demoActive?<DemoReport demo={matrixDemo} stale={demoBudgetStale}/>:quantityEditing?<p role="status">篇数修改尚未完成费用更新，报告将在更新后显示。</p>:result&&<Report result={result}/>}</div>}
+
    </>}
    {view==='analysis'&&notice&&<p className="notice" role="status">{notice}</p>}
    {cartBudgetMessage&&<p className="sm-cart-budget" role="status">{cartBudgetMessage}</p>}
