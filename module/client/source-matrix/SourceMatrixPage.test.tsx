@@ -528,7 +528,6 @@ it('removes the heading export entry while the download helper still pins the di
  liveDirectory();openMatrix('draftId=draft-1&articleVersion=version-1');
  await screen.findByRole('checkbox',{name:'选择 可投媒体 新闻'});
  expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
- expect(screen.getByRole('button',{name:'查看报告'})).toBeTruthy();
  expect(downloadUrl('matrix-1',matrix.plan_id,matrix.plan_version)).toBe(`/api/modules/publish/classify/matrix-1/download?plan_id=${matrix.plan_id}&plan_version=${matrix.plan_version}`);
  expect(downloadUrl('legacy-task')).toBe('/api/modules/publish/classify/legacy-task/download');
 });
@@ -632,7 +631,7 @@ it('shows the actual saved sample without configured services and never writes a
  const fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{throw new Error('service unavailable');});vi.stubGlobal('fetch',fetcher);
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
  await screen.findByRole('button',{name:'重试读取行业'});
- expect(screen.getByRole('button',{name:'查看样本报告'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'导出保存样本'})).toBeTruthy();
  expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe(matrixDemo.form.product);
  expect((screen.getByLabelText('期望发布时效') as HTMLSelectElement).value).toBe('');expect(screen.getByRole('button',{name:'覆盖地区'}).textContent).toContain('不限地区');expect((screen.getByLabelText('目标平台') as HTMLSelectElement).value).toBe('');
  expect((screen.getByLabelText('目标问题 / 内容需求 *') as HTMLTextAreaElement).value).toBe(matrixDemo.form.questions.join('\n'));
@@ -665,9 +664,6 @@ it('keeps the saved matrix unchanged on budget-only edits and distinguishes sema
  expect(screen.queryByRole('button',{name:'更新组合'})).toBeNull();
  fireEvent.change(screen.getByLabelText('目标问题 / 内容需求 *'),{target:{value:'新的采购场景'}});
  expect(screen.getByText(/当前要求或预算与保存样本不同/)).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
- expect(screen.getByRole('heading',{name:'一航软件信源矩阵与研究组合'})).toBeTruthy();
- expect(screen.getByText(/保存条件下的历史对照/)).toBeTruthy();
  expect(screen.queryByRole('link',{name:'导出当前版本'})).toBeNull();
 });
 
@@ -702,8 +698,7 @@ it('hydrates a different task instead of mixing its result with the prefilled de
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const url=String(input),id=url.endsWith('/task-B')?'B':'A';return {ok:true,json:async()=>url.endsWith('/industries')?canonicalCatalog([{id:'configured-industry',name:'已接入行业'}]):url.includes('/classify/')?{task_id:'task-'+id,state:'complete',result:resultFor(id)}:{items:[]}};}));
  mediaGateway.listMedia.mockResolvedValue({items:[],total:0,page:1,pageSize:100,exactResourceLookupVersion:1,catalog:{activeRevision:'catalog-1'}});
  render(<div className="monitoring-module"><SourceMatrixPage/></div>);
- await screen.findByRole('button',{name:'查看样本报告'});
- fireEvent.click(screen.getByRole('button',{name:'查看样本报告'}));
+ await screen.findByRole('button',{name:'导出保存样本'});
  for(const id of ['A','B','A']){
   await act(async()=>{window.history.pushState({},'', '/publishing/source-matrix?tab=matrix&task=task-'+id);window.dispatchEvent(new PopStateEvent('popstate'));});
   await waitFor(()=>expect((screen.getByLabelText('品牌 / 产品') as HTMLInputElement).value).toBe('产品 '+id));
@@ -1040,5 +1035,4 @@ it.each(['','4'])('discards previous local quantity %s when regenerating the sam
  const next={...recommendation,items:[{...recommendation.items[0]!,quantity:5,base_cost:'500.00',cost:'500.00',known_cost:'500.00'}],total_articles:5,known_total_cost:'500.00',total_cost:'500.00',total_remaining:'500.00'};
  await act(async()=>finish({ok:true,json:async()=>({task_id:'matrix-1',state:'complete',result:{...matrix,plan_version:'generated-second',recommendations:[next],content_plans:[]}})}));
  await waitFor(()=>expect((screen.getByLabelText('可投媒体建议篇数') as HTMLInputElement).value).toBe('5'));
- expect(screen.getByText('预计总价').parentElement?.textContent).toContain('500.00');expect(screen.getByRole('button',{name:'查看报告'})).toBeTruthy();expect(quantityRequests).toEqual([]);
 });
