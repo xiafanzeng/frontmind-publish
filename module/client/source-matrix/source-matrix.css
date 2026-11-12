@@ -265,7 +265,7 @@
 .fm-media .sm-suggest-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .fm-media .sm-suggest-head strong{font-size:14px}
 .fm-media .sm-suggest-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
-.fm-media .sm-suggest-table th,.fm-media .sm-suggest-table td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.6;box-sizing:border-box;overflow-wrap:anywhere}
+.fm-media .sm-suggest-table th,.fm-media .sm-suggest-table td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.6;box-sizing:border-box;overflow-wrap:anywhere;white-space:normal}
 .fm-media .sm-suggest-table thead th{background:var(--canvas);font-size:12px;color:var(--muted)}
 /* Fixed layout keeps the whole table inside its container without horizontal
  * scrolling. The type column is exactly 第三方自媒体 wide; every other column
@@ -273,7 +273,7 @@
 .fm-media .sm-suggest-table thead th:nth-of-type(1){width:17%}
 .fm-media .sm-suggest-table thead th:nth-of-type(2){width:calc(6em + 20px)}
 .fm-media .sm-suggest-table thead th:nth-of-type(3){width:12%}
-.fm-media .sm-suggest-table thead th:nth-of-type(5){width:14%}
+.fm-media .sm-suggest-table thead th:nth-of-type(5){width:17%}
 .fm-media .sm-suggest-type{display:block}
 .fm-media .sm-suggest-expand{padding:0;font-size:12px}
 .fm-media .sm-suggest-table tr.is-highlighted th,.fm-media .sm-suggest-table tr.is-highlighted td{background:var(--selected)}
@@ -288,7 +288,8 @@
 .fm-media .sm-suggest-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-start;white-space:normal}
 /* The global .link carries padding:5px 0; zero it here so 查看推荐理由 sits on the
  * first text line of the 推荐依据 cell instead of one padding-step lower. */
-.fm-media .sm-suggest-actions>.link{padding:0}
+.fm-media .sm-suggest-actions>.link{padding:0;white-space:nowrap}
+.fm-media .sm-suggest-actions .sm-add{white-space:nowrap}
 .fm-media .sm-suggest-ranking{border:1px solid var(--line);border-radius:10px;padding:8px 12px}
 .fm-media .sm-suggest-ranking summary{cursor:pointer;font-size:13px;color:var(--ink)}
 .fm-media .sm-suggest-ranking ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
