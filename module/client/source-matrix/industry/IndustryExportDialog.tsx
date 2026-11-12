@@ -5,7 +5,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@frontmind/module-ui/co
 import type { IndustryCommonQuery, IndustryScopeNode } from '../../../contracts/industry-source';
 import { IndustryDateSelect } from './IndustryDateSelect';
 import { formatIndustryDate, isIndustryDateValueAvailable, normalizeIndustryDateValue } from './industry-date';
-import { IndustryRequestError, integerText } from './industry-source-client';
+import { IndustryRequestError, industryRequest, integerText, newIndustryRequestId } from './industry-source-client';
+import type { IndustryMedia, IndustryPage } from '../../../contracts/industry-source';
 import { CitationExportSession, citationExportCsv, downloadCitationCsv, sameExportCommon, type CitationExportProgress } from './industry-source-export';
 import type { ContentSelection, IndustrySourceStore, IndustryState } from './industry-source-store';
 import './industry-export-dialog.css';
@@ -35,7 +36,8 @@ function MediaSelect({ id, options, value, onChange, disabled, range }: { id: st
   </Popover>;
 }
 
-/** Only mounted while open. Editing this form never invokes a list endpoint. */
+/** Only mounted while open. Changing conditions reads one media-ranking page so the
+ * media picker keeps offering the current conditions' top media. */
 export function IndustryExportDialog({ store, state, onClose }: Props) {
   const id = useId();
   const initial = useRef(state).current;
@@ -43,6 +45,7 @@ export function IndustryExportDialog({ store, state, onClose }: Props) {
   const [common, setCommon] = useState<IndustryCommonQuery>(() => ({ ...initial.common! }));
   const [media, setMedia] = useState(initial.selection.media);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [freshMedia, setFreshMedia] = useState<{ key: string; total: string; items: Option[] } | { key: string; failed: true } | null>(null);
   const [progress, setProgress] = useState<CitationExportProgress | null>(null);
   const session = useRef<CitationExportSession | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -51,12 +54,19 @@ export function IndustryExportDialog({ store, state, onClose }: Props) {
   const scopeChoices = scopeOptions(filters.industryTree);
   const originalCommon = initial.common!;
   const matchesOriginal = sameExportCommon(originalCommon, common);
-  const mediaOptions: Option[] = matchesOriginal ? (initial.media.data?.items.slice(0, 50) ?? []).map(item => ({ value: item.code, label: item.name })) : [];
+  const commonKey = JSON.stringify(common);
+  const freshList = !matchesOriginal && freshMedia && freshMedia.key === commonKey ? freshMedia : null;
+  const freshOk = freshList && !('failed' in freshList) ? freshList : null;
+  const freshItems = freshOk && freshOk.items.length ? freshOk : null;
+  const mediaOptions: Option[] = matchesOriginal ? (initial.media.data?.items.slice(0, 50) ?? []).map(item => ({ value: item.code, label: item.name })) : freshItems ? freshItems.items : [];
   const hasAdditionalSelection = matchesOriginal && Boolean(initial.selection.media) && !mediaOptions.some(option => option.value === initial.selection.media);
   if (hasAdditionalSelection) {
     mediaOptions.push({ value: initial.selection.media, label: initial.contents.data?.items[0]?.media || initial.selection.media });
   }
-  const mediaRange = matchesOriginal ? `当前条件前 50 个媒体；目录共 ${initial.media.data ? integerText(initial.media.data.total) : '—'} 个${hasAdditionalSelection ? '，另含当前选择' : ''}` : '条件已改变，当前仅可选择全部媒体。';
+  const mediaRange = matchesOriginal ? `当前条件前 50 个媒体；目录共 ${initial.media.data ? integerText(initial.media.data.total) : '—'} 个${hasAdditionalSelection ? '，另含当前选择' : ''}`
+    : freshItems ? `当前条件前 50 个媒体；目录共 ${integerText(freshOk!.total)} 个`
+    : freshList && 'failed' in freshList ? '当前条件的媒体列表读取失败，可选择全部媒体或稍后重试。'
+    : '正在读取当前条件的媒体列表…';
   const selectedScope = common.scopeType === 'ALL' ? '全部行业' : scopeChoices.find(option => option.value === common.scopeId)?.label.trim() || '行业条件失效';
   const date = normalizeIndustryDateValue(common.periodType, common.date, filters.minDate, filters.maxDate);
   const validDate = Boolean(date && isIndustryDateValueAvailable(date, filters.minDate, filters.maxDate) && date.periodType === common.periodType && date.date === common.date);
@@ -65,6 +75,15 @@ export function IndustryExportDialog({ store, state, onClose }: Props) {
     && (!media || mediaOptions.some(option => option.value === media));
   const blocked = state.blocked !== null;
 
+  useEffect(() => {
+    if (matchesOriginal || blocked) return;
+    const controller = new AbortController();
+    let active = true;
+    industryRequest<IndustryPage<IndustryMedia>>('media-ranking', { ...common, pageSize: 50, requestId: newIndustryRequestId() }, controller.signal)
+      .then(result => { if (active) setFreshMedia({ key: commonKey, total: result.data.total, items: result.data.items.map(item => ({ value: item.code, label: item.name })) }); })
+      .catch(() => { if (active) setFreshMedia({ key: commonKey, failed: true }); });
+    return () => { active = false; controller.abort(); };
+  }, [common, commonKey, matchesOriginal, blocked]);
   useEffect(() => {
     alive.current = true;
     const changed = () => {
@@ -131,7 +150,7 @@ export function IndustryExportDialog({ store, state, onClose }: Props) {
           <div className="sm-export-field"><label htmlFor={`${id}-date`}>起止时间</label>{date ? <IndustryDateSelect modal id={`${id}-date`} ariaLabel="起止时间" value={date} minDate={filters.minDate} maxDate={filters.maxDate} disabled={busy || blocked} onChange={value => edit({ ...common, ...value })}/> : <span>日期不可用</span>}</div>
         </div>
         <p className="sm-export-limit"><AlertTriangle size={18} aria-hidden="true"/>支持导出前 1000 条</p>
-        <p className="sm-export-quota">未完整缓存时，最多读取 10 页内容，每页新查询使用一次共享查询额度；重试沿用原请求。取消停止后续读取，已发出请求可能已使用额度。</p>
+        <p className="sm-export-quota">未完整缓存时，最多读取 10 页内容，每页新查询使用一次共享查询额度；修改条件会按新条件读取一次媒体列表；重试沿用原请求。取消停止后续读取，已发出请求可能已使用额度。</p>
         {busy && <p role="status" className="sm-export-progress">{progress ? `已读取 ${progress.loaded} / ${progress.target} 条` : '正在读取导出数据...'}</p>}
         {(error || state.blocked?.message) && <p className="sm-export-error" role="alert">{error || state.blocked?.message}</p>}
         {!valid && <p className="sm-export-error" role="alert">当前导出条件已失效，请重新选择。</p>}

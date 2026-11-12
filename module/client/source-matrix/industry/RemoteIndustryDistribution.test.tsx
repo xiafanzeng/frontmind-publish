@@ -392,17 +392,19 @@ describe('citation export dialog isolation', () => {
     expect(csv).toContain('原始媒体'); expect(csv).toContain('真实来源标题'); expect(csv).toContain('60.00');
   });
 
-  it('keeps export drafts independent and does not query on edits or cancel', async () => {
+  it('keeps export drafts independent and only reads the media list once per condition edit', async () => {
     const fetcher = installFetch(); mount(); await screen.findByText('真实来源标题');
     const beforeUrl = window.location.href;
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
     const dialog = await screen.findByRole('dialog', { name: '导出数据' });
     fireEvent.change(within(dialog).getByLabelText('监控模型'), { target: { value: 'doubao_api' } });
-    expect(fetcher).toHaveBeenCalledTimes(4); expect(downloadCitationCsv).not.toHaveBeenCalled();
+    // 修改条件会按新条件读取一次媒体列表，供媒体名称选择；不读取内容、不导出。
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5));
+    expect(String(fetcher.mock.calls[4]?.[0]).includes('/media-ranking')).toBe(true); expect(downloadCitationCsv).not.toHaveBeenCalled();
     expect(window.location.href).toBe(beforeUrl);
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导出数据' })).toBeNull());
-    expect(fetcher).toHaveBeenCalledTimes(4); expect(downloadCitationCsv).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(5); expect(downloadCitationCsv).not.toHaveBeenCalled();
     expect((screen.getByLabelText('模型') as HTMLSelectElement).value).toBe('all');
     expect(screen.getByRole('heading', { name: '内容明细 - 全部媒体' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
@@ -410,7 +412,7 @@ describe('citation export dialog isolation', () => {
     expect((within(reopened).getByLabelText('监控模型') as HTMLSelectElement).value).toBe('all');
     fireEvent.keyDown(reopened, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '导出数据' })).toBeNull());
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 
   it('collects an independent larger export without appending rows to the displayed twenty', async () => {
